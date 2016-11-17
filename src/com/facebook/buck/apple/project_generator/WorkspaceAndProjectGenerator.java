@@ -904,7 +904,7 @@ public class WorkspaceAndProjectGenerator {
           parallelizeBuild,
           runnablePath,
           remoteRunnablePath,
-          XcodeWorkspaceConfigDescription.getActionConfigNamesFromArg(workspaceArguments),
+          XcodeWorkspaceConfigDescription.getActionConfigNamesFromArg(schemeConfigArg),
           targetToProjectPathMap,
           schemeConfigArg.launchStyle.orElse(XCScheme.LaunchAction.LaunchStyle.AUTO));
       schemeGenerator.writeScheme();
