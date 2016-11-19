@@ -310,22 +310,33 @@ public class WorkspaceAndProjectGenerator {
       // The only reason why a build target would map to more than one project target is if
       // there are two project targets: one is the usual one, the other is a target that just
       // shells out to Buck.
-      Preconditions.checkState(targets.size() == 2);
-      PBXTarget first = targets.get(0);
-      PBXTarget second = targets.get(1);
-      Preconditions.checkState(
-          first.getName().endsWith(ProjectGenerator.BUILD_WITH_BUCK_POSTFIX) ^
-              second.getName().endsWith(ProjectGenerator.BUILD_WITH_BUCK_POSTFIX));
-      PBXTarget buildWithBuckTarget;
-      PBXTarget buildWithXcodeTarget;
-      if (first.getName().endsWith(ProjectGenerator.BUILD_WITH_BUCK_POSTFIX)) {
-        buildWithBuckTarget = first;
-        buildWithXcodeTarget = second;
-      } else {
-        buildWithXcodeTarget = first;
-        buildWithBuckTarget = second;
+    
+      PBXTarget buildWithBuckTarget = null;
+      PBXTarget buildWithBuckTargetStandalone = null;
+      PBXTarget buildWithBuckTargetStandaloneDev = null;
+      PBXTarget buildWithXcodeTarget = null;
+    
+      Preconditions.checkState(targets.size() >= 2);
+      
+      for (PBXTarget target : targets) {
+        if (target.getName().endsWith(ProjectGenerator.BUILD_WITH_BUCK_POSTFIX)) {
+            buildWithBuckTarget = target;
+        } else 
+            if (target.getName().endsWith(ProjectGenerator.BUILD_WITH_BUCKZ_POSTFIX)) {
+                buildWithBuckTargetStandalone = target;
+            } else
+                if (target.getName().endsWith(ProjectGenerator.BUILD_WITH_BUCKZ_DEV_POSTFIX)) {
+                    buildWithBuckTargetStandaloneDev = target;
+                } else
+                    buildWithXcodeTarget = target;                
       }
-      return buildWithBuck ? buildWithBuckTarget : buildWithXcodeTarget;
+          
+      Preconditions.checkState(buildWithXcodeTarget != null && (buildWithBuckTarget != null || buildWithBuckTargetStandalone != null || buildWithBuckTargetStandaloneDev != null));
+
+      if (buildWithBuck) {
+          return buildWithBuckTarget != null ? buildWithBuckTarget : buildWithXcodeTarget;
+      } else
+            return buildWithXcodeTarget;     
     };
   }
 
@@ -455,6 +466,11 @@ public class WorkspaceAndProjectGenerator {
                 input -> rules.contains(input)
                     ? Optional.of(input)
                     : Optional.empty()),
+            Optionals.bind(
+                getTargetToBuildWithBuckStandalone(),
+                input -> rules.contains(input)
+                    ? Optional.of(input)
+                    : Optional.empty()),
             buildWithBuckFlags,
             focusModules,
             executableFinder,
@@ -541,6 +557,10 @@ public class WorkspaceAndProjectGenerator {
     } else {
       return Optional.empty();
     }
+  }
+  
+  private Optional<BuildTarget> getTargetToBuildWithBuckStandalone() {    
+    return workspaceArguments.srcTarget;    
   }
 
   private void buildWorkspaceSchemes(

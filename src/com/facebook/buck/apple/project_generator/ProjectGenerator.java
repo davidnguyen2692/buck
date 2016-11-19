@@ -44,6 +44,7 @@ import com.facebook.buck.apple.xcode.GidGenerator;
 import com.facebook.buck.apple.xcode.XcodeprojSerializer;
 import com.facebook.buck.apple.xcode.xcodeproj.CopyFilePhaseDestinationSpec;
 import com.facebook.buck.apple.xcode.xcodeproj.PBXAggregateTarget;
+import com.facebook.buck.apple.xcode.xcodeproj.PBXLegacyTarget;
 import com.facebook.buck.apple.xcode.xcodeproj.PBXBuildFile;
 import com.facebook.buck.apple.xcode.xcodeproj.PBXBuildPhase;
 import com.facebook.buck.apple.xcode.xcodeproj.PBXCopyFilesBuildPhase;
@@ -164,6 +165,9 @@ import java.util.stream.StreamSupport;
  */
 public class ProjectGenerator {
   public static final String BUILD_WITH_BUCK_POSTFIX = "-Buck";
+  public static final String BUILD_WITH_BUCKZ_POSTFIX = "-Buckz";
+  public static final String BUILD_WITH_BUCKZ_DEV_POSTFIX = "-BuckzDev";
+  public static final String STANDALONE_POSTFIX = "-Standalone";
 
   private static final Logger LOG = Logger.get(ProjectGenerator.class);
   private static final String BUILD_WITH_BUCK_TEMPLATE = "build-with-buck.st";
@@ -251,6 +255,7 @@ public class ProjectGenerator {
   private final String buildFileName;
   private final ImmutableSet<Option> options;
   private final Optional<BuildTarget> targetToBuildWithBuck;
+  private final Optional<BuildTarget> targetToBuildWithBuckStandalone;
   private final ImmutableList<String> buildWithBuckFlags;
   private final ExecutableFinder executableFinder;
   private final ImmutableMap<String, String> environment;
@@ -291,6 +296,7 @@ public class ProjectGenerator {
       String buildFileName,
       Set<Option> options,
       Optional<BuildTarget> targetToBuildWithBuck,
+      Optional<BuildTarget> targetToBuildWithBuckStandalone,
       ImmutableList<String> buildWithBuckFlags,
       ImmutableSet<UnflavoredBuildTarget> focusModules,
       ExecutableFinder executableFinder,
@@ -314,6 +320,7 @@ public class ProjectGenerator {
     this.buildFileName = buildFileName;
     this.options = ImmutableSet.copyOf(options);
     this.targetToBuildWithBuck = targetToBuildWithBuck;
+    this.targetToBuildWithBuckStandalone = targetToBuildWithBuckStandalone;
     this.buildWithBuckFlags = buildWithBuckFlags;
     this.executableFinder = executableFinder;
     this.environment = environment;
@@ -352,6 +359,51 @@ public class ProjectGenerator {
     this.appleConfig = appleConfig;
     this.swiftBuckConfig = swiftBuckConfig;
     this.focusModules = focusModules;
+  }
+  
+  public ProjectGenerator(
+      TargetGraph targetGraph,
+      Set<BuildTarget> initialTargets,
+      Cell cell,
+      Path outputDirectory,
+      String projectName,
+      String buildFileName,
+      Set<Option> options,
+      Optional<BuildTarget> targetToBuildWithBuck,
+      ImmutableList<String> buildWithBuckFlags,
+      ImmutableSet<UnflavoredBuildTarget> focusModules,
+      ExecutableFinder executableFinder,
+      ImmutableMap<String, String> environment,
+      FlavorDomain<CxxPlatform> cxxPlatforms,
+      CxxPlatform defaultCxxPlatform,
+      Function<? super TargetNode<?>, SourcePathResolver> sourcePathResolverForNode,
+      BuckEventBus buckEventBus,
+      HalideBuckConfig halideBuckConfig,
+      CxxBuckConfig cxxBuckConfig,
+      AppleConfig appleConfig,
+      SwiftBuckConfig swiftBuckConfig) {
+          this(
+              targetGraph,
+              initialTargets,
+              cell,
+              outputDirectory,
+              projectName,
+              buildFileName,
+              options,
+              targetToBuildWithBuck,
+              Optional.empty(),
+              buildWithBuckFlags,
+              focusModules,
+              executableFinder,
+              environment,
+              cxxPlatforms,
+              defaultCxxPlatform,
+              sourcePathResolverForNode,
+              buckEventBus,
+              halideBuckConfig,
+              cxxBuckConfig,
+              appleConfig,
+              swiftBuckConfig);
   }
 
   @VisibleForTesting
@@ -450,6 +502,18 @@ public class ProjectGenerator {
       if (targetToBuildWithBuck.isPresent()) {
         generateBuildWithBuckTarget(targetGraph.get(targetToBuildWithBuck.get()));
       }
+      
+      if (targetToBuildWithBuckStandalone.isPresent()) {
+          // buildWithBuckTarget.setBuildToolPath("$(REPO_ROOT)/submodules/kevinnguyenhoang91/buck/bin/buck");
+          generateBuildWithBuckTargetStandalone(
+            targetGraph.get(targetToBuildWithBuckStandalone.get()), 
+            "$(REPO_ROOT)/submodules/kevinnguyenhoang91/buck/bin/buck", 
+            true);
+          generateBuildWithBuckTargetStandalone(
+            targetGraph.get(targetToBuildWithBuckStandalone.get()), 
+            "/usr/local/bin/buck",
+            false);
+      }
 
       for (String configName : targetConfigNamesBuilder.build()) {
         XCBuildConfiguration outputConfig = project
@@ -506,11 +570,7 @@ public class ProjectGenerator {
     XCConfigurationList configurationList = new XCConfigurationList();
     PBXGroup group = project
         .getMainGroup()
-        .getOrCreateDescendantGroupByPath(
-            StreamSupport.stream(buildTarget.getBasePath().spliterator(), false)
-                .map(Object::toString)
-                .collect(MoreCollectors.toImmutableList()))
-        .getOrCreateChildGroupByName(getXcodeTargetName(buildTarget));
+        .getOrCreateChildGroupByName(getXcodeTargetName(buildTarget) + BUILD_WITH_BUCK_POSTFIX);
     for (String configurationName : configs.keySet()) {
       XCBuildConfiguration configuration = configurationList
           .getBuildConfigurationsByName()
@@ -531,6 +591,49 @@ public class ProjectGenerator {
     project.getTargets().add(buildWithBuckTarget);
 
     targetNodeToGeneratedProjectTargetBuilder.put(targetNode, buildWithBuckTarget);
+  }
+  
+  private void generateBuildWithBuckTargetStandalone(TargetNode<?> targetNode, String buildTool, boolean isBuckzDev) {
+    final BuildTarget buildTarget = targetNode.getBuildTarget();
+
+    String posfix = isBuckzDev ? BUILD_WITH_BUCKZ_DEV_POSTFIX : BUILD_WITH_BUCKZ_POSTFIX;
+    String buckTargetProductName = getXcodeTargetName(buildTarget) + STANDALONE_POSTFIX + posfix;
+
+    PBXLegacyTarget buildWithBuckTarget = new PBXLegacyTarget(buckTargetProductName);
+    buildWithBuckTarget.setProductName(buckTargetProductName);
+
+    buildWithBuckTarget.setBuildWorkingDirectory("$(REPO_ROOT)");
+    buildWithBuckTarget.setBuildArgumentsString("install -r //:" + getXcodeTargetName(buildTarget));
+    buildWithBuckTarget.setBuildToolPath(buildTool);
+
+    TargetNode<CxxLibraryDescription.Arg> node = getAppleNativeNode(targetGraph, targetNode).get();
+    ImmutableMap<String, ImmutableMap<String, String>> configs =
+        getXcodeBuildConfigurationsForTargetNode(node, ImmutableMap.of()).get();
+
+    XCConfigurationList configurationList = new XCConfigurationList();
+    PBXGroup group = project
+        .getMainGroup()
+        .getOrCreateChildGroupByName(getXcodeTargetName(buildTarget) + BUILD_WITH_BUCKZ_POSTFIX);
+    for (String configurationName : configs.keySet()) {
+      XCBuildConfiguration configuration = configurationList
+          .getBuildConfigurationsByName()
+          .getUnchecked(configurationName);
+      configuration.setBaseConfigurationReference(
+          getConfigurationFileReference(
+              group,
+              getConfigurationNameToXcconfigPath(buildTarget).apply(configurationName)));
+
+      NSDictionary inlineSettings = new NSDictionary();
+      inlineSettings.put("HEADER_SEARCH_PATHS", "");
+      inlineSettings.put("LIBRARY_SEARCH_PATHS", "");
+      inlineSettings.put("FRAMEWORK_SEARCH_PATHS", "");
+      configuration.setBuildSettings(inlineSettings);
+    }
+
+    buildWithBuckTarget.setBuildConfigurationList(configurationList);
+    project.getTargets().add(buildWithBuckTarget);
+
+    //targetNodeToGeneratedProjectTargetBuilder.put(targetNode, buildWithBuckTarget);
   }
 
   private static Optional<String> getProductNameForTargetNode(TargetNode<?> targetNode) {
