@@ -378,7 +378,7 @@ public class ProjectGenerator {
       ImmutableMap<String, String> environment,
       FlavorDomain<CxxPlatform> cxxPlatforms,
       CxxPlatform defaultCxxPlatform,
-      Function<? super TargetNode<?>, SourcePathResolver> sourcePathResolverForNode,
+      Function<? super TargetNode<?, ?>, SourcePathResolver> sourcePathResolverForNode,
       BuckEventBus buckEventBus,
       HalideBuckConfig halideBuckConfig,
       CxxBuckConfig cxxBuckConfig,
@@ -596,7 +596,7 @@ public class ProjectGenerator {
     targetNodeToGeneratedProjectTargetBuilder.put(targetNode, buildWithBuckTarget);
   }
   
-  private void generateBuildWithBuckTargetStandalone(TargetNode<?> targetNode, String buildTool, boolean isBuckzDev) {
+  private void generateBuildWithBuckTargetStandalone(TargetNode<?, ?> targetNode, String buildTool, boolean isBuckzDev) {
     final BuildTarget buildTarget = targetNode.getBuildTarget();
 
     String posfix = isBuckzDev ? BUILD_WITH_BUCKZ_DEV_POSTFIX : BUILD_WITH_BUCKZ_POSTFIX;
@@ -609,7 +609,7 @@ public class ProjectGenerator {
     buildWithBuckTarget.setBuildArgumentsString("install -r //:" + getXcodeTargetName(buildTarget));
     buildWithBuckTarget.setBuildToolPath(buildTool);
 
-    TargetNode<CxxLibraryDescription.Arg> node = getAppleNativeNode(targetGraph, targetNode).get();
+    TargetNode<CxxLibraryDescription.Arg, ?> node = getAppleNativeNode(targetGraph, targetNode).get();
     ImmutableMap<String, ImmutableMap<String, String>> configs =
         getXcodeBuildConfigurationsForTargetNode(node, ImmutableMap.of()).get();
 
