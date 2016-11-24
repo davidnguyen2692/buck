@@ -19,6 +19,7 @@ package com.facebook.buck.cli;
 import com.facebook.buck.apple.XcodeWorkspaceConfigDescription;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.AssociatedTargetNodePredicate;
+import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.ProjectConfigDescription;
 import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
@@ -39,7 +40,7 @@ abstract class AbstractProjectPredicates {
    * project.
    */
   @Value.Parameter
-  public abstract Predicate<TargetNode<?>> getProjectRootsPredicate();
+  public abstract Predicate<TargetNode<?, ?>> getProjectRootsPredicate();
 
   /**
    * {@link AssociatedTargetNodePredicate} returning nodes associated
@@ -53,16 +54,19 @@ abstract class AbstractProjectPredicates {
    * the specified IDE.
    */
   public static ProjectPredicates forIde(ProjectCommand.Ide targetIde) {
-    Predicate<TargetNode<?>> projectRootsPredicate;
+    Predicate<TargetNode<?, ?>> projectRootsPredicate;
     AssociatedTargetNodePredicate associatedProjectPredicate;
 
     // Prepare the predicates to create the project graph based on the IDE.
     switch (targetIde) {
       case INTELLIJ:
-        projectRootsPredicate = input -> input.getType() == ProjectConfigDescription.TYPE;
+        projectRootsPredicate =
+            input ->
+                input.getType() == Description.getBuildRuleType(ProjectConfigDescription.class);
         associatedProjectPredicate = (targetNode, targetGraph) -> {
           ProjectConfigDescription.Arg projectArg;
-          if (targetNode.getType() == ProjectConfigDescription.TYPE) {
+          if (targetNode.getType() ==
+              Description.getBuildRuleType(ProjectConfigDescription.class)) {
             projectArg = (ProjectConfigDescription.Arg) targetNode.getConstructorArg();
           } else {
             return false;
@@ -78,7 +82,10 @@ abstract class AbstractProjectPredicates {
         };
         break;
       case XCODE:
-        projectRootsPredicate = input -> XcodeWorkspaceConfigDescription.TYPE == input.getType();
+        projectRootsPredicate =
+            input ->
+                Description.getBuildRuleType(XcodeWorkspaceConfigDescription.class) ==
+                    input.getType();
         associatedProjectPredicate = (targetNode, targetGraph) -> false;
         break;
       default:

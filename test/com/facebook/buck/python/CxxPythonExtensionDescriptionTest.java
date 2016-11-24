@@ -297,7 +297,7 @@ public class CxxPythonExtensionDescriptionTest {
         .setExportedLinkerFlags(ImmutableList.of("-lpython3"))
         .build(resolver, filesystem);
     CxxPythonExtensionDescription desc =
-        (CxxPythonExtensionDescription) new CxxPythonExtensionBuilder(
+        new CxxPythonExtensionBuilder(
             target,
             FlavorDomain.of("Python Platform", PY2, PY3),
             new CxxBuckConfig(FakeBuckConfig.builder().build()),
@@ -556,9 +556,13 @@ public class CxxPythonExtensionDescriptionTest {
   @Test
   public void runtimeDeps() throws Exception {
     BuildRuleResolver resolver =
-        new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+        new BuildRuleResolver(
+            TargetGraphFactory.newInstance(
+                new CxxBinaryBuilder(BuildTargetFactory.newInstance("//:dep#sandbox")).build()),
+            new DefaultTargetNodeToBuildRuleTransformer());
+    BuildTarget depTarget = BuildTargetFactory.newInstance("//:dep");
     BuildRule cxxBinary =
-        new CxxBinaryBuilder(BuildTargetFactory.newInstance("//:dep"))
+        new CxxBinaryBuilder(depTarget)
             .build(resolver);
     new CxxLibraryBuilder(PYTHON2_DEP_TARGET).build(resolver);
     new CxxLibraryBuilder(PYTHON3_DEP_TARGET).build(resolver);

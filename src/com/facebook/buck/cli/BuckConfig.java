@@ -469,6 +469,10 @@ public class BuckConfig implements ConfigPathGetter {
     return getBooleanValue(LOG_SECTION, "process_tracker_enabled", true);
   }
 
+  public boolean isProcessTrackerDeepEnabled() {
+    return getBooleanValue(LOG_SECTION, "process_tracker_deep_enabled", false);
+  }
+
   public boolean isRuleKeyLoggerEnabled() {
     return getBooleanValue(LOG_SECTION, "rule_key_logger_enabled", false);
   }
@@ -957,6 +961,13 @@ public class BuckConfig implements ConfigPathGetter {
         false);
   }
 
+  public boolean isGrayscaleImageProcessingEnabled() {
+    return config.getBooleanValue(
+        RESOURCES_SECTION_HEADER,
+        "resource_grayscale_enabled",
+        false);
+  }
+
   public ImmutableMap<String, ResourceAmounts> getResourceAmountsPerRuleType() {
     ImmutableMap.Builder<String, ResourceAmounts> result = ImmutableMap.builder();
     ImmutableMap<String, String> entries = getEntriesForSection(RESOURCES_PER_RULE_SECTION_HEADER);
@@ -1025,4 +1036,19 @@ public class BuckConfig implements ConfigPathGetter {
   public boolean getIncludeAutodepsSignature() {
     return getBooleanValue("autodeps", "include_signature", true);
   }
+
+  /**
+   * @return whether to enabled versions on build/test command.
+   */
+  public boolean getBuildVersions() {
+    return getBooleanValue("build", "versions", false);
+  }
+
+  /**
+   * @return whether to enabled versions on targets command.
+   */
+  public boolean getTargetsVersions() {
+    return getBooleanValue("targets", "versions", false);
+  }
+
 }

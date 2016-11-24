@@ -16,13 +16,13 @@
 package com.facebook.buck.apple;
 
 import com.facebook.buck.cxx.CxxFlags;
+import com.facebook.buck.cxx.FrameworkDependencies;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.AbstractDescriptionArg;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.MetadataProvidingDescription;
@@ -42,13 +42,6 @@ import java.util.regex.Pattern;
 public class PrebuiltAppleFrameworkDescription implements
     Description<PrebuiltAppleFrameworkDescription.Arg>,
     MetadataProvidingDescription<PrebuiltAppleFrameworkDescription.Arg> {
-
-  public static final BuildRuleType TYPE = BuildRuleType.of("prebuilt_apple_framework");
-
-  @Override
-  public BuildRuleType getBuildRuleType() {
-    return TYPE;
-  }
 
   @Override
   public PrebuiltAppleFrameworkDescription.Arg createUnpopulatedConstructorArg() {

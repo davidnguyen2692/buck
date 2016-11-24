@@ -23,7 +23,9 @@ import com.facebook.buck.cxx.CxxDescriptionEnhancer;
 import com.facebook.buck.cxx.CxxLibraryDescription;
 import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.cxx.CxxStrip;
+import com.facebook.buck.cxx.FrameworkDependencies;
 import com.facebook.buck.cxx.Linker;
+import com.facebook.buck.cxx.LinkerMapMode;
 import com.facebook.buck.cxx.ProvidesLinkedBinaryDeps;
 import com.facebook.buck.cxx.StripStyle;
 import com.facebook.buck.model.BuildTarget;
@@ -37,7 +39,6 @@ import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.Description;
@@ -69,7 +70,6 @@ public class AppleLibraryDescription implements
     ImplicitDepsInferringDescription<AppleLibraryDescription.Arg>,
     ImplicitFlavorsInferringDescription,
     MetadataProvidingDescription<AppleLibraryDescription.Arg> {
-  public static final BuildRuleType TYPE = BuildRuleType.of("apple_library");
 
   @SuppressWarnings("PMD") // PMD doesn't understand method references
   private static final Set<Flavor> SUPPORTED_FLAVORS = ImmutableSet.of(
@@ -86,6 +86,7 @@ public class AppleLibraryDescription implements
       StripStyle.NON_GLOBAL_SYMBOLS.getFlavor(),
       StripStyle.ALL_SYMBOLS.getFlavor(),
       StripStyle.DEBUGGING_SYMBOLS.getFlavor(),
+      LinkerMapMode.NO_LINKER_MAP.getFlavor(),
       ImmutableFlavor.of("default"));
 
   private enum Type implements FlavorConvertible {
@@ -121,6 +122,7 @@ public class AppleLibraryDescription implements
   private final CodeSignIdentityStore codeSignIdentityStore;
   private final ProvisioningProfileStore provisioningProfileStore;
   private final AppleDebugFormat defaultDebugFormat;
+  private final boolean dryRunCodeSigning;
 
   public AppleLibraryDescription(
       CxxLibraryDescription delegate,
@@ -129,7 +131,8 @@ public class AppleLibraryDescription implements
       CxxPlatform defaultCxxPlatform,
       CodeSignIdentityStore codeSignIdentityStore,
       ProvisioningProfileStore provisioningProfileStore,
-      AppleDebugFormat defaultDebugFormat) {
+      AppleDebugFormat defaultDebugFormat,
+      boolean dryRunCodeSigning) {
     this.delegate = delegate;
     this.swiftDelegate = swiftDelegate;
     this.appleCxxPlatformFlavorDomain = appleCxxPlatformFlavorDomain;
@@ -137,11 +140,7 @@ public class AppleLibraryDescription implements
     this.codeSignIdentityStore = codeSignIdentityStore;
     this.provisioningProfileStore = provisioningProfileStore;
     this.defaultDebugFormat = defaultDebugFormat;
-  }
-
-  @Override
-  public BuildRuleType getBuildRuleType() {
-    return TYPE;
+    this.dryRunCodeSigning = dryRunCodeSigning;
   }
 
   @Override
@@ -217,7 +216,8 @@ public class AppleLibraryDescription implements
         args.infoPlistSubstitutions,
         args.deps,
         args.tests,
-        debugFormat);
+        debugFormat,
+        dryRunCodeSigning);
   }
 
   /**
@@ -249,7 +249,7 @@ public class AppleLibraryDescription implements
       }
     }
 
-    // We explicitly remove strip flavor from params to make sure rule
+    // We explicitly remove flavors from params to make sure rule
     // has the same output regardless if we will strip or not.
     Optional<StripStyle> flavoredStripStyle =
         StripStyle.FLAVOR_DOMAIN.getValue(params.getBuildTarget());
@@ -280,8 +280,11 @@ public class AppleLibraryDescription implements
                     delegate.getCxxPlatforms().getFlavors(),
                     params.getBuildTarget().getFlavors()),
                 defaultCxxPlatform.getFlavor()));
+
+    params = CxxStrip.restoreStripStyleFlavorInParams(params, flavoredStripStyle);
+
     BuildRule strippedBinaryRule = CxxDescriptionEnhancer.createCxxStripRule(
-        CxxStrip.restoreStripStyleFlavorInParams(params, flavoredStripStyle),
+        params,
         resolver,
         representativePlatform.getStrip(),
         flavoredStripStyle.orElse(StripStyle.NON_GLOBAL_SYMBOLS),
@@ -289,7 +292,7 @@ public class AppleLibraryDescription implements
         unstrippedBinaryRule);
 
     return AppleDescriptions.createAppleDebuggableBinary(
-        CxxStrip.restoreStripStyleFlavorInParams(params, flavoredStripStyle),
+        params,
         resolver,
         strippedBinaryRule,
         (ProvidesLinkedBinaryDeps) unstrippedBinaryRule,
@@ -359,9 +362,12 @@ public class AppleLibraryDescription implements
         args,
         params.getBuildTarget());
 
-    // remove all debug format related flavors from cxx rule so it always ends up in the same output
+    // remove some flavors from cxx rule that don't affect the rule output
     BuildTarget unstrippedTarget = params.getBuildTarget()
         .withoutFlavors(AppleDebugFormat.FLAVOR_DOMAIN.getFlavors());
+    if (AppleDescriptions.flavorsDoNotAllowLinkerMapMode(params)) {
+      unstrippedTarget = unstrippedTarget.withoutFlavors(LinkerMapMode.NO_LINKER_MAP.getFlavor());
+    }
 
     Optional<BuildRule> existingRule = resolver.getRuleOptional(unstrippedTarget);
     if (existingRule.isPresent()) {
@@ -439,8 +445,8 @@ public class AppleLibraryDescription implements
     // Use defaults.apple_library if present, but fall back to defaults.cxx_library otherwise.
     return delegate.addImplicitFlavorsForRuleTypes(
         argDefaultFlavors,
-        TYPE,
-        CxxLibraryDescription.TYPE);
+        Description.getBuildRuleType(this),
+        Description.getBuildRuleType(CxxLibraryDescription.class));
   }
 
   @Override

@@ -54,7 +54,7 @@ import java.util.Optional;
 @RunWith(Parameterized.class)
 public class CxxPreprocessAndCompileIntegrationTest {
 
-  @Parameterized.Parameters(name = "{0} {1}")
+  @Parameterized.Parameters(name = "preprocess_mode={0},sandbox_sources={1}")
   public static Collection<Object[]> data() {
     return ImmutableList.of(
         new Object[] {CxxPreprocessMode.COMBINED, true},
@@ -662,8 +662,15 @@ public class CxxPreprocessAndCompileIntegrationTest {
 
   @Test
   public void ignoreVerifyHeaders() throws IOException {
-    workspace.runBuckBuild("-c", "cxx.untracked_headers=ignore", "//:untracked_header")
-        .assertSuccess();
+    ProjectWorkspace.ProcessResult result = workspace.runBuckBuild(
+        "-c",
+        "cxx.untracked_headers=ignore",
+        "//:untracked_header");
+    if (sandboxSource) {
+      result.assertFailure();
+    } else {
+      result.assertSuccess();
+    }
   }
 
   @Test
@@ -674,10 +681,22 @@ public class CxxPreprocessAndCompileIntegrationTest {
             "-c", "cxx.untracked_headers_whitelist=/usr/include/stdc-predef\\.h",
             "//:untracked_header");
     result.assertFailure();
-    assertThat(
-        result.getStderr(),
-        Matchers.containsString(
-            "untracked_header.cpp: included an untracked header \"untracked_header.h\""));
+    if (sandboxSource) {
+      assertThat(
+          result.getStderr(),
+          Matchers.anyOf(
+              // clang
+              Matchers.containsString(
+                  "'untracked_header.h' file not found"),
+              // gcc
+              Matchers.containsString(
+                  "untracked_header.h: No such file or directory")));
+    } else {
+      assertThat(
+          result.getStderr(),
+          Matchers.containsString(
+              "untracked_header.cpp: included an untracked header \"untracked_header.h\""));
+    }
   }
 
   @Test
@@ -688,7 +707,11 @@ public class CxxPreprocessAndCompileIntegrationTest {
             "-c", "cxx.untracked_headers_whitelist=" +
                 "/usr/include/stdc-predef\\.h, /usr/local/.*, untracked_.*.h",
             "//:untracked_header");
-    result.assertSuccess();
+    if (sandboxSource) {
+      result.assertFailure();
+    } else {
+      result.assertSuccess();
+    }
   }
 
   private BuildTarget getPreprocessTarget(

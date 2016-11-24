@@ -29,7 +29,6 @@ import com.facebook.buck.rules.AbstractDescriptionArg;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.Cell;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.FakeBuildRule;
@@ -58,12 +57,7 @@ import java.nio.file.Paths;
  */
 public class OwnersReportTest {
 
-  public static class FakeDescription implements Description<FakeDescription.FakeArg> {
-
-    @Override
-    public BuildRuleType getBuildRuleType() {
-      return BuildRuleType.of("fake_rule");
-    }
+  public static class FakeRuleDescription implements Description<FakeRuleDescription.FakeArg> {
 
     @Override
     public FakeArg createUnpopulatedConstructorArg() {
@@ -84,11 +78,11 @@ public class OwnersReportTest {
     }
   }
 
-  private static TargetNode<?> createTargetNode(
+  private static TargetNode<?, ?> createTargetNode(
       BuildTarget buildTarget,
       ImmutableSet<Path> inputs) {
-    Description<FakeDescription.FakeArg> description = new FakeDescription();
-    FakeDescription.FakeArg arg = description.createUnpopulatedConstructorArg();
+    Description<FakeRuleDescription.FakeArg> description = new FakeRuleDescription();
+    FakeRuleDescription.FakeArg arg = description.createUnpopulatedConstructorArg();
     arg.inputs = inputs;
     try {
       FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
@@ -192,7 +186,7 @@ public class OwnersReportTest {
         "com/test/subtest");
 
     BuildTarget target = BuildTargetFactory.newInstance("//base:name");
-    TargetNode<?> targetNode = createTargetNode(target, ImmutableSet.of());
+    TargetNode<?, ?> targetNode = createTargetNode(target, ImmutableSet.of());
 
     Cell cell = new TestCellBuilder().setFilesystem(filesystem).build();
     OwnersReport report = OwnersReport.generateOwnersReport(
@@ -223,7 +217,7 @@ public class OwnersReportTest {
         "com/test/subtest/random.java");
 
     BuildTarget target = BuildTargetFactory.newInstance("//base:name");
-    TargetNode<?> targetNode = createTargetNode(target, ImmutableSet.of());
+    TargetNode<?, ?> targetNode = createTargetNode(target, ImmutableSet.of());
 
     Cell cell = new TestCellBuilder().setFilesystem(filesystem).build();
     OwnersReport report = OwnersReport.generateOwnersReport(cell, targetNode, inputs);
@@ -251,7 +245,7 @@ public class OwnersReportTest {
     ImmutableSet<Path> inputPaths = asPaths(inputs);
 
     BuildTarget target = BuildTargetFactory.newInstance("//base:name");
-    TargetNode<?> targetNode = createTargetNode(target, ImmutableSet.of());
+    TargetNode<?, ?> targetNode = createTargetNode(target, ImmutableSet.of());
 
     Cell cell = new TestCellBuilder().setFilesystem(filesystem).build();
     OwnersReport report = OwnersReport.generateOwnersReport(
@@ -281,7 +275,7 @@ public class OwnersReportTest {
     ImmutableSet<Path> inputPaths = asPaths(inputs);
 
     BuildTarget target = BuildTargetFactory.newInstance("//base:name");
-    TargetNode<?> targetNode = createTargetNode(
+    TargetNode<?, ?> targetNode = createTargetNode(
         target,
         ImmutableSet.of(Paths.get("java/somefolder")));
 
@@ -318,7 +312,7 @@ public class OwnersReportTest {
     ImmutableSet<Path> inputPaths = asPaths(inputs);
 
     BuildTarget target = BuildTargetFactory.newInstance("//base:name");
-    TargetNode<?> targetNode = createTargetNode(target, inputPaths);
+    TargetNode<?, ?> targetNode = createTargetNode(target, inputPaths);
 
     Cell cell = new TestCellBuilder().setFilesystem(filesystem).build();
     OwnersReport report = OwnersReport.generateOwnersReport(cell, targetNode, inputs);
@@ -353,8 +347,8 @@ public class OwnersReportTest {
 
     BuildTarget target1 = BuildTargetFactory.newInstance("//base/name1:name");
     BuildTarget target2 = BuildTargetFactory.newInstance("//base/name2:name");
-    TargetNode<?> targetNode1 = createTargetNode(target1, inputPaths);
-    TargetNode<?> targetNode2 = createTargetNode(target2, inputPaths);
+    TargetNode<?, ?> targetNode1 = createTargetNode(target1, inputPaths);
+    TargetNode<?, ?> targetNode2 = createTargetNode(target2, inputPaths);
 
     Cell cell = new TestCellBuilder().setFilesystem(filesystem).build();
     OwnersReport report = OwnersReport.emptyReport();

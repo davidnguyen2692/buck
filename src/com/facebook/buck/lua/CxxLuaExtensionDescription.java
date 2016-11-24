@@ -31,6 +31,7 @@ import com.facebook.buck.cxx.CxxSourceRuleFactory;
 import com.facebook.buck.cxx.HeaderSymlinkTree;
 import com.facebook.buck.cxx.HeaderVisibility;
 import com.facebook.buck.cxx.Linker;
+import com.facebook.buck.cxx.LinkerMapMode;
 import com.facebook.buck.cxx.NativeLinkTargetMode;
 import com.facebook.buck.cxx.NativeLinkable;
 import com.facebook.buck.cxx.NativeLinkableInput;
@@ -43,13 +44,13 @@ import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SymlinkTree;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.args.StringArg;
@@ -69,8 +70,6 @@ import java.util.Optional;
 public class CxxLuaExtensionDescription implements
     Description<CxxLuaExtensionDescription.Arg>,
     ImplicitDepsInferringDescription<CxxLuaExtensionDescription.Arg> {
-
-  private static final BuildRuleType TYPE = BuildRuleType.of("cxx_lua_extension");
 
   private final LuaConfig luaConfig;
   private final CxxBuckConfig cxxBuckConfig;
@@ -139,7 +138,16 @@ public class CxxLuaExtensionDescription implements
             new SourcePathResolver(ruleResolver),
             cxxPlatform,
             headers,
-            HeaderVisibility.PRIVATE);
+            HeaderVisibility.PRIVATE,
+            true);
+    Optional<SymlinkTree> sandboxTree = Optional.empty();
+    if (cxxBuckConfig.sandboxSources()) {
+      sandboxTree =
+          CxxDescriptionEnhancer.createSandboxTree(
+              params,
+              ruleResolver,
+              cxxPlatform);
+    }
     ImmutableList<CxxPreprocessorInput> cxxPreprocessorInput =
         CxxDescriptionEnhancer.collectCxxPreprocessorInput(
             params,
@@ -153,7 +161,9 @@ public class CxxLuaExtensionDescription implements
             ImmutableSet.of(),
             CxxPreprocessables.getTransitiveCxxPreprocessorInput(
                 cxxPlatform,
-                params.getDeps()));
+                params.getDeps()),
+            args.includeDirs,
+            sandboxTree);
 
     // Generate rule to build the object files.
     ImmutableMap<CxxPreprocessAndCompile, SourcePath> picObjects =
@@ -173,7 +183,7 @@ public class CxxLuaExtensionDescription implements
             cxxBuckConfig.getPreprocessMode(),
             srcs,
             CxxSourceRuleFactory.PicType.PIC,
-            Optional.empty());
+            sandboxTree);
 
     ImmutableList.Builder<com.facebook.buck.rules.args.Arg> argsBuilder = ImmutableList.builder();
     argsBuilder.addAll(
@@ -194,6 +204,13 @@ public class CxxLuaExtensionDescription implements
       BuildRuleResolver ruleResolver,
       CxxPlatform cxxPlatform,
       A args) throws NoSuchBuildTargetException {
+    if (params.getBuildTarget().getFlavors().contains(CxxDescriptionEnhancer.SANDBOX_TREE_FLAVOR)) {
+      return CxxDescriptionEnhancer.createSandboxTreeBuildRule(
+          ruleResolver,
+          args,
+          cxxPlatform,
+          params);
+    }
     SourcePathResolver pathResolver = new SourcePathResolver(ruleResolver);
     String extensionName = getExtensionName(params.getBuildTarget(), cxxPlatform);
     Path extensionPath =
@@ -221,13 +238,14 @@ public class CxxLuaExtensionDescription implements
         Optional.empty(),
         ImmutableSet.of(),
         NativeLinkableInput.builder()
-            .setArgs(getExtensionArgs(params, ruleResolver, pathResolver, cxxPlatform, args))
+            .setArgs(
+                getExtensionArgs(
+                    params.withoutFlavor(LinkerMapMode.NO_LINKER_MAP.getFlavor()),
+                    ruleResolver,
+                    pathResolver,
+                    cxxPlatform,
+                    args))
             .build());
-  }
-
-  @Override
-  public BuildRuleType getBuildRuleType() {
-    return TYPE;
   }
 
   @Override

@@ -28,6 +28,7 @@ import com.facebook.buck.log.Logger;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.slb.HttpResponse;
 import com.facebook.buck.slb.ThriftProtocol;
+import com.facebook.buck.slb.ThriftUtil;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -90,6 +91,8 @@ public class ThriftArtifactCache extends AbstractNetworkCache {
     cacheRequest.setType(BuckCacheRequestType.FETCH);
     cacheRequest.setFetchRequest(fetchRequest);
 
+    LOG.verbose("Will fetch key %s", thriftRuleKey);
+
     final ThriftArtifactCacheProtocol.Request request =
         ThriftArtifactCacheProtocol.createRequest(PROTOCOL, cacheRequest);
     Request.Builder builder = toOkHttpRequest(request);
@@ -113,21 +116,32 @@ public class ThriftArtifactCache extends AbstractNetworkCache {
 
         BuckCacheResponse cacheResponse = response.getThriftData();
         if (!cacheResponse.isWasSuccessful()) {
+          LOG.warn("Request was unsuccessful: %s", cacheResponse.getErrorMessage());
           return CacheResult.error(name, cacheResponse.getErrorMessage());
         }
 
         BuckCacheFetchResponse fetchResponse = cacheResponse.getFetchResponse();
         if (!fetchResponse.isArtifactExists()) {
+          LOG.verbose("Artifact did not exist.");
           return CacheResult.miss();
         }
 
+        LOG.verbose("Got artifact.  Attempting to read payload.");
         Path tmp = createTempFileForDownload();
         ThriftArtifactCacheProtocol.Response.ReadPayloadInfo readResult;
         try (OutputStream tmpFile = projectFilesystem.newFileOutputStream(tmp)) {
           readResult = response.readPayload(tmpFile);
+          LOG.verbose("Successfully read payload: %d bytes.", readResult.getBytesRead());
         }
 
         ArtifactMetadata metadata = fetchResponse.getMetadata();
+        if (LOG.isVerboseEnabled()) {
+          LOG.verbose(String.format(
+              "Fetched artifact with rule key [%s] contains the following metadata: [%s]",
+              ruleKey,
+              ThriftUtil.thriftToDebugJson(metadata)));
+        }
+
         eventBuilder
             .setTarget(Optional.ofNullable(metadata.getBuildTarget()))
             .getFetchBuilder()
@@ -180,7 +194,8 @@ public class ThriftArtifactCache extends AbstractNetworkCache {
     };
 
     BuckCacheStoreRequest storeRequest = new BuckCacheStoreRequest();
-    storeRequest.setMetadata(infoToMetadata(info, artifact, repository, scheduleType));
+    ArtifactMetadata artifactMetadata = infoToMetadata(info, artifact, repository, scheduleType);
+    storeRequest.setMetadata(artifactMetadata);
     PayloadInfo payloadInfo = new PayloadInfo();
     long artifactSizeBytes = artifact.size();
     payloadInfo.setSizeBytes(artifactSizeBytes);
@@ -188,6 +203,12 @@ public class ThriftArtifactCache extends AbstractNetworkCache {
     cacheRequest.addToPayloads(payloadInfo);
     cacheRequest.setType(BuckCacheRequestType.STORE);
     cacheRequest.setStoreRequest(storeRequest);
+
+    if (LOG.isVerboseEnabled()) {
+      LOG.verbose(String.format(
+          "Storing artifact with metadata: [%s].",
+          ThriftUtil.thriftToDebugJson(artifactMetadata)));
+    }
 
     final ThriftArtifactCacheProtocol.Request request =
         ThriftArtifactCacheProtocol.createRequest(PROTOCOL, cacheRequest, artifact);

@@ -20,8 +20,9 @@ import com.facebook.buck.cli.FakeBuckConfig;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.FlavorDomain;
 
-public class CxxBinaryBuilder extends
-    AbstractCxxSourceBuilder<CxxBinaryDescription.Arg, CxxBinaryBuilder> {
+public class CxxBinaryBuilder
+    extends
+    AbstractCxxSourceBuilder<CxxBinaryDescription.Arg, CxxBinaryDescription, CxxBinaryBuilder> {
 
   public CxxBinaryBuilder(
       BuildTarget target,
@@ -36,8 +37,26 @@ public class CxxBinaryBuilder extends
         target);
   }
 
+  public CxxBinaryBuilder(
+      BuildTarget target,
+      CxxPlatform defaultCxxPlatform,
+      FlavorDomain<CxxPlatform> cxxPlatforms,
+      CxxBuckConfig cxxBuckConfig) {
+    super(
+        new CxxBinaryDescription(
+            cxxBuckConfig,
+            new InferBuckConfig(FakeBuckConfig.builder().build()),
+            defaultCxxPlatform,
+            cxxPlatforms),
+        target);
+  }
+
   public CxxBinaryBuilder(BuildTarget target) {
     this(target, createDefaultPlatform(), createDefaultPlatforms());
+  }
+
+  public CxxBinaryBuilder(BuildTarget target, CxxBuckConfig cxxBuckConfig) {
+    this(target, createDefaultPlatform(), createDefaultPlatforms(), cxxBuckConfig);
   }
 
   @Override

@@ -84,7 +84,8 @@ public class CxxLink
       BuildableContext buildableContext) {
     buildableContext.recordArtifact(output);
     Optional<Path> linkerMapPath = getLinkerMapPath();
-    if (linkerMapPath.isPresent()) {
+    if (linkerMapPath.isPresent() &&
+        LinkerMapMode.isLinkerMapEnabledForBuildTarget(getBuildTarget())) {
       buildableContext.recordArtifact(linkerMapPath.get());
     }
     Path scratchDir =
@@ -126,7 +127,9 @@ public class CxxLink
             getProjectFilesystem(),
             output,
             linker.getScrubbers(cellRoots.build())),
-        new RmStep(getProjectFilesystem(), argFilePath, false));
+        new RmStep(getProjectFilesystem(), argFilePath, true),
+        new RmStep(getProjectFilesystem(), fileListPath, true),
+        new RmStep(getProjectFilesystem(), scratchDir, true, true));
   }
 
   @Override

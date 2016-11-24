@@ -24,7 +24,6 @@ import com.facebook.buck.rules.AbstractNodeBuilder;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.TargetGraph;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -35,38 +34,11 @@ import java.util.AbstractMap;
 import java.util.Map;
 import java.util.Optional;
 
-class VersionRootBuilder extends AbstractNodeBuilder<VersionRootBuilder.Arg> {
+class VersionRootBuilder
+    extends AbstractNodeBuilder<VersionRootBuilder.Arg, VersionRootBuilder.VersionRootDescription> {
 
   public VersionRootBuilder(BuildTarget target) {
-    super(
-        new VersionRoot<Arg>() {
-
-          @Override
-          public BuildRuleType getBuildRuleType() {
-            return BuildRuleType.of("version_root");
-          }
-
-          @Override
-          public Arg createUnpopulatedConstructorArg() {
-            return new Arg();
-          }
-
-          @Override
-          public <A extends Arg> BuildRule createBuildRule(
-              TargetGraph targetGraph,
-              BuildRuleParams params,
-              BuildRuleResolver resolver,
-              A args) throws NoSuchBuildTargetException {
-            throw new IllegalStateException();
-          }
-
-          @Override
-          public boolean isVersionRoot(ImmutableSet<Flavor> flavors) {
-            return true;
-          }
-
-        },
-        target);
+    super(new VersionRootDescription(), target);
   }
 
   public VersionRootBuilder(String target) {
@@ -119,6 +91,29 @@ class VersionRootBuilder extends AbstractNodeBuilder<VersionRootBuilder.Arg> {
     public ImmutableSortedSet<BuildTarget> deps = ImmutableSortedSet.of();
     public ImmutableSortedMap<BuildTarget, Optional<Constraint>> versionedDeps =
         ImmutableSortedMap.of();
+  }
+
+  public static class VersionRootDescription implements VersionRoot<Arg> {
+
+    @Override
+    public Arg createUnpopulatedConstructorArg() {
+      return new Arg();
+    }
+
+    @Override
+    public <A extends Arg> BuildRule createBuildRule(
+        TargetGraph targetGraph,
+        BuildRuleParams params,
+        BuildRuleResolver resolver,
+        A args) throws NoSuchBuildTargetException {
+      throw new IllegalStateException();
+    }
+
+    @Override
+    public boolean isVersionRoot(ImmutableSet<Flavor> flavors) {
+      return true;
+    }
+
   }
 
 }

@@ -16,6 +16,7 @@
 
 package com.facebook.buck.lua;
 
+import static org.hamcrest.Matchers.containsString;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assume.assumeThat;
@@ -76,11 +77,12 @@ public class LuaBinaryIntegrationTest {
   private Path lua;
   private boolean luaDevel;
 
-  @Parameterized.Parameters(name = "{0} {1}")
+  @Parameterized.Parameters(name = "{0} {1} sandbox_sources={2}")
   public static Collection<Object[]> data() {
     return ParameterizedTests.getPermutations(
         Arrays.asList(LuaBinaryDescription.StarterType.values()),
-        Arrays.asList(NativeLinkStrategy.values()));
+        Arrays.asList(NativeLinkStrategy.values()),
+        ImmutableList.of(true, false));
   }
 
   @Parameterized.Parameter
@@ -88,6 +90,9 @@ public class LuaBinaryIntegrationTest {
 
   @Parameterized.Parameter(value = 1)
   public NativeLinkStrategy nativeLinkStrategy;
+
+  @Parameterized.Parameter(value = 2)
+  public boolean sandboxSources;
 
   @Rule
   public TemporaryPaths tmp = new TemporaryPaths();
@@ -143,7 +148,9 @@ public class LuaBinaryIntegrationTest {
             ImmutableList.of(
                 "[lua]",
                 "  starter_type = " + starterType.toString().toLowerCase(),
-                "  native_link_strategy = " + nativeLinkStrategy.toString().toLowerCase())),
+                "  native_link_strategy = " + nativeLinkStrategy.toString().toLowerCase(),
+                "[cxx]",
+                "  sandbox_sources =" + sandboxSources)),
         ".buckconfig");
     LuaBuckConfig config = getLuaBuckConfig();
     assertThat(config.getStarterType(), Matchers.equalTo(Optional.of(starterType)));
@@ -295,6 +302,24 @@ public class LuaBinaryIntegrationTest {
                 "-c", "lua.package_style=inplace",
                 "//:simple"));
     assertTrue(inplaceFirst.equals(inplaceSecond));
+  }
+
+  @Test
+  public void cxxLuaExtensionWithIncludeDirs() throws IOException {
+    assumeTrue("", sandboxSources && starterType == LuaBinaryDescription.StarterType.NATIVE);
+    workspace.runBuckBuild("//with_includes:native_with_extension").assertSuccess();
+  }
+
+  @Test
+  public void cxxLuaExtensionWithoutIncludeDirs() throws IOException {
+    assumeTrue("", sandboxSources && starterType == LuaBinaryDescription.StarterType.NATIVE);
+    workspace.replaceFileContents("with_includes/BUCK", "include_dirs", "#");
+    ProjectWorkspace.ProcessResult luaBinaryResult =
+        workspace.runBuckBuild("//with_includes:native_with_extension");
+    luaBinaryResult.assertFailure();
+    assertThat(
+        luaBinaryResult.getStderr(),
+        containsString("extension.h"));
   }
 
   private LuaBuckConfig getLuaBuckConfig() throws IOException {

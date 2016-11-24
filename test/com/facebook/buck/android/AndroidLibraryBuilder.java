@@ -28,7 +28,8 @@ import com.facebook.buck.testutil.FakeProjectFilesystem;
 import java.nio.file.Path;
 import java.util.Optional;
 
-public class AndroidLibraryBuilder extends AbstractNodeBuilder<AndroidLibraryDescription.Arg> {
+public class AndroidLibraryBuilder
+    extends AbstractNodeBuilder<AndroidLibraryDescription.Arg, AndroidLibraryDescription> {
 
   private AndroidLibraryBuilder(BuildTarget target) {
     super(new AndroidLibraryDescription(ANDROID_JAVAC_OPTIONS, JAVA_ONLY_COMPILER_FACTORY), target);
@@ -57,6 +58,11 @@ public class AndroidLibraryBuilder extends AbstractNodeBuilder<AndroidLibraryDes
 
   public AndroidLibraryBuilder addDep(BuildTarget rule) {
     arg.deps = amend(arg.deps, rule);
+    return this;
+  }
+
+  public AndroidLibraryBuilder setDepsQuery(String query) {
+    arg.depsQuery = Optional.of(query);
     return this;
   }
 

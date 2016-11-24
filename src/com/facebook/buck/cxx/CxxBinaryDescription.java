@@ -34,6 +34,7 @@ import com.facebook.buck.rules.MetadataProvidingDescription;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.util.HumanReadableException;
+import com.facebook.buck.versions.VersionRoot;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -50,9 +51,8 @@ public class CxxBinaryDescription implements
     Flavored,
     ImplicitDepsInferringDescription<CxxBinaryDescription.Arg>,
     ImplicitFlavorsInferringDescription,
-    MetadataProvidingDescription<CxxBinaryDescription.Arg> {
-
-  public static final BuildRuleType TYPE = BuildRuleType.of("cxx_binary");
+    MetadataProvidingDescription<CxxBinaryDescription.Arg>,
+    VersionRoot<CxxBinaryDescription.Arg> {
 
   private final CxxBuckConfig cxxBuckConfig;
   private final InferBuckConfig inferBuckConfig;
@@ -88,7 +88,8 @@ public class CxxBinaryDescription implements
             new SourcePathResolver(resolver),
             Optional.of(cxxPlatform),
             args),
-        HeaderVisibility.PRIVATE);
+        HeaderVisibility.PRIVATE,
+        true);
   }
 
   @Override
@@ -104,11 +105,14 @@ public class CxxBinaryDescription implements
       BuildRuleResolver resolver,
       A args) throws NoSuchBuildTargetException {
 
-    // We explicitly remove strip flavor from params to make sure rule
+    // We explicitly remove some flavors below from params to make sure rule
     // has the same output regardless if we will strip or not.
     Optional<StripStyle> flavoredStripStyle =
         StripStyle.FLAVOR_DOMAIN.getValue(params.getBuildTarget());
+    Optional<LinkerMapMode> flavoredLinkerMapMode =
+        LinkerMapMode.FLAVOR_DOMAIN.getValue(params.getBuildTarget());
     params = CxxStrip.removeStripStyleFlavorInParams(params, flavoredStripStyle);
+    params = LinkerMapMode.removeLinkerMapModeFlavorInParams(params, flavoredLinkerMapMode);
 
     // Extract the platform from the flavor, falling back to the default platform if none are
     // found.
@@ -149,7 +153,8 @@ public class CxxBinaryDescription implements
               cxxBuckConfig,
               cxxPlatform,
               args,
-              flavoredStripStyle);
+              flavoredStripStyle,
+              flavoredLinkerMapMode);
       return CxxCompilationDatabase.createCompilationDatabase(
           params,
           pathResolver,
@@ -218,6 +223,14 @@ public class CxxBinaryDescription implements
           new CxxInferSourceFilter(inferBuckConfig));
     }
 
+    if (flavors.contains(CxxDescriptionEnhancer.SANDBOX_TREE_FLAVOR)) {
+      return CxxDescriptionEnhancer.createSandboxTreeBuildRule(
+          resolver,
+          args,
+          cxxPlatform,
+          params);
+    }
+
     CxxLinkAndCompileRules cxxLinkAndCompileRules =
         CxxDescriptionEnhancer.createBuildRulesForCxxBinaryDescriptionArg(
             params,
@@ -225,7 +238,8 @@ public class CxxBinaryDescription implements
             cxxBuckConfig,
             cxxPlatform,
             args,
-            flavoredStripStyle);
+            flavoredStripStyle,
+            flavoredLinkerMapMode);
 
     // Return a CxxBinary rule as our representative in the action graph, rather than the CxxLink
     // rule above for a couple reasons:
@@ -239,6 +253,7 @@ public class CxxBinaryDescription implements
     //     preventing it from affecting link parallelism.
 
     params = CxxStrip.restoreStripStyleFlavorInParams(params, flavoredStripStyle);
+    params = LinkerMapMode.restoreLinkerMapModeFlavorInParams(params, flavoredLinkerMapMode);
     CxxBinary cxxBinary = new CxxBinary(
         params.appendExtraDeps(cxxLinkAndCompileRules.executable.getDeps(pathResolver)),
         resolver,
@@ -250,11 +265,6 @@ public class CxxBinaryDescription implements
         params.getBuildTarget().withoutFlavors(cxxPlatforms.getFlavors()));
     resolver.addToIndex(cxxBinary);
     return cxxBinary;
-  }
-
-  @Override
-  public BuildRuleType getBuildRuleType() {
-    return TYPE;
   }
 
   @Override
@@ -323,7 +333,8 @@ public class CxxBinaryDescription implements
             CxxInferEnhancer.InferFlavors.INFER_CAPTURE_ALL.get(),
             StripStyle.ALL_SYMBOLS.getFlavor(),
             StripStyle.DEBUGGING_SYMBOLS.getFlavor(),
-            StripStyle.NON_GLOBAL_SYMBOLS.getFlavor()));
+            StripStyle.NON_GLOBAL_SYMBOLS.getFlavor(),
+            LinkerMapMode.NO_LINKER_MAP.getFlavor()));
 
     return flavors.isEmpty();
   }
@@ -354,7 +365,7 @@ public class CxxBinaryDescription implements
   @Override
   public ImmutableSortedSet<Flavor> addImplicitFlavors(
       ImmutableSortedSet<Flavor> argDefaultFlavors) {
-    return addImplicitFlavorsForRuleTypes(argDefaultFlavors, TYPE);
+    return addImplicitFlavorsForRuleTypes(argDefaultFlavors, Description.getBuildRuleType(this));
   }
 
   public ImmutableSortedSet<Flavor> addImplicitFlavorsForRuleTypes(
@@ -379,6 +390,11 @@ public class CxxBinaryDescription implements
       // we'll default to no flavor, which implicitly builds the default platform.
       return ImmutableSortedSet.of();
     }
+  }
+
+  @Override
+  public boolean isVersionRoot(ImmutableSet<Flavor> flavors) {
+    return true;
   }
 
   @SuppressFieldNotInitialized

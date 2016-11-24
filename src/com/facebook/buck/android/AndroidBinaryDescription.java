@@ -44,7 +44,6 @@ import com.facebook.buck.rules.AbstractDescriptionArg;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.Hint;
 import com.facebook.buck.rules.SourcePath;
@@ -56,10 +55,10 @@ import com.facebook.buck.rules.macros.ExecutableMacroExpander;
 import com.facebook.buck.rules.macros.LocationMacroExpander;
 import com.facebook.buck.rules.macros.MacroHandler;
 import com.facebook.buck.util.HumanReadableException;
+import com.facebook.buck.util.RichStream;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Suppliers;
-import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -78,7 +77,6 @@ import java.util.regex.Pattern;
 public class AndroidBinaryDescription
     implements Description<AndroidBinaryDescription.Arg>, Flavored {
 
-  public static final BuildRuleType TYPE = BuildRuleType.of("android_binary");
   private static final Logger LOG = Logger.get(AndroidBinaryDescription.class);
 
   /**
@@ -118,11 +116,6 @@ public class AndroidBinaryDescription
     this.cxxBuckConfig = cxxBuckConfig;
     this.nativePlatforms = nativePlatforms;
     this.dxExecutorService = dxExecutorService;
-  }
-
-  @Override
-  public BuildRuleType getBuildRuleType() {
-    return TYPE;
   }
 
   @Override
@@ -273,9 +266,9 @@ public class AndroidBinaryDescription
 
       ImmutableSortedSet<BuildRule> buildRulesToExcludeFromDex = builder.build();
       ImmutableSortedSet<JavaLibrary> rulesToExcludeFromDex =
-          FluentIterable.from(buildRulesToExcludeFromDex)
+          RichStream.from(buildRulesToExcludeFromDex)
               .filter(JavaLibrary.class)
-              .toSortedSet(HasBuildTarget.BUILD_TARGET_COMPARATOR);
+              .toImmutableSortedSet(HasBuildTarget.BUILD_TARGET_COMPARATOR);
 
       SourcePathResolver pathResolver = new SourcePathResolver(resolver);
       return new AndroidBinary(

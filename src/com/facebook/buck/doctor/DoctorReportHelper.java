@@ -101,7 +101,7 @@ public class DoctorReportHelper {
         buildLogs,
         Ordering.natural().onResultOf(BuildLogEntry::getLastModifiedTime).reverse());
 
-    return Optional.of(input.selectOne(
+    return input.selectOne(
         "Which buck invocation would you like to report?",
         buildLogs,
         entry -> {
@@ -115,16 +115,14 @@ public class DoctorReportHelper {
               prettyPrintExitCode(entry.getExitCode()),
               humanReadableSize.getFirst(),
               humanReadableSize.getSecond().getAbbreviation());
-        }));
+        });
   }
 
   public DoctorEndpointRequest generateEndpointRequest(
       BuildLogEntry entry,
-      Optional<DefectSubmitResult> rageResult)
+      DefectSubmitResult rageResult)
       throws IOException {
     Optional<String> machineLog;
-    Optional<String> rulekeyLog;
-    Optional<String> rageUrl;
 
     if (entry.getMachineReadableLogFile().isPresent()) {
       machineLog = Optional.of(Files.toString(
@@ -135,23 +133,12 @@ public class DoctorReportHelper {
       machineLog = Optional.empty();
     }
 
-    if (!entry.getRuleKeyLoggerLogFile().isPresent()) {
-      LOG.warn(String.format(WARNING_FILE_TEMPLATE, entry.toString(), "rule key log"));
-      rulekeyLog = Optional.empty();
-    } else {
-      rulekeyLog = Optional.of(Files.toString(
-          entry.getRuleKeyLoggerLogFile().get().toFile(),
-          Charsets.UTF_8));
-    }
-
-    rageUrl = rageResult.map(result -> result.getReportSubmitMessage().get());
-
     return DoctorEndpointRequest.of(
         entry.getBuildId(),
         entry.getRelativePath().toString(),
         machineLog,
-        rulekeyLog,
-        rageUrl);
+        rageResult.getReportSubmitMessage(),
+        rageResult.getReportSubmitLocation());
   }
 
   public DoctorEndpointResponse uploadRequest(DoctorEndpointRequest request) {
@@ -235,18 +222,22 @@ public class DoctorReportHelper {
   }
 
   public final void presentRageResult(Optional<DefectSubmitResult> result) {
-    String reportLocation = result.get().getReportSubmitLocation();
-    if (result.get().getUploadSuccess().isPresent()) {
-      if (result.get().getUploadSuccess().get()) {
-        console.getStdOut().print(result.get().getReportSubmitMessage().get());
-      } else {
+    if (!result.isPresent()) {
+      console.getStdOut().println("=> Failed to generate a rage DefectSubmitResult.");
+      return;
+    }
+
+    DefectSubmitResult submitResult = result.get();
+    if (submitResult.getIsRequestSuccessful().isPresent()) {
+      if (submitResult.getReportSubmitLocation().isPresent()) {
         console.getStdOut().printf(
-            "Upload failed (%s)\nReport saved at %s\n",
-            result.get().getReportSubmitErrorMessage().get(),
-            reportLocation);
+            "=> Report was uploaded to %s.\n\n",
+            submitResult.getReportSubmitLocation().get());
       }
     } else {
-      console.getStdOut().printf("Report saved at %s\n", reportLocation);
+      console.getStdOut().printf(
+          "=> Report saved at %s\n",
+          submitResult.getReportSubmitLocation().get());
     }
   }
 

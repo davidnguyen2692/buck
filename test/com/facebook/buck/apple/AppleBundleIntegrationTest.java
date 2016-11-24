@@ -26,6 +26,10 @@ import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assume.assumeTrue;
 
+import com.dd.plist.NSDictionary;
+import com.dd.plist.NSString;
+import com.dd.plist.PropertyListParser;
+import com.facebook.buck.cxx.LinkerMapMode;
 import com.facebook.buck.cxx.StripStyle;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
@@ -43,6 +47,7 @@ import com.facebook.buck.util.DefaultProcessExecutor;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.environment.Platform;
+import com.google.common.base.Charsets;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
 
@@ -84,35 +89,31 @@ public class AppleBundleIntegrationTest {
         absoluteBundlePath);
   }
 
-  @Test
-  public void simpleApplicationBundle() throws IOException, InterruptedException {
-    assumeTrue(Platform.detect() == Platform.MACOS);
+  private void runSimpleApplicationBunldeTestWithBuildTarget(String fqtn)
+      throws IOException, InterruptedException {
     ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
         this,
         "simple_application_bundle_no_debug",
         tmp);
     workspace.setUp();
 
-    BuildTarget target =
-        workspace.newBuildTarget("//:DemoApp#iphonesimulator-x86_64,no-debug");
+    BuildTarget target = workspace.newBuildTarget(fqtn);
     workspace.runBuckCommand("build", target.getFullyQualifiedName()).assertSuccess();
 
     workspace.verify(
         Paths.get("DemoApp_output.expected"),
         BuildTargets.getGenPath(
             filesystem,
-            BuildTarget.builder(target)
-                .addFlavors(AppleDescriptions.NO_INCLUDE_FRAMEWORKS_FLAVOR)
-                .build(),
+            target
+                .withAppendedFlavors(AppleDescriptions.NO_INCLUDE_FRAMEWORKS_FLAVOR),
             "%s"));
 
     Path appPath = workspace.getPath(
         BuildTargets
             .getGenPath(
                 filesystem,
-                BuildTarget.builder(target)
-                    .addFlavors(AppleDescriptions.NO_INCLUDE_FRAMEWORKS_FLAVOR)
-                    .build(),
+                target
+                    .withAppendedFlavors(AppleDescriptions.NO_INCLUDE_FRAMEWORKS_FLAVOR),
                 "%s")
             .resolve(target.getShortName() + ".app"));
     assertTrue(Files.exists(appPath.resolve(target.getShortName())));
@@ -121,6 +122,28 @@ public class AppleBundleIntegrationTest {
 
     // Non-Swift target shouldn't include Frameworks/
     assertFalse(Files.exists(appPath.resolve("Frameworks")));
+  }
+
+  @Test
+  public void simpleApplicationBundle() throws IOException, InterruptedException {
+    assumeTrue(Platform.detect() == Platform.MACOS);
+    runSimpleApplicationBunldeTestWithBuildTarget("//:DemoApp#iphonesimulator-x86_64,no-debug");
+  }
+
+  @Test
+  public void simpleApplicationBundleWithLinkerMapDoesNotAffectOutput()
+      throws IOException, InterruptedException {
+    assumeTrue(Platform.detect() == Platform.MACOS);
+    runSimpleApplicationBunldeTestWithBuildTarget(
+        "//:DemoApp#iphonesimulator-x86_64,no-debug");
+  }
+
+  @Test
+  public void simpleApplicationBundleWithoutLinkerMapDoesNotAffectOutput()
+      throws IOException, InterruptedException {
+    assumeTrue(Platform.detect() == Platform.MACOS);
+    runSimpleApplicationBunldeTestWithBuildTarget(
+        "//:DemoApp#iphonesimulator-x86_64,no-debug,no-linkermap");
   }
 
   @Test
@@ -159,6 +182,49 @@ public class AppleBundleIntegrationTest {
     assertTrue(Files.exists(appPath.resolve(target.getShortName())));
 
     assertTrue(checkCodeSigning(appPath));
+  }
+
+  @Test
+  public void simpleApplicationBundleWithDryRunCodeSigning() throws Exception {
+    assumeTrue(Platform.detect() == Platform.MACOS);
+    assumeTrue(FakeAppleDeveloperEnvironment.supportsCodeSigning());
+
+    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this,
+        "simple_application_bundle_with_codesigning",
+        tmp);
+    workspace.setUp();
+    workspace.writeContentsToPath(
+        "[apple]\n  dry_run_code_signing = true\n",
+        ".buckconfig.local");
+
+    BuildTarget target =
+        workspace.newBuildTarget("//:DemoApp#iphoneos-arm64,no-debug");
+    workspace.runBuckCommand("build", target.getFullyQualifiedName()).assertSuccess();
+
+    Path appPath = workspace.getPath(
+        BuildTargets
+            .getGenPath(
+                filesystem,
+                BuildTarget.builder(target)
+                    .addFlavors(AppleDescriptions.NO_INCLUDE_FRAMEWORKS_FLAVOR)
+                    .build(),
+                "%s")
+            .resolve(target.getShortName() + ".app"));
+    Path codeSignResultsPath = appPath.resolve("BUCK_code_sign_entitlements.plist");
+    assertTrue(Files.exists(codeSignResultsPath));
+
+    Path dryRunResultsPath = appPath.resolve("BUCK_pp_dry_run.plist");
+    assertTrue(Files.exists(dryRunResultsPath));
+
+    String resultContents = filesystem.readFileIfItExists(dryRunResultsPath).get();
+    NSDictionary resultPlist = (NSDictionary)
+        PropertyListParser.parse(resultContents.getBytes(Charsets.UTF_8));
+
+    assertEquals(new NSString("com.example.DemoApp"), resultPlist.get("bundle-id"));
+    assertEquals(new NSString("12345ABCDE"), resultPlist.get("team-identifier"));
+    assertEquals(new NSString("00000000-0000-0000-0000-000000000000"),
+        resultPlist.get("provisioning-profile-uuid"));
   }
 
   @Test
@@ -445,6 +511,49 @@ public class AppleBundleIntegrationTest {
       dsymutilOutput = result.getStdout().get();
     }
     assertThat(dsymutilOutput, containsString("warning: no debug symbols in executable"));
+  }
+
+  @Test
+  public void bundleBinaryHasLinkerMapFile() throws Exception {
+    assumeTrue(Platform.detect() == Platform.MACOS);
+    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this,
+        "simple_application_bundle_dwarf_and_dsym",
+        tmp);
+    workspace.setUp();
+
+    BuildTarget target = workspace.newBuildTarget("//:DemoApp#iphonesimulator-x86_64");
+    workspace.runBuckCommand("build", target.getFullyQualifiedName()).assertSuccess();
+
+    workspace.verify(
+        Paths.get("DemoApp_output.expected"),
+        BuildTargets.getGenPath(
+            filesystem,
+            target
+                .withAppendedFlavors(AppleDescriptions.NO_INCLUDE_FRAMEWORKS_FLAVOR)
+                .withAppendedFlavors(AppleDebugFormat.DWARF_AND_DSYM.getFlavor()),
+            "%s"));
+
+    BuildTarget binaryWithLinkerMap = workspace
+        .newBuildTarget("//:DemoAppBinary#iphonesimulator-x86_64");
+
+    Path binaryWithLinkerMapPath = BuildTargets.getGenPath(filesystem, binaryWithLinkerMap, "%s");
+    Path linkMapPath = BuildTargets.getGenPath(filesystem, binaryWithLinkerMap, "%s-LinkMap.txt");
+
+    assertThat(Files.exists(workspace.resolve(binaryWithLinkerMapPath)), Matchers.equalTo(true));
+    assertThat(Files.exists(workspace.resolve(linkMapPath)), Matchers.equalTo(true));
+
+    BuildTarget binaryWithoutLinkerMap = workspace
+        .newBuildTarget("//:DemoAppBinary#iphonesimulator-x86_64")
+        .withAppendedFlavors(
+            LinkerMapMode.NO_LINKER_MAP.getFlavor());
+    Path binaryWithoutLinkerMapPath = BuildTargets.getGenPath(
+        filesystem,
+        binaryWithoutLinkerMap,
+        "%s");
+    assertThat(
+        Files.exists(workspace.resolve(binaryWithoutLinkerMapPath)),
+        Matchers.equalTo(false));
   }
 
   public String runSimpleBuildWithDefinedStripStyle(StripStyle stripStyle) throws Exception {

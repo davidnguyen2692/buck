@@ -31,6 +31,7 @@ import com.facebook.buck.cxx.CxxSourceRuleFactory;
 import com.facebook.buck.cxx.HeaderSymlinkTree;
 import com.facebook.buck.cxx.HeaderVisibility;
 import com.facebook.buck.cxx.Linker;
+import com.facebook.buck.cxx.LinkerMapMode;
 import com.facebook.buck.cxx.Linkers;
 import com.facebook.buck.cxx.NativeLinkTarget;
 import com.facebook.buck.cxx.NativeLinkTargetMode;
@@ -45,13 +46,13 @@ import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SymlinkTree;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.args.StringArg;
@@ -85,8 +86,6 @@ public class CxxPythonExtensionDescription implements
           "C/C++ Library Type",
           ImmutableMap.of(
               CxxDescriptionEnhancer.SHARED_FLAVOR, Type.EXTENSION));
-
-  public static final BuildRuleType TYPE = BuildRuleType.of("cxx_python_extension");
 
   private final FlavorDomain<PythonPlatform> pythonPlatforms;
   private final CxxBuckConfig cxxBuckConfig;
@@ -167,7 +166,17 @@ public class CxxPythonExtensionDescription implements
             new SourcePathResolver(ruleResolver),
             cxxPlatform,
             headers,
-            HeaderVisibility.PRIVATE);
+            HeaderVisibility.PRIVATE,
+            true);
+    Optional<SymlinkTree> sandboxTree = Optional.empty();
+    if (cxxBuckConfig.sandboxSources()) {
+      sandboxTree =
+          CxxDescriptionEnhancer.createSandboxTree(
+              params,
+              ruleResolver,
+              cxxPlatform);
+    }
+
     ImmutableList<CxxPreprocessorInput> cxxPreprocessorInput =
         CxxDescriptionEnhancer.collectCxxPreprocessorInput(
             params,
@@ -181,7 +190,9 @@ public class CxxPythonExtensionDescription implements
             ImmutableSet.of(),
             CxxPreprocessables.getTransitiveCxxPreprocessorInput(
                 cxxPlatform,
-                params.getDeps()));
+                params.getDeps()),
+            args.includeDirs,
+            sandboxTree);
 
     // Generate rule to build the object files.
     ImmutableMap<CxxPreprocessAndCompile, SourcePath> picObjects =
@@ -201,7 +212,7 @@ public class CxxPythonExtensionDescription implements
             cxxBuckConfig.getPreprocessMode(),
             srcs,
             CxxSourceRuleFactory.PicType.PIC,
-            Optional.empty());
+            sandboxTree);
 
     ImmutableList.Builder<com.facebook.buck.rules.args.Arg> argsBuilder = ImmutableList.builder();
     argsBuilder.addAll(
@@ -284,7 +295,15 @@ public class CxxPythonExtensionDescription implements
         Optional.empty(),
         ImmutableSet.of(),
         NativeLinkableInput.builder()
-          .setArgs(getExtensionArgs(params, ruleResolver, pathResolver, cxxPlatform, args))
+        .setArgs(
+            getExtensionArgs(
+                params.copyWithBuildTarget(
+                    params.getBuildTarget().withoutFlavors(
+                        LinkerMapMode.FLAVOR_DOMAIN.getFlavors())),
+                ruleResolver,
+                pathResolver,
+                cxxPlatform,
+                args))
           .setFrameworks(args.frameworks)
           .setLibraries(args.libraries)
           .build());
@@ -297,11 +316,18 @@ public class CxxPythonExtensionDescription implements
       final BuildRuleResolver ruleResolver,
       final A args) throws NoSuchBuildTargetException {
 
+    Optional<Map.Entry<Flavor, CxxPlatform>> platform = cxxPlatforms.getFlavorAndValue(
+        params.getBuildTarget());
+    if (params.getBuildTarget().getFlavors().contains(CxxDescriptionEnhancer.SANDBOX_TREE_FLAVOR)) {
+      return CxxDescriptionEnhancer.createSandboxTreeBuildRule(
+          ruleResolver,
+          args,
+          platform.get().getValue(),
+          params);
+    }
     // See if we're building a particular "type" of this library, and if so, extract
     // it as an enum.
     final Optional<Map.Entry<Flavor, Type>> type = LIBRARY_TYPE.getFlavorAndValue(
-        params.getBuildTarget());
-    Optional<Map.Entry<Flavor, CxxPlatform>> platform = cxxPlatforms.getFlavorAndValue(
         params.getBuildTarget());
     final Optional<Map.Entry<Flavor, PythonPlatform>> pythonPlatform =
         pythonPlatforms.getFlavorAndValue(params.getBuildTarget());
@@ -424,11 +450,6 @@ public class CxxPythonExtensionDescription implements
       }
 
     };
-  }
-
-  @Override
-  public BuildRuleType getBuildRuleType() {
-    return TYPE;
   }
 
   @Override

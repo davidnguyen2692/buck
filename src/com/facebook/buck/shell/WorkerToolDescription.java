@@ -26,7 +26,6 @@ import com.facebook.buck.rules.BinaryBuildRule;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
@@ -42,7 +41,6 @@ import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreCollectors;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.base.Function;
-import com.google.common.base.Splitter;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -54,8 +52,6 @@ import java.util.Optional;
 
 public class WorkerToolDescription implements Description<WorkerToolDescription.Arg>,
     ImplicitDepsInferringDescription<WorkerToolDescription.Arg> {
-
-  public static final BuildRuleType TYPE = BuildRuleType.of("worker_tool");
 
   private static final String CONFIG_SECTION = "worker";
   private static final String CONFIG_PERSISTENT_KEY = "persistent";
@@ -71,11 +67,6 @@ public class WorkerToolDescription implements Description<WorkerToolDescription.
 
   public WorkerToolDescription(BuckConfig buckConfig) {
     this.buckConfig = buckConfig;
-  }
-
-  @Override
-  public BuildRuleType getBuildRuleType() {
-    return TYPE;
   }
 
   @Override
@@ -180,7 +171,7 @@ public class WorkerToolDescription implements Description<WorkerToolDescription.
 
     public ImmutableList<String> getStartupArgs() {
       if (args.isLeft()) {
-        return ImmutableList.copyOf(Splitter.on(' ').split(args.getLeft()));
+        return ImmutableList.of(args.getLeft());
       } else {
         return args.getRight();
       }

@@ -50,6 +50,7 @@ import com.facebook.buck.js.ReactNativeBundle;
 import com.facebook.buck.js.ReactNativeLibraryArgs;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourceWithFlags;
 import com.facebook.buck.rules.TargetNode;
@@ -227,7 +228,7 @@ class NewNativeTargetProjectMutator {
   }
 
   public NewNativeTargetProjectMutator setPreBuildRunScriptPhasesFromTargetNodes(
-      Iterable<TargetNode<?>> nodes) {
+      Iterable<TargetNode<?, ?>> nodes) {
     preBuildRunScriptPhases = createScriptsForTargetNodes(nodes);
     return this;
   }
@@ -244,7 +245,7 @@ class NewNativeTargetProjectMutator {
   }
 
   public NewNativeTargetProjectMutator setPostBuildRunScriptPhasesFromTargetNodes(
-      Iterable<TargetNode<?>> nodes) {
+      Iterable<TargetNode<?, ?>> nodes) {
     postBuildRunScriptPhases = createScriptsForTargetNodes(nodes);
     return this;
   }
@@ -621,13 +622,18 @@ class NewNativeTargetProjectMutator {
   }
 
   private ImmutableList<PBXShellScriptBuildPhase> createScriptsForTargetNodes(
-      Iterable<TargetNode<?>> nodes) throws IllegalStateException {
+      Iterable<TargetNode<?, ?>> nodes) throws IllegalStateException {
     ImmutableList.Builder<PBXShellScriptBuildPhase> builder =
       ImmutableList.builder();
-    for (TargetNode<?> node : nodes) {
+    for (TargetNode<?, ?> node : nodes) {
       PBXShellScriptBuildPhase shellScriptBuildPhase = new PBXShellScriptBuildPhase();
-      if (XcodePrebuildScriptDescription.TYPE.equals(node.getType()) ||
-          XcodePostbuildScriptDescription.TYPE.equals(node.getType())) {
+      boolean nodeIsPrebuildScript =
+          Description.getBuildRuleType(XcodePrebuildScriptDescription.class)
+              .equals(node.getType());
+      boolean nodeIsPostbuildScript =
+          Description.getBuildRuleType(XcodePostbuildScriptDescription.class)
+              .equals(node.getType());
+      if (nodeIsPrebuildScript || nodeIsPostbuildScript) {
         XcodeScriptDescriptionArg arg = (XcodeScriptDescriptionArg) node.getConstructorArg();
         shellScriptBuildPhase
             .getInputPaths()
@@ -639,7 +645,9 @@ class NewNativeTargetProjectMutator {
                     .toSet());
         shellScriptBuildPhase.getOutputPaths().addAll(arg.outputs);
         shellScriptBuildPhase.setShellScript(arg.cmd);
-      } else if (IosReactNativeLibraryDescription.TYPE.equals(node.getType())) {
+      } else if (
+          Description.getBuildRuleType(IosReactNativeLibraryDescription.class)
+              .equals(node.getType())) {
         shellScriptBuildPhase.setShellScript(generateXcodeShellScript(node));
       } else {
         // unreachable
@@ -658,7 +666,7 @@ class NewNativeTargetProjectMutator {
     }
   }
 
-  private String generateXcodeShellScript(TargetNode<?> targetNode) {
+  private String generateXcodeShellScript(TargetNode<?, ?> targetNode) {
     Preconditions.checkArgument(targetNode.getConstructorArg() instanceof ReactNativeLibraryArgs);
 
     ST template;

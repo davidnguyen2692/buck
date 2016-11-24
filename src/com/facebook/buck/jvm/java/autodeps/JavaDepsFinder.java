@@ -34,6 +34,7 @@ import com.facebook.buck.rules.BuildEngineBuildContext;
 import com.facebook.buck.rules.BuildResult;
 import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.CellPathResolver;
+import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.step.ExecutionContext;
@@ -155,16 +156,16 @@ public class JavaDepsFinder {
   }
 
   private static final Set<BuildRuleType> RULES_TO_VISIT = ImmutableSet.of(
-      AndroidLibraryDescription.TYPE,
-      JavaLibraryDescription.TYPE,
-      JavaTestDescription.TYPE,
-      PrebuiltJarDescription.TYPE);
+      Description.getBuildRuleType(AndroidLibraryDescription.class),
+      Description.getBuildRuleType(JavaLibraryDescription.class),
+      Description.getBuildRuleType(JavaTestDescription.class),
+      Description.getBuildRuleType(PrebuiltJarDescription.class));
 
   /**
    * Java dependency information that is extracted from a {@link TargetGraph}.
    */
   public static class DependencyInfo {
-    final Set<TargetNode<?>> rulesWithAutodeps = new HashSet<>();
+    final Set<TargetNode<?, ?>> rulesWithAutodeps = new HashSet<>();
 
     /**
      * Keys are rules with autodeps = True. Values are symbols that are referenced by Java files in
@@ -176,19 +177,19 @@ public class JavaDepsFinder {
      * <li>The exported_deps of one of the above.
      * </ul>
      */
-    final HashMultimap<TargetNode<?>, String> ruleToRequiredSymbols = HashMultimap.create();
-    final HashMultimap<TargetNode<?>, String> ruleToExportedSymbols = HashMultimap.create();
+    final HashMultimap<TargetNode<?, ?>, String> ruleToRequiredSymbols = HashMultimap.create();
+    final HashMultimap<TargetNode<?, ?>, String> ruleToExportedSymbols = HashMultimap.create();
 
-    public final HashMultimap<String, TargetNode<?>> symbolToProviders = HashMultimap.create();
+    public final HashMultimap<String, TargetNode<?, ?>> symbolToProviders = HashMultimap.create();
 
     /**
      * Keys are rules with {@code autodeps = True}. Values are the provided_deps for the rule.
      * Note that not every entry in rulesWithAutodeps will have an entry in this multimap.
      */
-    final HashMultimap<TargetNode<?>, BuildTarget> rulesWithAutodepsToProvidedDeps =
+    final HashMultimap<TargetNode<?, ?>, BuildTarget> rulesWithAutodepsToProvidedDeps =
         HashMultimap.create();
 
-    final HashMultimap<TargetNode<?>, TargetNode<?>> ruleToRulesThatExportIt =
+    final HashMultimap<TargetNode<?, ?>, TargetNode<?, ?>> ruleToRulesThatExportIt =
         HashMultimap.create();
   }
 
@@ -208,8 +209,8 @@ public class JavaDepsFinder {
     // Currently, we traverse the entire target graph using a single thread. However, the work to
     // visit each node could be done in parallel, so long as the updates to the above collections
     // were thread-safe.
-    for (TargetNode<?> node : graph.getNodes()) {
-      if (!RULES_TO_VISIT.contains(node.getDescription().getBuildRuleType())) {
+    for (TargetNode<?, ?> node : graph.getNodes()) {
+      if (!RULES_TO_VISIT.contains(Description.getBuildRuleType(node.getDescription()))) {
         continue;
       }
 
@@ -263,16 +264,17 @@ public class JavaDepsFinder {
     // Currently, we process each rule with autodeps=True on a single thread. See the class overview
     // for DepsForBuildFiles about what it would take to do this work in a multi-threaded way.
     DepsForBuildFiles depsForBuildFiles = new DepsForBuildFiles();
-    for (final TargetNode<?> rule : dependencyInfo.rulesWithAutodeps) {
+    for (final TargetNode<?, ?> rule : dependencyInfo.rulesWithAutodeps) {
       final Set<BuildTarget> providedDeps = dependencyInfo.rulesWithAutodepsToProvidedDeps.get(
           rule);
-      final Predicate<TargetNode<?>> isVisibleDepNotAlreadyInProvidedDeps =
+      final Predicate<TargetNode<?, ?>> isVisibleDepNotAlreadyInProvidedDeps =
           provider -> provider.isVisibleTo(graph, rule) &&
               !providedDeps.contains(provider.getBuildTarget());
-      final boolean isJavaTestRule = rule.getType() == JavaTestDescription.TYPE;
+      final boolean isJavaTestRule =
+          rule.getType() == Description.getBuildRuleType(JavaTestDescription.class);
 
       for (DependencyType type : DependencyType.values()) {
-        HashMultimap<TargetNode<?>, String> ruleToSymbolsMap;
+        HashMultimap<TargetNode<?, ?>, String> ruleToSymbolsMap;
         switch (type) {
         case DEPS:
           ruleToSymbolsMap = dependencyInfo.ruleToRequiredSymbols;
@@ -299,11 +301,11 @@ public class JavaDepsFinder {
             continue;
           }
 
-          Set<TargetNode<?>> providers = dependencyInfo.symbolToProviders.get(requiredSymbol);
-          SortedSet<TargetNode<?>> candidateProviders = providers.stream()
+          Set<TargetNode<?, ?>> providers = dependencyInfo.symbolToProviders.get(requiredSymbol);
+          SortedSet<TargetNode<?, ?>> candidateProviders = providers.stream()
               .filter(isVisibleDepNotAlreadyInProvidedDeps)
               .collect(
-                  MoreCollectors.toImmutableSortedSet(Comparator.<TargetNode<?>>naturalOrder()));
+                  MoreCollectors.toImmutableSortedSet(Comparator.<TargetNode<?, ?>>naturalOrder()));
 
           int numCandidates = candidateProviders.size();
           if (numCandidates == 1) {
@@ -330,13 +332,14 @@ public class JavaDepsFinder {
             // the symbol via its exported_deps. We make this a secondary check because we prefer to
             // depend on the rule that defines the symbol directly rather than one of possibly many
             // rules that provides it via its exported_deps.
-            ImmutableSortedSet<TargetNode<?>> newCandidates = providers.stream()
+            ImmutableSortedSet<TargetNode<?, ?>> newCandidates = providers.stream()
                 .flatMap(candidate ->
                     dependencyInfo.ruleToRulesThatExportIt.get(candidate).stream())
                 .filter(ruleThatExportsCandidate ->
                     ruleThatExportsCandidate.isVisibleTo(graph, rule))
                 .collect(
-                    MoreCollectors.toImmutableSortedSet(Comparator.<TargetNode<?>>naturalOrder()));
+                    MoreCollectors.toImmutableSortedSet(
+                        Comparator.<TargetNode<?, ?>>naturalOrder()));
 
             int numNewCandidates = newCandidates.size();
             if (numNewCandidates == 1) {
@@ -364,7 +367,7 @@ public class JavaDepsFinder {
     return depsForBuildFiles;
   }
 
-  private Symbols getJavaFileFeatures(TargetNode<?> node, boolean shouldRecordRequiredSymbols) {
+  private Symbols getJavaFileFeatures(TargetNode<?, ?> node, boolean shouldRecordRequiredSymbols) {
     // Build a JavaLibrarySymbolsFinder to create the JavaFileFeatures. By making use of Buck's
     // build cache, we can often avoid running a Java parser.
     BuildTarget buildTarget = node.getBuildTarget();

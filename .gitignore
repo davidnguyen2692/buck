@@ -14,10 +14,12 @@ src/com/facebook/buck/intellij/ideabuck/third-party/*.iml
 # Buck
 /buck-out
 /.buckconfig.local
-/.buckjavaargs.local
 /.buckd
+/.buckjavaargs.local
+/.bucklogging.local.properties
 .buckversion
 .fakebuckversion
+/.nobuckcheck
 
 # Compiled Python
 *.pyc

@@ -23,6 +23,7 @@ import com.facebook.buck.js.ReactNativeLibraryArgs;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.BuildTargetSourcePath;
+import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
 import com.google.common.base.Preconditions;
@@ -44,14 +45,14 @@ public class AppleResources {
    */
   public static ImmutableSet<AppleResourceDescription.Arg> collectRecursiveResources(
       final TargetGraph targetGraph,
-      Iterable<? extends TargetNode<?>> targetNodes) {
+      Iterable<? extends TargetNode<?, ?>> targetNodes) {
     return FluentIterable
         .from(targetNodes)
         .transformAndConcat(
             AppleBuildRules.newRecursiveRuleDependencyTransformer(
                 targetGraph,
                 AppleBuildRules.RecursiveDependenciesMode.COPYING,
-                ImmutableSet.of(AppleResourceDescription.TYPE)))
+                ImmutableSet.of(Description.getBuildRuleType(AppleResourceDescription.class))))
         .transform(
             input -> (AppleResourceDescription.Arg) input.getConstructorArg())
         .toSet();
@@ -59,13 +60,15 @@ public class AppleResources {
 
   public static <T> AppleBundleResources collectResourceDirsAndFiles(
       TargetGraph targetGraph,
-      TargetNode<T> targetNode) {
+      TargetNode<T, ?> targetNode) {
     AppleBundleResources.Builder builder = AppleBundleResources.builder();
 
     ImmutableSet<BuildRuleType> types =
-        ImmutableSet.of(AppleResourceDescription.TYPE, IosReactNativeLibraryDescription.TYPE);
+        ImmutableSet.of(
+            Description.getBuildRuleType(AppleResourceDescription.class),
+            Description.getBuildRuleType(IosReactNativeLibraryDescription.class));
 
-    Iterable<TargetNode<?>> resourceNodes =
+    Iterable<TargetNode<?, ?>> resourceNodes =
         AppleBuildRules.getRecursiveTargetNodeDependenciesOfTypes(
             targetGraph,
             AppleBuildRules.RecursiveDependenciesMode.COPYING,
@@ -74,7 +77,7 @@ public class AppleResources {
 
     ProjectFilesystem filesystem = targetNode.getFilesystem();
 
-    for (TargetNode<?> resourceNode : resourceNodes) {
+    for (TargetNode<?, ?> resourceNode : resourceNodes) {
       Object constructorArg = resourceNode.getConstructorArg();
       if (constructorArg instanceof AppleResourceDescription.Arg) {
         AppleResourceDescription.Arg appleResource = (AppleResourceDescription.Arg) constructorArg;
@@ -98,11 +101,11 @@ public class AppleResources {
 
   public static ImmutableSet<AppleResourceDescription.Arg> collectDirectResources(
       TargetGraph targetGraph,
-      TargetNode<?> targetNode) {
+      TargetNode<?, ?> targetNode) {
     ImmutableSet.Builder<AppleResourceDescription.Arg> builder = ImmutableSet.builder();
-    Iterable<TargetNode<?>> deps = targetGraph.getAll(targetNode.getDeps());
-    for (TargetNode<?> node : deps) {
-      if (node.getType().equals(AppleResourceDescription.TYPE)) {
+    Iterable<TargetNode<?, ?>> deps = targetGraph.getAll(targetNode.getDeps());
+    for (TargetNode<?, ?> node : deps) {
+      if (node.getType().equals(Description.getBuildRuleType(AppleResourceDescription.class))) {
         builder.add((AppleResourceDescription.Arg) node.getConstructorArg());
       }
     }

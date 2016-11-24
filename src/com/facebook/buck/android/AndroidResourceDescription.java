@@ -24,7 +24,6 @@ import com.facebook.buck.rules.AbstractDescriptionArg;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.Hint;
 import com.facebook.buck.rules.PathSourcePath;
@@ -49,8 +48,6 @@ import java.util.Optional;
 
 public class AndroidResourceDescription implements Description<AndroidResourceDescription.Arg> {
 
-  public static final BuildRuleType TYPE = BuildRuleType.of("android_resource");
-
   private static final ImmutableSet<String> NON_ASSET_FILENAMES = ImmutableSet.of(
       ".gitkeep",
       ".svn",
@@ -61,9 +58,10 @@ public class AndroidResourceDescription implements Description<AndroidResourceDe
       "thumbs.db",
       "picasa.ini");
 
-  @Override
-  public BuildRuleType getBuildRuleType() {
-    return TYPE;
+  private final boolean isGrayscaleImageProcessingEnabled;
+
+  public AndroidResourceDescription(boolean enableGrayscaleImageProcessing) {
+    isGrayscaleImageProcessingEnabled = enableGrayscaleImageProcessing;
   }
 
   @Override
@@ -119,7 +117,8 @@ public class AndroidResourceDescription implements Description<AndroidResourceDe
         assetsInputsAndKey.getSecond(),
         args.manifest.orElse(null),
         args.hasWhitelistedStrings.orElse(false),
-        args.resourceUnion.orElse(false));
+        args.resourceUnion.orElse(false),
+        isGrayscaleImageProcessingEnabled);
   }
 
   private Pair<ImmutableSortedSet<SourcePath>, Optional<SourcePath>> collectInputFilesAndKey(

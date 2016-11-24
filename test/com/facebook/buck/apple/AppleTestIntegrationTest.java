@@ -18,6 +18,7 @@ package com.facebook.buck.apple;
 
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.matchesPattern;
 import static org.hamcrest.Matchers.not;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
@@ -25,6 +26,7 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assume.assumeTrue;
 
 import com.facebook.buck.cxx.CxxDescriptionEnhancer;
+import com.facebook.buck.cxx.LinkerMapMode;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
@@ -117,6 +119,7 @@ public class AppleTestIntegrationTest {
             ImmutableFlavor.of("iphonesimulator-x86_64"),
             ImmutableFlavor.of("apple-test-bundle"),
             AppleDebugFormat.DWARF.getFlavor(),
+            LinkerMapMode.NO_LINKER_MAP.getFlavor(),
             AppleDescriptions.NO_INCLUDE_FRAMEWORKS_FLAVOR);
     Path outputPath = projectRoot.resolve(
         BuildTargets.getGenPath(
@@ -151,6 +154,7 @@ public class AppleTestIntegrationTest {
             ImmutableFlavor.of("iphonesimulator-x86_64"),
             ImmutableFlavor.of("apple-test-bundle"),
             AppleDebugFormat.DWARF.getFlavor(),
+            LinkerMapMode.NO_LINKER_MAP.getFlavor(),
             AppleDescriptions.NO_INCLUDE_FRAMEWORKS_FLAVOR);
     Path outputPath = projectRoot.resolve(
         BuildTargets.getGenPath(
@@ -182,6 +186,7 @@ public class AppleTestIntegrationTest {
             BuildTarget.builder(target)
                 .addFlavors(AppleDebugFormat.DWARF.getFlavor())
                 .addFlavors(AppleTestDescription.BUNDLE_FLAVOR)
+                .addFlavors(LinkerMapMode.NO_LINKER_MAP.getFlavor())
                 .addFlavors(AppleDescriptions.NO_INCLUDE_FRAMEWORKS_FLAVOR)
                 .build(),
             "%s"));
@@ -205,6 +210,7 @@ public class AppleTestIntegrationTest {
             BuildTarget.builder(target)
                 .addFlavors(AppleTestDescription.BUNDLE_FLAVOR)
                 .addFlavors(AppleDebugFormat.DWARF.getFlavor())
+                .addFlavors(LinkerMapMode.NO_LINKER_MAP.getFlavor())
                 .addFlavors(AppleDescriptions.NO_INCLUDE_FRAMEWORKS_FLAVOR)
                 .build(),
             "%s"));
@@ -228,6 +234,7 @@ public class AppleTestIntegrationTest {
             BuildTarget.builder(buildTarget)
                 .addFlavors(AppleDebugFormat.DWARF.getFlavor())
                 .addFlavors(AppleTestDescription.BUNDLE_FLAVOR)
+                .addFlavors(LinkerMapMode.NO_LINKER_MAP.getFlavor())
                 .addFlavors(AppleDescriptions.NO_INCLUDE_FRAMEWORKS_FLAVOR)
                 .build(),
             "%s"));
@@ -237,6 +244,7 @@ public class AppleTestIntegrationTest {
         .withFlavors(
             ImmutableFlavor.of("apple-test-bundle"),
             AppleDebugFormat.DWARF.getFlavor(),
+            LinkerMapMode.NO_LINKER_MAP.getFlavor(),
             AppleDescriptions.NO_INCLUDE_FRAMEWORKS_FLAVOR);
     Path outputPath = projectRoot.resolve(
         BuildTargets.getGenPath(
@@ -292,6 +300,7 @@ public class AppleTestIntegrationTest {
             BuildTarget.builder(target)
                 .addFlavors(AppleDebugFormat.DWARF.getFlavor())
                 .addFlavors(AppleTestDescription.BUNDLE_FLAVOR)
+                .addFlavors(LinkerMapMode.NO_LINKER_MAP.getFlavor())
                 .addFlavors(AppleDescriptions.NO_INCLUDE_FRAMEWORKS_FLAVOR)
                 .build(),
             "%s"));
@@ -393,7 +402,8 @@ public class AppleTestIntegrationTest {
         containsString("0 Passed   0 Skipped   1 Failed   FooXCTest"));
     assertThat(
         result.getStderr(),
-        containsString("FAILURE FooXCTest -[FooXCTest testTwoPlusTwoEqualsFive]: FooXCTest.m:9"));
+        matchesPattern(
+            "(?s).*FAILURE FooXCTest -\\[FooXCTest testTwoPlusTwoEqualsFive\\]:.*FooXCTest.m:9.*"));
   }
 
   @Test(timeout = 180000)
@@ -446,7 +456,7 @@ public class AppleTestIntegrationTest {
 
     Path appTestDsym = tmp.getRoot()
         .resolve(filesystem.getBuckPaths().getGenDir())
-        .resolve("AppTest#apple-test-bundle,dwarf-and-dsym,no-include-frameworks")
+        .resolve("AppTest#apple-test-bundle,dwarf-and-dsym,no-include-frameworks,no-linkermap")
         .resolve("AppTest.xctest.dSYM");
     AppleDsymTestUtil.checkDsymFileHasDebugSymbol(
         "-[AppTest testMagicValue]",
@@ -485,7 +495,8 @@ public class AppleTestIntegrationTest {
         containsString("0 Passed   0 Skipped   1 Failed   AppTest"));
     assertThat(
         result.getStderr(),
-        containsString("FAILURE AppTest -[AppTest testMagicValueShouldFail]: AppTest.m:13"));
+        matchesPattern(
+            "(?s).*FAILURE AppTest -\\[AppTest testMagicValueShouldFail\\]:.*AppTest\\.m:13.*"));
   }
 
   @Test

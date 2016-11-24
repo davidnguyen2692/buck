@@ -30,8 +30,8 @@ import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.util.ObjectMappers;
 import com.google.caliper.AfterExperiment;
 import com.google.caliper.BeforeExperiment;
+import com.google.caliper.Benchmark;
 import com.google.caliper.Param;
-import com.google.caliper.api.Macrobenchmark;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.util.concurrent.ListeningExecutorService;
@@ -39,7 +39,6 @@ import com.google.common.util.concurrent.MoreExecutors;
 
 import org.junit.After;
 import org.junit.Before;
-import org.junit.Rule;
 import org.junit.Test;
 
 import java.nio.file.Files;
@@ -54,8 +53,7 @@ public class ParserBenchmark {
   @Param({"1", "2", "10"})
   private int threadCount = 1;
 
-  @Rule
-  public TemporaryPaths tempDir = new TemporaryPaths();
+  private TemporaryPaths tempDir = new TemporaryPaths();
 
   private Parser parser;
   private ProjectFilesystem filesystem;
@@ -71,6 +69,7 @@ public class ParserBenchmark {
 
   @BeforeExperiment
   public void setUpBenchmark() throws Exception {
+    tempDir.before();
     Path root = tempDir.getRoot();
     Files.createDirectories(root);
     filesystem = new ProjectFilesystem(root);
@@ -129,6 +128,7 @@ public class ParserBenchmark {
   @After
   @AfterExperiment
   public void cleanup() {
+    tempDir.after();
     executorService.shutdown();
   }
 
@@ -137,7 +137,7 @@ public class ParserBenchmark {
     parseMultipleTargets();
   }
 
-  @Macrobenchmark
+  @Benchmark
   public void parseMultipleTargets() throws Exception {
     parser.buildTargetGraphForTargetNodeSpecs(
         eventBus,

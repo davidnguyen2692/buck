@@ -21,6 +21,7 @@ import com.facebook.buck.jvm.java.JavaLibraryDescription;
 import com.facebook.buck.jvm.java.JavacOptions;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildRuleType;
+import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.util.HumanReadableException;
@@ -157,7 +158,7 @@ public class IjModuleGraph {
 
     final BlockedPathNode blockedPathTree = createAggregationHaltPoints(projectConfig, targetGraph);
 
-    ImmutableListMultimap<Path, TargetNode<?>> baseTargetPathMultimap =
+    ImmutableListMultimap<Path, TargetNode<?, ?>> baseTargetPathMultimap =
         FluentIterable
           .from(targetGraph.getNodes())
           .filter(input -> IjModuleFactory.SUPPORTED_MODULE_TYPES.contains(input.getType()))
@@ -175,12 +176,12 @@ public class IjModuleGraph {
     ImmutableMap.Builder<BuildTarget, IjModule> moduleMapBuilder = new ImmutableMap.Builder<>();
 
     for (Path baseTargetPath : baseTargetPathMultimap.keySet()) {
-      ImmutableSet<TargetNode<?>> targets =
+      ImmutableSet<TargetNode<?, ?>> targets =
           ImmutableSet.copyOf(baseTargetPathMultimap.get(baseTargetPath));
 
       IjModule module = moduleFactory.createModule(baseTargetPath, targets);
 
-      for (TargetNode<?> target : targets) {
+      for (TargetNode<?, ?> target : targets) {
         moduleMapBuilder.put(target.getBuildTarget(), module);
       }
     }
@@ -219,7 +220,7 @@ public class IjModuleGraph {
       TargetGraph targetGraph) {
     BlockedPathNode blockRoot = new BlockedPathNode();
 
-    for (TargetNode<?> node : targetGraph.getNodes()) {
+    for (TargetNode<?, ?> node : targetGraph.getNodes()) {
       if (node.getConstructorArg() instanceof AndroidResourceDescription.Arg ||
           isNonDefaultJava(node, projectConfig.getJavaBuckConfig().getDefaultJavacOptions())) {
         Path blockedPath = node.getBuildTarget().getBasePath();
@@ -230,9 +231,9 @@ public class IjModuleGraph {
     return blockRoot;
   }
 
-  private static boolean isNonDefaultJava(TargetNode<?> node, JavacOptions defaultJavacOptions) {
+  private static boolean isNonDefaultJava(TargetNode<?, ?> node, JavacOptions defaultJavacOptions) {
     BuildRuleType type = node.getType();
-    if (!type.equals(JavaLibraryDescription.TYPE)) {
+    if (!type.equals(Description.getBuildRuleType(JavaLibraryDescription.class))) {
       return false;
     }
 
@@ -281,7 +282,7 @@ public class IjModuleGraph {
         ImmutableSet<IjProjectElement> depElements;
 
         if (depType.equals(DependencyType.COMPILED_SHADOW)) {
-          TargetNode<?> targetNode = targetGraph.get(depBuildTarget);
+          TargetNode<?, ?> targetNode = targetGraph.get(depBuildTarget);
           Optional<IjLibrary> library = libraryFactory.getLibrary(targetNode);
           if (library.isPresent()) {
             depElements = ImmutableSet.of(library.get());
@@ -296,7 +297,7 @@ public class IjModuleGraph {
                   input -> {
                     // The exported deps closure can contain references back to targets contained
                     // in the module, so filter those out.
-                    TargetNode<?> targetNode = targetGraph.get(input);
+                    TargetNode<?, ?> targetNode = targetGraph.get(input);
                     return !module.getTargets().contains(targetNode);
                   })
               .transform(
@@ -308,7 +309,7 @@ public class IjModuleGraph {
                       if (depModule != null) {
                         return depModule;
                       }
-                      TargetNode<?> targetNode = targetGraph.get(depTarget);
+                      TargetNode<?, ?> targetNode = targetGraph.get(depTarget);
                       return libraryFactory.getLibrary(targetNode).orElse(null);
                     }
                   })

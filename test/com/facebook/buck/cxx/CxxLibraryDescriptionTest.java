@@ -145,7 +145,7 @@ public class CxxLibraryDescriptionTest {
     }
   }
 
-  private TargetNode<CxxLibraryDescription.Arg> mkSandboxNode(BuildTarget libTarget) {
+  private TargetNode<CxxLibraryDescription.Arg, ?> mkSandboxNode(BuildTarget libTarget) {
     Optional<Map.Entry<Flavor, CxxLibraryDescription.Type>> type =
         CxxLibraryDescription.getLibType(libTarget);
     Set<Flavor> flavors = Sets.newHashSet(libTarget.getFlavors());
@@ -397,7 +397,8 @@ public class CxxLibraryDescriptionTest {
     BuildTarget target = BuildTargetFactory.newInstance("//:rule")
         .withFlavors(
             CxxPlatformUtils.DEFAULT_PLATFORM.getFlavor(),
-            CxxDescriptionEnhancer.SHARED_FLAVOR);
+            CxxDescriptionEnhancer.SHARED_FLAVOR,
+            LinkerMapMode.NO_LINKER_MAP.getFlavor());
     BuildRuleResolver resolver =
         new BuildRuleResolver(
             prepopulateWithSandbox(target),

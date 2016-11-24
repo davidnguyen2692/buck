@@ -21,6 +21,7 @@ import com.facebook.buck.cxx.CxxDescriptionEnhancer;
 import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.cxx.CxxStrip;
 import com.facebook.buck.cxx.Linker;
+import com.facebook.buck.cxx.LinkerMapMode;
 import com.facebook.buck.cxx.NativeLinkable;
 import com.facebook.buck.cxx.NativeLinkables;
 import com.facebook.buck.cxx.StripStyle;
@@ -38,7 +39,6 @@ import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.CellPathResolver;
@@ -76,8 +76,6 @@ public class AppleTestDescription implements
     Flavored,
     ImplicitDepsInferringDescription<AppleTestDescription.Arg> {
 
-  public static final BuildRuleType TYPE = BuildRuleType.of("apple_test");
-
   /**
    * Flavors for the additional generated build rules.
    */
@@ -108,6 +106,7 @@ public class AppleTestDescription implements
   private final Supplier<Optional<Path>> xcodeDeveloperDirectorySupplier;
   private final AppleDebugFormat defaultDebugFormat;
   private final Optional<Long> defaultTestRuleTimeoutMs;
+  private final boolean dryRunCodeSigning;
 
   public AppleTestDescription(
       AppleConfig appleConfig,
@@ -119,7 +118,8 @@ public class AppleTestDescription implements
       ProvisioningProfileStore provisioningProfileStore,
       Supplier<Optional<Path>> xcodeDeveloperDirectorySupplier,
       AppleDebugFormat defaultDebugFormat,
-      Optional<Long> defaultTestRuleTimeoutMs) {
+      Optional<Long> defaultTestRuleTimeoutMs,
+      boolean dryRunCodeSigning) {
     this.appleConfig = appleConfig;
     this.appleLibraryDescription = appleLibraryDescription;
     this.cxxPlatformFlavorDomain = cxxPlatformFlavorDomain;
@@ -130,11 +130,7 @@ public class AppleTestDescription implements
     this.xcodeDeveloperDirectorySupplier = xcodeDeveloperDirectorySupplier;
     this.defaultDebugFormat = defaultDebugFormat;
     this.defaultTestRuleTimeoutMs = defaultTestRuleTimeoutMs;
-  }
-
-  @Override
-  public BuildRuleType getBuildRuleType() {
-    return TYPE;
+    this.dryRunCodeSigning = dryRunCodeSigning;
   }
 
   @Override
@@ -222,7 +218,8 @@ public class AppleTestDescription implements
 
     BuildTarget libraryTarget = params.getBuildTarget()
         .withAppendedFlavors(extraFlavorsBuilder.build())
-        .withAppendedFlavors(debugFormat.getFlavor());
+        .withAppendedFlavors(debugFormat.getFlavor())
+        .withAppendedFlavors(LinkerMapMode.NO_LINKER_MAP.getFlavor());
     BuildRule library = createTestLibraryRule(
         targetGraph,
         params,
@@ -248,6 +245,7 @@ public class AppleTestDescription implements
             params.getBuildTarget().withAppendedFlavors(
                 BUNDLE_FLAVOR,
                 debugFormat.getFlavor(),
+                LinkerMapMode.NO_LINKER_MAP.getFlavor(),
                 AppleDescriptions.NO_INCLUDE_FRAMEWORKS_FLAVOR),
             // We have to add back the original deps here, since they're likely
             // stripped from the library link above (it doesn't actually depend on them).
@@ -267,7 +265,8 @@ public class AppleTestDescription implements
         args.infoPlistSubstitutions,
         args.deps,
         args.tests,
-        debugFormat);
+        debugFormat,
+        dryRunCodeSigning);
 
     Optional<SourcePath> xctool = getXctool(params, resolver, sourcePathResolver);
 
@@ -418,7 +417,7 @@ public class AppleTestDescription implements
           "Apple test rule '%s' has test_host_app '%s' not of type '%s'.",
           params.getBuildTarget(),
           testHostAppBuildTarget,
-          AppleBundleDescription.TYPE);
+          Description.getBuildRuleType(AppleBundleDescription.class));
     }
 
     AppleBundle testHostApp = (AppleBundle) rule;

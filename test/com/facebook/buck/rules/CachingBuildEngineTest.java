@@ -23,6 +23,7 @@ import static org.easymock.EasyMock.expect;
 import static org.easymock.EasyMock.isA;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasItem;
+import static org.hamcrest.Matchers.instanceOf;
 import static org.hamcrest.Matchers.is;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
@@ -34,10 +35,10 @@ import com.facebook.buck.artifact_cache.CacheResult;
 import com.facebook.buck.artifact_cache.CacheResultType;
 import com.facebook.buck.artifact_cache.InMemoryArtifactCache;
 import com.facebook.buck.artifact_cache.NoopArtifactCache;
-import com.facebook.buck.event.CommandEvent;
 import com.facebook.buck.event.BuckEvent;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventBusFactory;
+import com.facebook.buck.event.CommandEvent;
 import com.facebook.buck.event.FakeBuckEventListener;
 import com.facebook.buck.file.WriteFile;
 import com.facebook.buck.io.BorrowablePath;
@@ -72,6 +73,7 @@ import com.facebook.buck.testutil.MoreAsserts;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.ZipInspector;
 import com.facebook.buck.timing.DefaultClock;
+import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.ObjectMappers;
 import com.facebook.buck.util.cache.DefaultFileHashCache;
@@ -105,6 +107,8 @@ import com.google.common.util.concurrent.ListeningExecutorService;
 
 import org.easymock.EasyMockSupport;
 import org.hamcrest.Matchers;
+import org.hamcrest.core.IsInstanceOf;
+import org.hamcrest.core.StringContains;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
@@ -749,6 +753,77 @@ public class CachingBuildEngineTest {
     }
 
     @Test
+    public void failedRuntimeDepsArePropagated() throws Exception {
+      final String description = "failing step";
+      Step failingStep =
+          new AbstractExecutionStep(description) {
+            @Override
+            public StepExecutionResult execute(ExecutionContext context) throws IOException {
+              return StepExecutionResult.ERROR;
+            }
+          };
+      BuildRule ruleToTest = createRule(
+          filesystem,
+          pathResolver,
+          /* deps */ ImmutableSet.of(),
+          /* buildSteps */ ImmutableList.of(failingStep),
+          /* postBuildSteps */ ImmutableList.of(),
+          /* pathToOutputFile */ null);
+
+      FakeBuildRule withRuntimeDep =
+          new FakeHasRuntimeDeps(
+              BuildTargetFactory.newInstance("//:with_runtime_dep"),
+              filesystem,
+              pathResolver,
+              ruleToTest);
+
+      CachingBuildEngine cachingBuildEngine = cachingBuildEngineFactory().build();
+      BuildResult result =
+          cachingBuildEngine.build(buildContext, TestExecutionContext.newInstance(), withRuntimeDep)
+              .get();
+
+      assertThat(result.getStatus(), equalTo(BuildRuleStatus.CANCELED));
+      assertThat(result.getFailure(), instanceOf(StepFailedException.class));
+      assertThat(
+          ((StepFailedException) result.getFailure()).getStep().getShortName(),
+          equalTo(description));
+    }
+
+    @Test
+    public void failedRuntimeDepsAreNotPropagatedWithKeepGoing() throws Exception {
+      buildContext = this.buildContext.withKeepGoing(true);
+      final String description = "failing step";
+      Step failingStep =
+          new AbstractExecutionStep(description) {
+            @Override
+            public StepExecutionResult execute(ExecutionContext context) throws IOException {
+              return StepExecutionResult.ERROR;
+            }
+          };
+      BuildRule ruleToTest = createRule(
+          filesystem,
+          pathResolver,
+          /* deps */ ImmutableSet.of(),
+          /* buildSteps */ ImmutableList.of(failingStep),
+          /* postBuildSteps */ ImmutableList.of(),
+          /* pathToOutputFile */ null);
+
+      FakeBuildRule withRuntimeDep =
+          new FakeHasRuntimeDeps(
+              BuildTargetFactory.newInstance("//:with_runtime_dep"),
+              filesystem,
+              pathResolver,
+              ruleToTest);
+
+      CachingBuildEngine cachingBuildEngine = cachingBuildEngineFactory().build();
+      BuildResult result =
+          cachingBuildEngine.build(buildContext, TestExecutionContext.newInstance(), withRuntimeDep)
+              .get();
+
+      assertThat(result.getStatus(), equalTo(BuildRuleStatus.SUCCESS));
+    }
+
+    @Test
     public void matchingRuleKeyDoesNotRunPostBuildSteps() throws Exception {
       // Add a post build step so we can verify that it's steps are executed.
       Step failingStep =
@@ -810,6 +885,45 @@ public class CachingBuildEngineTest {
           cachingBuildEngine.build(buildContext, TestExecutionContext.newInstance(), rule).get();
       assertThat(result.getSuccess(), equalTo(BuildRuleSuccessType.BUILT_LOCALLY));
       assertThat(result.getCacheResult().getType(), equalTo(CacheResultType.ERROR));
+    }
+
+    @Test
+    public void testExceptionMessagesAreInformative() throws Exception {
+      AtomicReference<RuntimeException> throwable = new AtomicReference<>();
+      BuildRule rule = new AbstractBuildRule(new FakeBuildRuleParamsBuilder("//:rule")
+          .setProjectFilesystem(filesystem)
+          .build(),
+          pathResolver) {
+        @Override
+        public ImmutableList<Step> getBuildSteps(
+            BuildContext context, BuildableContext buildableContext) {
+          throw throwable.get();
+        }
+
+        @Nullable
+        @Override
+        public Path getPathToOutput() {
+          return null;
+        }
+      };
+      throwable.set(new IllegalArgumentException("bad arg"));
+
+      Throwable thrown = cachingBuildEngineFactory().build().build(
+          buildContext, TestExecutionContext.newInstance(), rule).get().getFailure();
+      assertThat(thrown.getCause(), new IsInstanceOf(IllegalArgumentException.class));
+      assertThat(thrown.getMessage(), new StringContains(false, "//:rule"));
+
+      // HumanReadableExceptions shouldn't be changed.
+      throwable.set(new HumanReadableException("message"));
+      thrown = cachingBuildEngineFactory().build().build(
+          buildContext, TestExecutionContext.newInstance(), rule).get().getFailure();
+      assertEquals(throwable.get(), thrown);
+
+      // Exceptions that contain the rule already shouldn't be changed.
+      throwable.set(new IllegalArgumentException("bad arg in //:rule"));
+      thrown = cachingBuildEngineFactory().build().build(
+          buildContext, TestExecutionContext.newInstance(), rule).get().getFailure();
+      assertEquals(throwable.get(), thrown);
     }
 
     @Test

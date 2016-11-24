@@ -22,6 +22,8 @@ import com.facebook.buck.cxx.CxxBinaryDescription;
 import com.facebook.buck.cxx.CxxCompilationDatabase;
 import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.cxx.CxxStrip;
+import com.facebook.buck.cxx.FrameworkDependencies;
+import com.facebook.buck.cxx.LinkerMapMode;
 import com.facebook.buck.cxx.ProvidesLinkedBinaryDeps;
 import com.facebook.buck.cxx.StripStyle;
 import com.facebook.buck.file.WriteFile;
@@ -36,7 +38,6 @@ import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
@@ -64,14 +65,14 @@ import java.util.Collection;
 import java.util.Optional;
 import java.util.Set;
 
-public class AppleBinaryDescription implements
+public class AppleBinaryDescription
+    implements
     Description<AppleBinaryDescription.Arg>,
     Flavored,
     ImplicitDepsInferringDescription<AppleBinaryDescription.Arg>,
     ImplicitFlavorsInferringDescription,
     MetadataProvidingDescription<AppleBinaryDescription.Arg> {
 
-  public static final BuildRuleType TYPE = BuildRuleType.of("apple_binary");
   public static final Flavor APP_FLAVOR = ImmutableFlavor.of("app");
   public static final Sets.SetView<Flavor> NON_DELEGATE_FLAVORS = Sets.union(
       AppleDebugFormat.FLAVOR_DOMAIN.getFlavors(),
@@ -85,7 +86,8 @@ public class AppleBinaryDescription implements
       CxxCompilationDatabase.UBER_COMPILATION_DATABASE,
       AppleDebugFormat.DWARF_AND_DSYM.getFlavor(),
       AppleDebugFormat.DWARF.getFlavor(),
-      AppleDebugFormat.NONE.getFlavor());
+      AppleDebugFormat.NONE.getFlavor(),
+      LinkerMapMode.NO_LINKER_MAP.getFlavor());
 
   private final CxxBinaryDescription delegate;
   private final SwiftLibraryDescription swiftDelegate;
@@ -93,6 +95,7 @@ public class AppleBinaryDescription implements
   private final CodeSignIdentityStore codeSignIdentityStore;
   private final ProvisioningProfileStore provisioningProfileStore;
   private final AppleDebugFormat defaultDebugFormat;
+  private final boolean dryRunCodeSigning;
 
   public AppleBinaryDescription(
       CxxBinaryDescription delegate,
@@ -100,18 +103,15 @@ public class AppleBinaryDescription implements
       FlavorDomain<AppleCxxPlatform> platformFlavorsToAppleCxxPlatforms,
       CodeSignIdentityStore codeSignIdentityStore,
       ProvisioningProfileStore provisioningProfileStore,
-      AppleDebugFormat defaultDebugFormat) {
+      AppleDebugFormat defaultDebugFormat,
+      boolean dryRunCodeSigning) {
     this.delegate = delegate;
     this.swiftDelegate = swiftDelegate;
     this.platformFlavorsToAppleCxxPlatforms = platformFlavorsToAppleCxxPlatforms;
     this.codeSignIdentityStore = codeSignIdentityStore;
     this.provisioningProfileStore = provisioningProfileStore;
     this.defaultDebugFormat = defaultDebugFormat;
-  }
-
-  @Override
-  public BuildRuleType getBuildRuleType() {
-    return TYPE;
+    this.dryRunCodeSigning = dryRunCodeSigning;
   }
 
   @Override
@@ -188,8 +188,7 @@ public class AppleBinaryDescription implements
         params = params.appendExtraDeps(ImmutableSet.of(swiftCompanionBuildRule.get()));
       }
     }
-
-    // remove debug format flavors so binary will have the same output regardless of debug format
+    // remove some flavors so binary will have the same output regardless their values
     BuildTarget unstrippedBinaryBuildTarget = params.getBuildTarget()
         .withoutFlavors(AppleDebugFormat.FLAVOR_DOMAIN.getFlavors())
         .withoutFlavors(StripStyle.FLAVOR_DOMAIN.getFlavors());
@@ -291,7 +290,8 @@ public class AppleBinaryDescription implements
         args.infoPlistSubstitutions,
         args.deps,
         args.tests,
-        flavoredDebugFormat);
+        flavoredDebugFormat,
+        dryRunCodeSigning);
   }
 
   private <A extends AppleBinaryDescription.Arg> BuildRule createBinary(
@@ -299,6 +299,11 @@ public class AppleBinaryDescription implements
       BuildRuleParams params,
       BuildRuleResolver resolver,
       A args) throws NoSuchBuildTargetException {
+
+    if (AppleDescriptions.flavorsDoNotAllowLinkerMapMode(params)) {
+      params = params.withoutFlavor(LinkerMapMode.NO_LINKER_MAP.getFlavor());
+    }
+
     Optional<MultiarchFileInfo> fatBinaryInfo = MultiarchFileInfos.create(
         platformFlavorsToAppleCxxPlatforms,
         params.getBuildTarget());
@@ -440,8 +445,8 @@ public class AppleBinaryDescription implements
     // Use defaults.apple_binary if present, but fall back to defaults.cxx_binary otherwise.
     return delegate.addImplicitFlavorsForRuleTypes(
         argDefaultFlavors,
-        TYPE,
-        CxxBinaryDescription.TYPE);
+        Description.getBuildRuleType(this),
+        Description.getBuildRuleType(CxxBinaryDescription.class));
   }
 
   @Override

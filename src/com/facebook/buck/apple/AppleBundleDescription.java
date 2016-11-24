@@ -18,6 +18,7 @@ package com.facebook.buck.apple;
 
 import com.facebook.buck.cxx.CxxDescriptionEnhancer;
 import com.facebook.buck.cxx.CxxPlatform;
+import com.facebook.buck.cxx.LinkerMapMode;
 import com.facebook.buck.cxx.StripStyle;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
@@ -31,7 +32,6 @@ import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.AbstractDescriptionArg;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.Hint;
@@ -52,7 +52,7 @@ public class AppleBundleDescription implements Description<AppleBundleDescriptio
     Flavored,
     ImplicitDepsInferringDescription<AppleBundleDescription.Arg>,
     MetadataProvidingDescription<AppleBundleDescription.Arg> {
-  public static final BuildRuleType TYPE = BuildRuleType.of("apple_bundle");
+
   public static final ImmutableSet<Flavor> SUPPORTED_LIBRARY_FLAVORS = ImmutableSet.of(
       CxxDescriptionEnhancer.STATIC_FLAVOR,
       CxxDescriptionEnhancer.SHARED_FLAVOR);
@@ -70,6 +70,7 @@ public class AppleBundleDescription implements Description<AppleBundleDescriptio
   private final CodeSignIdentityStore codeSignIdentityStore;
   private final ProvisioningProfileStore provisioningProfileStore;
   private final AppleDebugFormat defaultDebugFormat;
+  private final boolean dryRunCodeSigning;
 
   public AppleBundleDescription(
       AppleBinaryDescription appleBinaryDescription,
@@ -79,7 +80,8 @@ public class AppleBundleDescription implements Description<AppleBundleDescriptio
       CxxPlatform defaultCxxPlatform,
       CodeSignIdentityStore codeSignIdentityStore,
       ProvisioningProfileStore provisioningProfileStore,
-      AppleDebugFormat defaultDebugFormat) {
+      AppleDebugFormat defaultDebugFormat,
+      boolean dryRunCodeSigning) {
     this.appleBinaryDescription = appleBinaryDescription;
     this.appleLibraryDescription = appleLibraryDescription;
     this.cxxPlatformFlavorDomain = cxxPlatformFlavorDomain;
@@ -88,11 +90,7 @@ public class AppleBundleDescription implements Description<AppleBundleDescriptio
     this.codeSignIdentityStore = codeSignIdentityStore;
     this.provisioningProfileStore = provisioningProfileStore;
     this.defaultDebugFormat = defaultDebugFormat;
-  }
-
-  @Override
-  public BuildRuleType getBuildRuleType() {
-    return TYPE;
+    this.dryRunCodeSigning = dryRunCodeSigning;
   }
 
   @Override
@@ -152,7 +150,8 @@ public class AppleBundleDescription implements Description<AppleBundleDescriptio
         args.infoPlistSubstitutions,
         args.deps,
         args.tests,
-        flavoredDebugFormat);
+        flavoredDebugFormat,
+        dryRunCodeSigning);
   }
 
   /**
@@ -226,15 +225,17 @@ public class AppleBundleDescription implements Description<AppleBundleDescriptio
               targetsWithoutPlatformFlavors));
     }
 
-    // Propagate debug symbol flavor if defined.
+    // Propagate some flavors
     depsExcludingBinary = BuildTargets.propagateFlavorsInDomainIfNotPresent(
         StripStyle.FLAVOR_DOMAIN,
         buildTarget,
         depsExcludingBinary);
-
-    // Propagate debug symbol flavor if defined.
     depsExcludingBinary = BuildTargets.propagateFlavorsInDomainIfNotPresent(
         AppleDebugFormat.FLAVOR_DOMAIN,
+        buildTarget,
+        depsExcludingBinary);
+    depsExcludingBinary = BuildTargets.propagateFlavorsInDomainIfNotPresent(
+        LinkerMapMode.FLAVOR_DOMAIN,
         buildTarget,
         depsExcludingBinary);
 

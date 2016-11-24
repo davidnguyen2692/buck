@@ -19,10 +19,10 @@ package com.facebook.buck.jvm.java.intellij;
 import com.facebook.buck.android.AndroidLibraryDescription;
 import com.facebook.buck.jvm.java.JavaLibraryDescription;
 import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
 import com.google.common.base.Function;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
@@ -39,7 +39,6 @@ public class ExportedDepsClosureResolver {
   private Map<BuildTarget, ImmutableSet<BuildTarget>> index;
 
   public ExportedDepsClosureResolver(TargetGraph targetGraph) {
-    Preconditions.checkArgument(targetGraph.isAcyclic());
     this.targetGraph = targetGraph;
     index = new HashMap<>();
   }
@@ -55,11 +54,13 @@ public class ExportedDepsClosureResolver {
     }
 
     ImmutableSet<BuildTarget> exportedDeps = ImmutableSet.of();
-    TargetNode<?> targetNode = targetGraph.get(buildTarget);
-    if (targetNode.getType().equals(JavaLibraryDescription.TYPE)) {
+    TargetNode<?, ?> targetNode = targetGraph.get(buildTarget);
+    if (targetNode.getType().equals(Description.getBuildRuleType(JavaLibraryDescription.class))) {
       JavaLibraryDescription.Arg arg = (JavaLibraryDescription.Arg) targetNode.getConstructorArg();
       exportedDeps = arg.exportedDeps;
-    } else if (targetNode.getType().equals(AndroidLibraryDescription.TYPE)) {
+    } else if (
+        targetNode.getType().equals(
+            Description.getBuildRuleType(AndroidLibraryDescription.class))) {
       AndroidLibraryDescription.Arg arg =
           (AndroidLibraryDescription.Arg) targetNode.getConstructorArg();
       exportedDeps = arg.exportedDeps;
