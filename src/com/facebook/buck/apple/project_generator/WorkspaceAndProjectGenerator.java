@@ -449,7 +449,16 @@ public class WorkspaceAndProjectGenerator {
         String projectName;
         if (projectDirectory.getFileName().toString().equals("")) {
           // If we're generating a project in the root directory, use a generic name.
-          projectName = "Project";
+          Optional<BuildTarget> buildTargetOptional = getTargetToBuildWithBuckStandalone();
+          
+          if (buildTargetOptional.isPresent()) {
+              TargetNode<?, ?> targetNode = projectGraph.get(buildTargetOptional.get());
+              final BuildTarget buildTarget = targetNode.getBuildTarget();
+              String buckTargetProductName = buildTarget.getShortName();
+              projectName = buckTargetProductName;
+          } else {
+              projectName = "project";
+          }
         } else {
           // Otherwise, name the project the same thing as the directory we're in.
           projectName = projectDirectory.getFileName().toString();
