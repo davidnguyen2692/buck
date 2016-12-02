@@ -296,7 +296,8 @@ public class WorkspaceAndProjectGenerator {
           targetsInRequiredProjects,
           buildTargetToPbxTargetMapBuilder,
           targetToProjectPathMapBuilder,
-          targetToBuildWithBuck);
+          targetToBuildWithBuck,
+          workspaceName);
     }
   }
 
@@ -348,7 +349,8 @@ public class WorkspaceAndProjectGenerator {
       ImmutableSet<BuildTarget> targetsInRequiredProjects,
       ImmutableMultimap.Builder<BuildTarget, PBXTarget> buildTargetToPbxTargetMapBuilder,
       ImmutableMap.Builder<PBXTarget, Path> targetToProjectPathMapBuilder,
-      final Optional<BuildTarget> targetToBuildWithBuck)
+      final Optional<BuildTarget> targetToBuildWithBuck,
+      String workspaceName)
       throws IOException, InterruptedException {
     ImmutableMultimap.Builder<Cell, BuildTarget> projectCellToBuildTargetsBuilder =
         ImmutableMultimap.builder();
@@ -386,7 +388,8 @@ public class WorkspaceAndProjectGenerator {
                         targetToBuildWithBuck,
                         projectCell,
                         projectDirectory,
-                        rules);
+                        rules,
+                        workspaceName);
                   // convert the projectPath to relative to the target cell here
                   result = GenerationResult.of(
                       relativeTargetCell.resolve(result.getProjectPath()),
@@ -434,7 +437,8 @@ public class WorkspaceAndProjectGenerator {
       Optional<BuildTarget> targetToBuildWithBuck,
       Cell projectCell,
       Path projectDirectory,
-      final ImmutableSet<BuildTarget> rules) throws IOException {
+      final ImmutableSet<BuildTarget> rules,
+      String workspaceName) throws IOException {
     boolean shouldGenerateProjects = false;
     ProjectGenerator generator;
     synchronized (projectGenerators) {
@@ -452,10 +456,10 @@ public class WorkspaceAndProjectGenerator {
           Optional<BuildTarget> buildTargetOptional = getTargetToBuildWithBuckStandalone();
           
           if (buildTargetOptional.isPresent()) {
-              TargetNode<?, ?> targetNode = projectGraph.get(buildTargetOptional.get());
-              final BuildTarget buildTarget = targetNode.getBuildTarget();
-              String buckTargetProductName = buildTarget.getShortName();
-              projectName = buckTargetProductName;
+            //   TargetNode<?, ?> targetNode = projectGraph.get(buildTargetOptional.get());
+            //   final BuildTarget buildTarget = targetNode.getBuildTarget();
+            //   String buckTargetProductName = buildTarget.getShortName();
+              projectName = workspaceName;
           } else {
               projectName = "project";
           }

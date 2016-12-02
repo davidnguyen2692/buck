@@ -169,7 +169,7 @@ public class ProjectGenerator {
   public static final String BUILD_WITH_BUCK_POSTFIX = "-Buck";
   public static final String BUILD_WITH_BUCKZ_POSTFIX = "-Buckz";
   public static final String BUILD_WITH_BUCKZ_DEV_POSTFIX = "-BuckzDev";
-  public static final String STANDALONE_POSTFIX = "-Standalone";
+  public static final String STANDALONE_POSTFIX = "Standalone";
 
   private static final Logger LOG = Logger.get(ProjectGenerator.class);
   private static final String BUILD_WITH_BUCK_TEMPLATE = "build-with-buck.st";
@@ -600,7 +600,7 @@ public class ProjectGenerator {
     final BuildTarget buildTarget = targetNode.getBuildTarget();
 
     String posfix = isBuckzDev ? BUILD_WITH_BUCKZ_DEV_POSTFIX : BUILD_WITH_BUCKZ_POSTFIX;
-    String buckTargetProductName = getXcodeTargetName(buildTarget) + STANDALONE_POSTFIX + posfix;
+    String buckTargetProductName = STANDALONE_POSTFIX + posfix;
 
     PBXLegacyTarget buildWithBuckTarget = new PBXLegacyTarget(buckTargetProductName);
     buildWithBuckTarget.setProductName(buckTargetProductName);
