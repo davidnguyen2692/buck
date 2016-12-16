@@ -146,8 +146,11 @@ public class IjProject {
           public Optional<Path> getLibraryAndroidManifestPath(
               TargetNode<AndroidLibraryDescription.Arg, ?> targetNode) {
             Optional<SourcePath> manifestPath = targetNode.getConstructorArg().manifest;
-            return manifestPath.map(sourcePathResolver::getAbsolutePath).map(Optional::of).orElse(
-                intellijConfig.getAndroidManifest());
+            Optional<Path> defaultAndroidManifestPath = intellijConfig.getAndroidManifest()
+                .map(Path::toAbsolutePath);
+            return manifestPath.map(sourcePathResolver::getAbsolutePath)
+                .map(Optional::of)
+                .orElse(defaultAndroidManifestPath);
           }
 
           @Override
@@ -204,6 +207,7 @@ public class IjProject {
         targetGraphAndTargets.getTargetGraph(),
         libraryFactory,
         new IjModuleFactory(
+            projectFilesystem,
             moduleFactoryResolver,
             projectConfig,
             excludeArtifacts),
@@ -216,7 +220,8 @@ public class IjProject {
     IjProjectWriter writer = new IjProjectWriter(
         new IjProjectTemplateDataPreparer(parsingJavaPackageFinder, moduleGraph, projectFilesystem),
         projectConfig,
-        projectFilesystem);
+        projectFilesystem,
+        moduleGraph);
     writer.write(runPostGenerationCleaner, removeUnusedLibraries);
     return requiredBuildTargets.build();
   }

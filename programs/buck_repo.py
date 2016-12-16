@@ -99,12 +99,14 @@ RESOURCES = {
     "abi_processor_classes": "build/abi_processor/classes",
     "android_agent_path": "assets/android/agent.apk",
     "buck_server": "bin/buck",
+    "buck_build_type_info": "config/build_type/LOCAL_ANT/type.txt",
     "dx": "third-party/java/dx/etc/dx",
     "jacoco_agent_jar": "third-party/java/jacoco/jacocoagent.jar",
     "libjcocoa.dylib": "third-party/java/ObjCBridge/libjcocoa.dylib",
     "logging_config_file": "config/logging.properties.st",
     "native_exopackage_fake_path": "assets/android/native-exopackage-fakes.apk",
     "path_to_asm_jar": "third-party/java/asm/asm-debug-all-5.0.3.jar",
+    "path_to_rawmanifest_py": "src/com/facebook/buck/util/versioncontrol/rawmanifest.py",
     "path_to_buck_py": "src/com/facebook/buck/parser/buck.py",
     "path_to_intellij_py": "src/com/facebook/buck/command/intellij.py",
     "path_to_pathlib_py": "third-party/py/pathlib/pathlib.py",
@@ -342,15 +344,19 @@ class BuckRepo(BuckTool):
 
             return buck_version.get_dirty_buck_version(self._buck_dir)
 
+    def _is_buck_production(self):
+        return False
+
     def _get_extra_java_args(self):
-        return [
-            "-Dbuck.git_commit={0}".format(self._get_git_revision()),
-            "-Dbuck.git_commit_timestamp={0}".format(
-                self._get_git_commit_timestamp()),
-            "-Dbuck.git_dirty={0}".format(
-                int(self._is_buck_repo_dirty_override == "1" or
-                    buck_version.is_dirty(self._buck_dir))),
-        ]
+        with Tracing('BuckRepo._get_extra_java_args'):
+            return [
+                "-Dbuck.git_commit={0}".format(self._get_git_revision()),
+                "-Dbuck.git_commit_timestamp={0}".format(
+                    self._get_git_commit_timestamp()),
+                "-Dbuck.git_dirty={0}".format(
+                  int(self._is_buck_repo_dirty_override == "1" or
+                      buck_version.is_dirty(self._buck_dir))),
+            ]
 
     def _get_bootstrap_classpath(self):
         return self._join_buck_dir("build/bootstrapper/bootstrapper.jar")

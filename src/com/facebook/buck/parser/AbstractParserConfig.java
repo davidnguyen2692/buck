@@ -20,6 +20,7 @@ import com.facebook.buck.config.ConfigView;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.python.PythonBuckConfig;
 import com.facebook.buck.util.MoreCollectors;
+import com.facebook.buck.util.WatchmanWatcher;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.google.common.base.Splitter;
 import com.google.common.base.Strings;
@@ -108,6 +109,15 @@ abstract class AbstractParserConfig implements ConfigView<BuckConfig> {
     return getDelegate().getBooleanValue("project", "check_package_boundary", true);
   }
 
+  /**
+   * A list of absolute paths under which buck package boundary checks should not be performed.
+   */
+  @Value.Lazy
+  public ImmutableList<Path> getBuckPackageBoundaryExceptions() {
+    return getDelegate().getOptionalPathList("project", "package_boundary_exceptions")
+        .orElse(ImmutableList.of());
+  }
+
   @Value.Lazy
   public ImmutableSet<Pattern> getTempFilePatterns() {
     return getDelegate().getListWithoutComments("project", "temp_files").stream()
@@ -154,8 +164,25 @@ abstract class AbstractParserConfig implements ConfigView<BuckConfig> {
   }
 
   @Value.Lazy
+  public boolean getWatchCells() {
+    return getDelegate().getBooleanValue("project", "watch_cells", false);
+  }
+
+  @Value.Lazy
+  public WatchmanWatcher.CursorType getWatchmanCursor() {
+    return getDelegate()
+      .getEnum("project", "watchman_cursor", WatchmanWatcher.CursorType.class)
+      .orElse(WatchmanWatcher.CursorType.NAMED);
+  }
+
+  @Value.Lazy
   public boolean getEnableParallelParsing() {
     return getDelegate().getBooleanValue("project", "parallel_parsing", true);
+  }
+
+  @Value.Lazy
+  public boolean getTrackCellAgnosticTarget() {
+    return getDelegate().getBooleanValue("project", "track_cell_agnostic_target", false);
   }
 
   @Value.Lazy

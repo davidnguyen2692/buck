@@ -3,9 +3,11 @@
     "deps" : [
       "//src/com/facebook/buck/android:utils",
       "//src/com/facebook/buck/event:event",
+      "//src/com/facebook/buck/event:interfaces",
       "//src/com/facebook/buck/io:io",
       "//src/com/facebook/buck/jvm/java:support",
       "//src/com/facebook/buck/model:model",
+      "//src/com/facebook/buck/model:simple_types",
       "//src/com/facebook/buck/parser:rule_pattern",
       "//src/com/facebook/buck/rules:build_rule",
       "//src/com/facebook/buck/rules:rule_key",
@@ -21,8 +23,8 @@
       "//src/com/facebook/buck/step:step",
       "//src/com/facebook/buck/step/fs:fs",
       "//src/com/facebook/buck/util:exceptions",
-      "//src/com/facebook/buck/util:io",
       "//src/com/facebook/buck/util:object_mapper",
+      "//src/com/facebook/buck/util:process_executor",
       "//src/com/facebook/buck/util:util",
       "//src/com/facebook/buck/util/cache:cache",
       "//src/com/facebook/buck/util/environment:environment",
@@ -42,6 +44,7 @@
       "//third-party/java/guava:guava",
       "//third-party/java/hamcrest:hamcrest-junit",
       "//third-party/java/hamcrest:java-hamcrest",
+      "//third-party/java/jackson:jackson-databind",
       "//third-party/java/jsr:jsr305",
       "//third-party/java/junit:junit"
     ],
@@ -49,7 +52,8 @@
   },
   "testutil" : {
     "deps" : [
-      "//src/com/facebook/buck/util:io",
+      "//src/com/facebook/buck/model:simple_types",
+      "//src/com/facebook/buck/util:process_executor",
       "//test/com/facebook/buck/cli:FakeBuckConfig",
       "//test/com/facebook/buck/testutil:testutil",
       "//test/com/facebook/buck/util:testutil",

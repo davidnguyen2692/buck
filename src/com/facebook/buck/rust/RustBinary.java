@@ -16,9 +16,12 @@
 
 package com.facebook.buck.rust;
 
+import static com.facebook.buck.rust.RustLinkables.extendLinkerArgs;
+
 import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.cxx.Linker;
 import com.facebook.buck.model.BuildTargets;
+import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BinaryBuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildTargetSourcePath;
@@ -30,15 +33,18 @@ import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
+
+import java.util.Optional;
 
 
 public class RustBinary extends RustCompile implements BinaryBuildRule {
-
   public RustBinary(
       BuildRuleParams params,
       SourcePathResolver resolver,
       String crate,
+      Optional<SourcePath> crateRoot,
       ImmutableSortedSet<SourcePath> srcs,
       ImmutableSortedSet<String> features,
       ImmutableList<String> rustcFlags,
@@ -46,31 +52,36 @@ public class RustBinary extends RustCompile implements BinaryBuildRule {
       Supplier<Tool> linker,
       ImmutableList<String> linkerArgs,
       CxxPlatform cxxPlatform,
-      Linker.LinkableDepType linkStyle) {
+      Linker.LinkableDepType linkStyle) throws NoSuchBuildTargetException {
     super(
         RustLinkables.addNativeDependencies(params, resolver, cxxPlatform, linkStyle),
         resolver,
         crate,
+        crateRoot,
         srcs,
         ImmutableList.<String>builder()
             .add("--crate-type", "bin")
             .addAll(rustcFlags)
             .build(),
         features,
-        RustLinkables.getNativePaths(params.getDeps().stream(), resolver, linkStyle, cxxPlatform),
+        RustLinkables.getNativeDirs(params.getDeps(), linkStyle, cxxPlatform),
         BuildTargets.getGenPath(
             params.getProjectFilesystem(),
             params.getBuildTarget(),
             "%s/" + crate),
         compiler,
         linker,
-        linkerArgs,
+        extendLinkerArgs(
+            linkerArgs,
+            params.getDeps(),
+            linkStyle,
+            cxxPlatform),
         linkStyle);
   }
 
   @Override
-  protected String getDefaultSource() {
-    return "main.rs";
+  protected ImmutableSet<String> getDefaultSources() {
+    return ImmutableSet.of("main.rs");
   }
 
   @Override

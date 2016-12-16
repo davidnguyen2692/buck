@@ -188,6 +188,50 @@ public class ParserIntegrationTest {
   }
 
   @Test
+  public void testMissingName() throws IOException {
+    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this,
+        "missing_name",
+        temporaryFolder);
+    workspace.setUp();
+
+    ProjectWorkspace.ProcessResult result = workspace.runBuckCommand("targets", "//...");
+    result.assertFailure("missing attribute should error");
+    assertThat(result.getStderr(), containsString("genrule"));
+    assertThat(result.getStderr(), containsString("name"));
+  }
+
+  @Test
+  public void testMissingRequiredAttribute() throws IOException {
+    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this,
+        "missing_attr",
+        temporaryFolder);
+    workspace.setUp();
+
+    ProjectWorkspace.ProcessResult result = workspace.runBuckCommand("targets", "//:gr");
+    result.assertFailure("missing name should error");
+    assertThat(result.getStderr(), containsString("genrule"));
+    assertThat(result.getStderr(), containsString("gr"));
+    assertThat(result.getStderr(), containsString("out"));
+  }
+
+  @Test
+  public void testExtraUnknownAttribute() throws IOException {
+    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this,
+        "extra_attr",
+        temporaryFolder);
+    workspace.setUp();
+
+    ProjectWorkspace.ProcessResult result = workspace.runBuckCommand("targets", "//:gr");
+    result.assertFailure("extra attr should error");
+    assertThat(result.getStderr(), containsString("genrule"));
+    assertThat(result.getStderr(), containsString("gr"));
+    assertThat(result.getStderr(), containsString("blurgle"));
+  }
+
+  @Test
   public void testUsingAutodeps() throws IOException {
     ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
         this,
@@ -226,5 +270,33 @@ public class ParserIntegrationTest {
     ProjectWorkspace.ProcessResult secondRun = workspace.runBuckdCommand("run", "//java/bar:main");
     secondRun.assertSuccess();
     assertThat(secondRun.getStdout(), containsString("I am other Foo"));
+  }
+
+  @Test
+  public void testBoundaryChecksAreEnforced() throws IOException {
+    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this,
+        "package_boundaries",
+        temporaryFolder);
+    workspace.setUp();
+    try {
+      workspace.runBuckCommand("build", "//java:foo");
+      fail("Expected exception");
+    } catch (HumanReadableException e) {
+      assertThat(e.getMessage(), containsString("package boundary"));
+    }
+
+    workspace.addBuckConfigLocalOption("project", "check_package_boundary", "false");
+    workspace.runBuckCommand("build", "//java:foo").assertSuccess();
+
+    workspace.addBuckConfigLocalOption("project", "check_package_boundary", "true");
+    workspace.addBuckConfigLocalOption("project", "package_boundary_exceptions", "java");
+    workspace.runBuckCommand("build", "//java:foo").assertSuccess();
+    try {
+      workspace.runBuckCommand("build", "//java2:foo").assertSuccess();
+      fail("Expected exception");
+    } catch (HumanReadableException e) {
+      assertThat(e.getMessage(), containsString("package boundary"));
+    }
   }
 }

@@ -28,6 +28,7 @@ import com.facebook.buck.jvm.java.DefaultJavaLibrary;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.ImmutableFlavor;
+import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
@@ -141,7 +142,7 @@ public class ThriftJavaEnhancerTest {
   }
 
   @Test
-  public void createBuildRule() {
+  public void createBuildRule() throws NoSuchBuildTargetException {
     BuildRuleResolver resolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathResolver pathResolver = new SourcePathResolver(resolver);
@@ -166,7 +167,7 @@ public class ThriftJavaEnhancerTest {
         createFakeBuildRule("//:dep", pathResolver));
 
     // Run the enhancer to create the language specific build rule.
-    DefaultJavaLibrary library = ENHANCER
+    DefaultJavaLibrary library = (DefaultJavaLibrary) ENHANCER
         .createBuildRule(TargetGraph.EMPTY, flavoredParams, resolver, arg, sources, deps);
 
     // Verify that the first thrift source created a source zip rule with correct deps.
@@ -198,7 +199,7 @@ public class ThriftJavaEnhancerTest {
   }
 
   @Test
-  public void exportedDeps() {
+  public void exportedDeps() throws NoSuchBuildTargetException {
     BuildRuleResolver resolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathResolver pathResolver = new SourcePathResolver(resolver);
@@ -223,7 +224,7 @@ public class ThriftJavaEnhancerTest {
             new FakeExportDependenciesRule("//:exporting_rule", pathResolver, exportedRule));
 
     // Run the enhancer to create the language specific build rule.
-    DefaultJavaLibrary library = ENHANCER
+    DefaultJavaLibrary library = (DefaultJavaLibrary) ENHANCER
         .createBuildRule(
             TargetGraph.EMPTY,
             flavoredParams,

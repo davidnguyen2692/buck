@@ -40,6 +40,7 @@ import com.facebook.buck.rules.ActionGraphCache;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
+import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetGraphAndBuildTargets;
@@ -48,7 +49,7 @@ import com.facebook.buck.rules.TargetGraphAndTargets;
 import com.facebook.buck.rules.TargetGraphHashing;
 import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.TargetNodes;
-import com.facebook.buck.rules.keys.DefaultRuleKeyBuilderFactory;
+import com.facebook.buck.rules.keys.DefaultRuleKeyFactory;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.MoreExceptions;
@@ -308,8 +309,9 @@ public class TargetsCommand extends AbstractCommand {
       ListeningExecutorService executor)
       throws IOException, InterruptedException, BuildFileParseException, BuildTargetException,
       CycleException, VersionException {
-    Optional<ImmutableSet<BuildRuleType>> buildRuleTypes = getBuildRuleTypesFromParams(params);
-    if (!buildRuleTypes.isPresent()) {
+    Optional<ImmutableSet<Class<? extends Description<?>>>> descriptionClasses =
+        getDescriptionClassFromParams(params);
+    if (!descriptionClasses.isPresent()) {
       return 1;
     }
 
@@ -317,7 +319,7 @@ public class TargetsCommand extends AbstractCommand {
         isShowTargetHash()) {
       ImmutableMap<BuildTarget, ShowOptions> showRulesResult;
       TargetGraphAndBuildTargets targetGraphAndBuildTargetsForShowRules =
-          buildTargetGraphAndTargetsForShowRules(params, executor, buildRuleTypes);
+          buildTargetGraphAndTargetsForShowRules(params, executor, descriptionClasses);
       showRulesResult = computeShowRules(
           params,
           executor,
@@ -346,13 +348,13 @@ public class TargetsCommand extends AbstractCommand {
         getMatchingNodes(
             params,
             buildTargetGraphAndTargets(params, executor),
-            buildRuleTypes));
+            descriptionClasses));
   }
 
   private TargetGraphAndBuildTargets buildTargetGraphAndTargetsForShowRules(
       CommandRunnerParams params,
       ListeningExecutorService executor,
-      Optional<ImmutableSet<BuildRuleType>> buildRuleTypes)
+      Optional<ImmutableSet<Class<? extends Description<?>>>> descriptionClasses)
       throws InterruptedException, BuildFileParseException, BuildTargetException, IOException {
     if (getArguments().isEmpty()) {
       ParserConfig parserConfig = params.getBuckConfig().getView(ParserConfig.class);
@@ -373,7 +375,7 @@ public class TargetsCommand extends AbstractCommand {
       SortedMap<String, TargetNode<?, ?>> matchingNodes = getMatchingNodes(
           params,
           completeTargetGraphAndBuildTargets,
-          buildRuleTypes);
+          descriptionClasses);
 
       Iterable<BuildTarget> buildTargets = FluentIterable.from(matchingNodes.values()).transform(
           HasBuildTarget::getBuildTarget);
@@ -424,8 +426,8 @@ public class TargetsCommand extends AbstractCommand {
   private SortedMap<String, TargetNode<?, ?>> getMatchingNodes(
       CommandRunnerParams params,
       TargetGraphAndBuildTargets targetGraphAndBuildTargets,
-      Optional<ImmutableSet<BuildRuleType>> buildRuleTypes
-  ) throws IOException {
+      Optional<ImmutableSet<Class<? extends Description<?>>>> descriptionClasses)
+      throws IOException {
     PathArguments.ReferencedFiles referencedFiles = getReferencedFiles(
         params.getCell().getFilesystem().getRootPath());
     SortedMap<String, TargetNode<?, ?>> matchingNodes;
@@ -445,9 +447,9 @@ public class TargetsCommand extends AbstractCommand {
           matchingBuildTargets.isEmpty() ?
               Optional.empty() :
               Optional.of(matchingBuildTargets),
-          buildRuleTypes.get().isEmpty() ?
+          descriptionClasses.get().isEmpty() ?
               Optional.empty() :
-              buildRuleTypes,
+              descriptionClasses,
           isDetectTestChanges(),
           parserConfig.getBuildFileName());
     }
@@ -511,20 +513,24 @@ public class TargetsCommand extends AbstractCommand {
         targetGraphAndBuildTargets;
   }
 
-  private Optional<ImmutableSet<BuildRuleType>> getBuildRuleTypesFromParams(
+  @SuppressWarnings("unchecked")
+  private Optional<ImmutableSet<Class<? extends Description<?>>>> getDescriptionClassFromParams(
       CommandRunnerParams params) {
     ImmutableSet<String> types = getTypes();
-    ImmutableSet.Builder<BuildRuleType> buildRuleTypesBuilder = ImmutableSet.builder();
+    ImmutableSet.Builder<Class<? extends Description<?>>> descriptionClassesBuilder =
+        ImmutableSet.builder();
     for (String name : types) {
       try {
-        buildRuleTypesBuilder.add(params.getCell().getBuildRuleType(name));
+        BuildRuleType type = params.getCell().getBuildRuleType(name);
+        Description<?> description = params.getCell().getDescription(type);
+        descriptionClassesBuilder.add((Class<? extends Description<?>>) description.getClass());
       } catch (IllegalArgumentException e) {
         params.getBuckEventBus().post(ConsoleEvent.severe(
                 "Invalid build rule type: " + name));
         return Optional.empty();
       }
     }
-    return Optional.of(buildRuleTypesBuilder.build());
+    return Optional.of(descriptionClassesBuilder.build());
   }
 
   private void printShowRules(
@@ -573,7 +579,7 @@ public class TargetsCommand extends AbstractCommand {
       TargetGraph graph,
       Optional<ImmutableSet<Path>> referencedFiles,
       final Optional<ImmutableSet<BuildTarget>> matchingBuildTargets,
-      final Optional<ImmutableSet<BuildRuleType>> buildRuleTypes,
+      final Optional<ImmutableSet<Class<? extends Description<?>>>> descriptionClasses,
       boolean detectTestChanges,
       String buildFileName) {
     ImmutableSet<TargetNode<?, ?>> directOwners;
@@ -602,8 +608,8 @@ public class TargetsCommand extends AbstractCommand {
                 return false;
               }
 
-              if (buildRuleTypes.isPresent() &&
-                  !buildRuleTypes.get().contains(targetNode.getType())) {
+              if (descriptionClasses.isPresent() &&
+                  !descriptionClasses.get().contains(targetNode.getDescription().getClass())) {
                 return false;
               }
 
@@ -798,10 +804,10 @@ public class TargetsCommand extends AbstractCommand {
     }
 
     // We only need the action graph if we're showing the output or the keys, and the
-    // RuleKeyBuilderFactory if we're showing the keys.
+    // RuleKeyFactory if we're showing the keys.
     Optional<ActionGraph> actionGraph = Optional.empty();
     Optional<BuildRuleResolver> buildRuleResolver = Optional.empty();
-    Optional<DefaultRuleKeyBuilderFactory> ruleKeyBuilderFactory = Optional.empty();
+    Optional<DefaultRuleKeyFactory> ruleKeyFactory = Optional.empty();
     if (isShowRuleKey() || isShowOutput() || isShowFullOutput()) {
       ActionGraphAndResolver result = Preconditions.checkNotNull(
           ActionGraphCache.getFreshActionGraph(
@@ -810,8 +816,8 @@ public class TargetsCommand extends AbstractCommand {
       actionGraph = Optional.of(result.getActionGraph());
       buildRuleResolver = Optional.of(result.getResolver());
       if (isShowRuleKey()) {
-        ruleKeyBuilderFactory = Optional.of(
-            new DefaultRuleKeyBuilderFactory(
+        ruleKeyFactory = Optional.of(
+            new DefaultRuleKeyFactory(
                 params.getBuckConfig().getKeySeed(),
                 params.getFileHashCache(),
                 new SourcePathResolver(result.getResolver())));
@@ -825,7 +831,7 @@ public class TargetsCommand extends AbstractCommand {
       if (actionGraph.isPresent()) {
         BuildRule rule = buildRuleResolver.get().requireRule(targetNode.getBuildTarget());
         if (isShowRuleKey()) {
-          showOptionsBuilder.setRuleKey(ruleKeyBuilderFactory.get().build(rule).toString());
+          showOptionsBuilder.setRuleKey(ruleKeyFactory.get().build(rule).toString());
         }
         if (isShowOutput() || isShowFullOutput()) {
           Optional<Path> outputPath =

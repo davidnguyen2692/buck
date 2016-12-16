@@ -20,6 +20,7 @@ import static com.facebook.buck.jvm.common.ResourceValidator.validateResources;
 
 import com.facebook.buck.jvm.java.CalculateAbi;
 import com.facebook.buck.jvm.java.DefaultJavaLibrary;
+import com.facebook.buck.jvm.java.JavaLibraryRules;
 import com.facebook.buck.jvm.java.JvmLibraryArg;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
@@ -63,49 +64,51 @@ public class KotlinLibraryDescription implements Description<KotlinLibraryDescri
       A args) throws NoSuchBuildTargetException {
     SourcePathResolver pathResolver = new SourcePathResolver(resolver);
 
+    if (params.getBuildTarget().getFlavors().contains(CalculateAbi.FLAVOR)) {
+      BuildTarget libraryTarget = params.getBuildTarget().withoutFlavors(CalculateAbi.FLAVOR);
+      resolver.requireRule(libraryTarget);
+      return CalculateAbi.of(
+          params.getBuildTarget(),
+          pathResolver,
+          params,
+          new BuildTargetSourcePath(libraryTarget));
+    }
+
     BuildTarget abiJarTarget = params.getBuildTarget().withAppendedFlavors(CalculateAbi.FLAVOR);
 
     ImmutableSortedSet<BuildRule> exportedDeps = resolver.getAllRules(args.exportedDeps);
-    DefaultJavaLibrary defaultJavaLibrary =
-        resolver.addToIndex(
-            new DefaultJavaLibrary(
-                params.appendExtraDeps(
-                    BuildRules.getExportedRules(
-                        Iterables.concat(
-                            params.getDeclaredDeps().get(),
-                            exportedDeps,
-                            resolver.getAllRules(args.providedDeps)))),
-                pathResolver,
-                args.srcs,
-                validateResources(
-                    pathResolver,
-                    params.getProjectFilesystem(),
-                    args.resources),
-                Optional.empty(),
-                Optional.empty(),
-                ImmutableList.of(),
-                exportedDeps,
-                resolver.getAllRules(args.providedDeps),
-                new BuildTargetSourcePath(abiJarTarget),
-                /* trackClassUsage */ false,
-                /* additionalClasspathEntries */ ImmutableSet.of(),
-                new KotlincToJarStepFactory(
-                    kotlinBuckConfig.getKotlinCompiler().get(),
-                    args.extraKotlincArguments),
-                Optional.empty(),
-                /* manifest file */ Optional.empty(),
-                Optional.empty(),
-                ImmutableSortedSet.of(),
-                /* classesToRemoveFromJar */ ImmutableSet.of()));
-
-    resolver.addToIndex(
-        CalculateAbi.of(
-            abiJarTarget,
+    BuildRuleParams javaLibraryParams =
+        params.appendExtraDeps(
+            BuildRules.getExportedRules(
+                Iterables.concat(
+                    params.getDeclaredDeps().get(),
+                    exportedDeps,
+                    resolver.getAllRules(args.providedDeps))));
+    return new DefaultJavaLibrary(
+        javaLibraryParams,
+        pathResolver,
+        args.srcs,
+        validateResources(
             pathResolver,
-            params,
-            new BuildTargetSourcePath(defaultJavaLibrary.getBuildTarget())));
-
-    return defaultJavaLibrary;
+            params.getProjectFilesystem(),
+            args.resources),
+        Optional.empty(),
+        Optional.empty(),
+        ImmutableList.of(),
+        exportedDeps,
+        resolver.getAllRules(args.providedDeps),
+        abiJarTarget,
+        JavaLibraryRules.getAbiInputs(resolver, javaLibraryParams.getDeps()),
+        /* trackClassUsage */ false,
+        /* additionalClasspathEntries */ ImmutableSet.of(),
+        new KotlincToJarStepFactory(
+            kotlinBuckConfig.getKotlinCompiler().get(),
+            args.extraKotlincArguments),
+        Optional.empty(),
+        /* manifest file */ Optional.empty(),
+        Optional.empty(),
+        ImmutableSortedSet.of(),
+        /* classesToRemoveFromJar */ ImmutableSet.of());
   }
 
 

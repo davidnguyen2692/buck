@@ -62,7 +62,7 @@ import com.facebook.buck.rules.BuildRuleStatus;
 import com.facebook.buck.rules.BuildRuleSuccessType;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildRule;
-import com.facebook.buck.rules.FakeRuleKeyBuilderFactory;
+import com.facebook.buck.rules.FakeRuleKeyFactory;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
@@ -81,6 +81,7 @@ import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.timing.Clock;
 import com.facebook.buck.timing.IncrementingFakeClock;
 import com.facebook.buck.util.ObjectMappers;
+import com.facebook.buck.util.autosparse.AutoSparseStateEvents;
 import com.facebook.buck.util.environment.DefaultExecutionEnvironment;
 import com.facebook.buck.util.unit.SizeUnit;
 import com.google.common.base.Joiner;
@@ -1558,7 +1559,7 @@ public class SuperConsoleEventBusListenerTest {
             Joiner.on('\n').join(
                 "RESULTS FOR ALL TESTS",
                 "ASSUME  <100ms  0 Passed   1 Skipped   0 Failed   TestClass",
-                "TESTS PASSED (with some assumption violations)",
+                "NO TESTS RAN (assumption violations)",
                 "")),
         // We don't care about stderr, since the last frame will be flushed there.
         Optional.empty());
@@ -1903,7 +1904,7 @@ public class SuperConsoleEventBusListenerTest {
     String stepDescription = "working hard";
     UUID stepUuid = UUID.randomUUID();
 
-    FakeRuleKeyBuilderFactory ruleKeyBuilderFactory = new FakeRuleKeyBuilderFactory(
+    FakeRuleKeyFactory ruleKeyFactory = new FakeRuleKeyFactory(
         ImmutableMap.of(
             fakeTarget, new RuleKey("aaaa")));
 
@@ -1965,7 +1966,7 @@ public class SuperConsoleEventBusListenerTest {
     // Suspend the rule.
     eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
-            BuildRuleEvent.suspended(fakeRule, ruleKeyBuilderFactory),
+            BuildRuleEvent.suspended(fakeRule, ruleKeyFactory),
             100L,
             TimeUnit.MILLISECONDS,
             /* threadId */ 0L));
@@ -1983,7 +1984,7 @@ public class SuperConsoleEventBusListenerTest {
     // Resume the rule.
     eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
-            BuildRuleEvent.resumed(fakeRule, ruleKeyBuilderFactory),
+            BuildRuleEvent.resumed(fakeRule, ruleKeyFactory),
             300L,
             TimeUnit.MILLISECONDS,
             /* threadId */ 0L));
@@ -2086,15 +2087,15 @@ public class SuperConsoleEventBusListenerTest {
     assertEquals(createParsingMessage(EMOJI_SNAIL, overflowMessage), listener.getParsingStatus());
 
     // file added scenario
-    eventBus.post(WatchmanStatusEvent.fileCreation());
+    eventBus.post(WatchmanStatusEvent.fileCreation("and you know you're going to fall"));
     assertEquals(createParsingMessage(EMOJI_SNAIL, "File added"), listener.getParsingStatus());
 
     // file removed scenario
-    eventBus.post(WatchmanStatusEvent.fileDeletion());
+    eventBus.post(WatchmanStatusEvent.fileDeletion("Tell 'em a hookah-smoking"));
     assertEquals(createParsingMessage(EMOJI_SNAIL, "File removed"), listener.getParsingStatus());
 
     // symlink invalidation scenario
-    eventBus.post(ParsingEvent.symlinkInvalidation());
+    eventBus.post(ParsingEvent.symlinkInvalidation("caterpillar has given you the call"));
     assertEquals(
         createParsingMessage(EMOJI_WHALE, "Symlink caused cache invalidation"),
         listener.getParsingStatus());
@@ -2108,6 +2109,52 @@ public class SuperConsoleEventBusListenerTest {
     // action graph cache hit scenario
     eventBus.post(ActionGraphEvent.Cache.hit());
     assertEquals(createParsingMessage(EMOJI_BUNNY, ""), listener.getParsingStatus());
+  }
+
+  @Test
+  public void testAutoSparseUpdates() {
+    Clock fakeClock = new IncrementingFakeClock(TimeUnit.SECONDS.toNanos(1));
+    BuckEventBus eventBus = BuckEventBusFactory.newInstance(fakeClock);
+    SuperConsoleEventBusListener listener = createSuperConsole(fakeClock, eventBus);
+
+    AutoSparseStateEvents.SparseRefreshStarted sparseRefreshStarted =
+        new AutoSparseStateEvents.SparseRefreshStarted();
+    eventBus.postWithoutConfiguring(
+        configureTestEventAtTime(
+            sparseRefreshStarted,
+            0L,
+            TimeUnit.MILLISECONDS,
+            /* threadId */ 0L));
+    validateConsole(listener, 0L, ImmutableList.of("[+] REFRESHING SPARSE CHECKOUT...0.0s"));
+
+    eventBus.postWithoutConfiguring(
+        configureTestEventAtTime(
+            new AutoSparseStateEvents.SparseRefreshFinished(sparseRefreshStarted),
+            0L,
+            TimeUnit.MILLISECONDS,
+            /* threadId */ 0L));
+    validateConsole(listener, 0L, ImmutableList.of(
+        "[-] REFRESHING SPARSE CHECKOUT...FINISHED 0.0s"));
+
+    // starting a new refresh resets the message
+    sparseRefreshStarted = new AutoSparseStateEvents.SparseRefreshStarted();
+    eventBus.postWithoutConfiguring(
+        configureTestEventAtTime(
+            sparseRefreshStarted,
+            0L,
+            TimeUnit.MILLISECONDS,
+            /* threadId */ 0L));
+    validateConsole(listener, 0L, ImmutableList.of("[+] REFRESHING SPARSE CHECKOUT...0.0s"));
+
+    eventBus.postWithoutConfiguring(
+        configureTestEventAtTime(
+            new AutoSparseStateEvents.SparseRefreshFinished(sparseRefreshStarted),
+            0L,
+            TimeUnit.MILLISECONDS,
+            /* threadId */ 0L));
+    validateConsole(listener, 0L, ImmutableList.of(
+        "[-] REFRESHING SPARSE CHECKOUT...FINISHED 0.0s"));
+
   }
 
   @Test

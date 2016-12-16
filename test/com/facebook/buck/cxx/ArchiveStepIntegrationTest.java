@@ -76,7 +76,7 @@ public class ArchiveStepIntegrationTest {
     // Build an archive step.
     ArchiveStep archiveStep = new ArchiveStep(
         filesystem,
-        archiver.getEnvironment(sourcePathResolver),
+        archiver.getEnvironment(),
         archiver.getCommandPrefix(sourcePathResolver),
         ImmutableList.of(),
         getArchiveOptions(false),
@@ -127,7 +127,7 @@ public class ArchiveStepIntegrationTest {
     ArchiveStep archiveStep =
         new ArchiveStep(
             filesystem,
-            archiver.getEnvironment(sourcePathResolver),
+            archiver.getEnvironment(),
             archiver.getCommandPrefix(sourcePathResolver),
             ImmutableList.of(),
             getArchiveOptions(false),
@@ -171,7 +171,7 @@ public class ArchiveStepIntegrationTest {
     ArchiveStep archiveStep =
         new ArchiveStep(
             filesystem,
-            archiver.getEnvironment(sourcePathResolver),
+            archiver.getEnvironment(),
             archiver.getCommandPrefix(sourcePathResolver),
             ImmutableList.of(),
             getArchiveOptions(false),
@@ -217,7 +217,7 @@ public class ArchiveStepIntegrationTest {
     Path input = filesystem.getRootPath().getFileSystem().getPath("bar/blah.dat");
     filesystem.mkdirs(input.getParent());
     byte[] largeInputFile = new byte[1024 * 1024];
-    byte[] fillerToRepeat = "hello\n".getBytes(StandardCharsets.US_ASCII);
+    byte[] fillerToRepeat = "hello\n".getBytes(StandardCharsets.UTF_8);
     for (int i = 0; i < largeInputFile.length; i++) {
       largeInputFile[i] = fillerToRepeat[i % fillerToRepeat.length];
     }
@@ -227,7 +227,7 @@ public class ArchiveStepIntegrationTest {
     ArchiveStep archiveStep =
         new ArchiveStep(
             filesystem,
-            archiver.getEnvironment(sourcePathResolver),
+            archiver.getEnvironment(),
             archiver.getCommandPrefix(sourcePathResolver),
             ImmutableList.of(),
             getArchiveOptions(true),

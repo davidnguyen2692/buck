@@ -136,7 +136,7 @@ public class GoTest extends NoopBuildRule implements TestRule, HasRuntimeDeps,
             getProjectFilesystem(),
             getPathToTestWorkingDirectory(),
             args.build(),
-            testMain.getExecutableCommand().getEnvironment(getResolver()),
+            testMain.getExecutableCommand().getEnvironment(),
             getPathToTestExitCode(),
             processTimeoutMs,
             getPathToTestResults()));
@@ -212,18 +212,13 @@ public class GoTest extends NoopBuildRule implements TestRule, HasRuntimeDeps,
   @Override
   public Callable<TestResults> interpretTestResults(
       ExecutionContext executionContext,
-      boolean isUsingTestSelectors,
-      final boolean isDryRun) {
+      boolean isUsingTestSelectors) {
     return () -> {
-      ImmutableList<TestCaseSummary> summaries = ImmutableList.of();
-      if (!isDryRun) {
-        summaries = ImmutableList.of(new TestCaseSummary(
-            getBuildTarget().getFullyQualifiedName(),
-            parseTestResults()));
-      }
       return TestResults.of(
           getBuildTarget(),
-          summaries,
+          ImmutableList.of(new TestCaseSummary(
+              getBuildTarget().getFullyQualifiedName(),
+              parseTestResults())),
           contacts,
           labels.stream()
               .map(Object::toString)
@@ -286,7 +281,7 @@ public class GoTest extends NoopBuildRule implements TestRule, HasRuntimeDeps,
     return ExternalTestRunnerTestSpec.builder()
         .setTarget(getBuildTarget())
         .setType("go")
-        .putAllEnv(testMain.getExecutableCommand().getEnvironment(getResolver()))
+        .putAllEnv(testMain.getExecutableCommand().getEnvironment())
         .addAllCommand(testMain.getExecutableCommand().getCommandPrefix(getResolver()))
         .addAllLabels(getLabels())
         .addAllContacts(getContacts())

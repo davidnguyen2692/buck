@@ -329,9 +329,7 @@ public class AppleTestIntegrationTest {
     workspace.copyRecursively(
         TestDataHelper.getTestDataDirectory(this).resolve("fbxctest"),
         Paths.get("fbxctest"));
-    workspace.writeContentsToPath(
-         "[apple]\n  xctool_path = fbxctest/bin/fbxctest\n",
-         ".buckconfig.local");
+    workspace.addBuckConfigLocalOption("apple", "xctool_path", "fbxctest/bin/fbxctest");
     ProjectWorkspace.ProcessResult result = workspace.runBuckCommand("test", "//:foo");
     result.assertSuccess();
     assertThat(
@@ -348,16 +346,9 @@ public class AppleTestIntegrationTest {
     workspace.copyRecursively(
         TestDataHelper.getTestDataDirectory(this).resolve("fbxctest"),
         Paths.get("fbxctest"));
-    workspace.writeContentsToPath(
-        "[apple]\n  xctool_path = fbxctest/bin/fbxctest\n",
-        ".buckconfig.local");
+    workspace.addBuckConfigLocalOption("apple", "xctool_path", "fbxctest/bin/fbxctest");
     ProjectWorkspace.ProcessResult result = workspace.runBuckCommand("test", "//:foo", "//:bar");
     result.assertSuccess();
-    assertThat(
-        result.getStderr(),
-        containsString(
-            "NOTESTS <100ms  0 Passed   0 Skipped   0 Failed   XCUITest runs not supported"
-        ));
     assertThat(
         result.getStderr(),
         containsString("1 Passed   0 Skipped   0 Failed   FooXCTest"));
@@ -372,9 +363,7 @@ public class AppleTestIntegrationTest {
     workspace.copyRecursively(
         TestDataHelper.getTestDataDirectory(this).resolve("fbxctest"),
         Paths.get("fbxctest"));
-    workspace.writeContentsToPath(
-        "[apple]\n  xctool_path = fbxctest/bin/fbxctest\n",
-        ".buckconfig.local");
+    workspace.addBuckConfigLocalOption("apple", "xctool_path", "fbxctest/bin/fbxctest");
     ProjectWorkspace.ProcessResult result = workspace.runBuckCommand("test", "//:spinning");
     result.assertSpecialExitCode("test should fail", 42);
     assertThat(
@@ -392,9 +381,7 @@ public class AppleTestIntegrationTest {
     workspace.copyRecursively(
         TestDataHelper.getTestDataDirectory(this).resolve("fbxctest"),
         Paths.get("fbxctest"));
-    workspace.writeContentsToPath(
-         "[apple]\n  xctool_path = fbxctest/bin/fbxctest\n",
-         ".buckconfig.local");
+    workspace.addBuckConfigLocalOption("apple", "xctool_path", "fbxctest/bin/fbxctest");
     ProjectWorkspace.ProcessResult result = workspace.runBuckCommand("test", "//:foo");
     result.assertSpecialExitCode("test should fail", 42);
     assertThat(
@@ -415,9 +402,7 @@ public class AppleTestIntegrationTest {
     workspace.copyRecursively(
         TestDataHelper.getTestDataDirectory(this).resolve("fbxctest"),
         Paths.get("fbxctest"));
-    workspace.writeContentsToPath(
-         "[apple]\n  xctool_path = fbxctest/bin/fbxctest\n",
-         ".buckconfig.local");
+    workspace.addBuckConfigLocalOption("apple", "xctool_path", "fbxctest/bin/fbxctest");
     ProjectWorkspace.ProcessResult result = workspace.runBuckCommand("test", "//:AppTest");
     result.assertSuccess();
     assertThat(
@@ -434,9 +419,7 @@ public class AppleTestIntegrationTest {
     workspace.copyRecursively(
         TestDataHelper.getTestDataDirectory(this).resolve("fbxctest"),
         Paths.get("fbxctest"));
-    workspace.writeContentsToPath(
-        "[apple]\n  xctool_path = fbxctest/bin/fbxctest\n",
-        ".buckconfig.local");
+    workspace.addBuckConfigLocalOption("apple", "xctool_path", "fbxctest/bin/fbxctest");
     ProjectWorkspace.ProcessResult result = workspace.runBuckCommand(
         "test",
         "//:AppTest",
@@ -482,9 +465,7 @@ public class AppleTestIntegrationTest {
     workspace.copyRecursively(
         TestDataHelper.getTestDataDirectory(this).resolve("fbxctest"),
         Paths.get("fbxctest"));
-    workspace.writeContentsToPath(
-         "[apple]\n  xctool_path = fbxctest/bin/fbxctest\n",
-         ".buckconfig.local");
+    workspace.addBuckConfigLocalOption("apple", "xctool_path", "fbxctest/bin/fbxctest");
     ProjectWorkspace.ProcessResult result = workspace.runBuckCommand(
         "test",
         "--config", "apple.xctool_path=fbxctest/bin/fbxctest",
@@ -546,9 +527,7 @@ public class AppleTestIntegrationTest {
     workspace.copyRecursively(
         TestDataHelper.getTestDataDirectory(this).resolve("fbxctest"),
         Paths.get("fbxctest"));
-    workspace.writeContentsToPath(
-         "[apple]\n  xctool_path = fbxctest/bin/fbxctest\n",
-         ".buckconfig.local");
+    workspace.addBuckConfigLocalOption("apple", "xctool_path", "fbxctest/bin/fbxctest");
 
     ProjectWorkspace.ProcessResult result = workspace.runBuckCommand("test", "//:AppTest");
     result.assertSuccess();

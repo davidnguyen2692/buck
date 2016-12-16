@@ -8,7 +8,9 @@
       "//src/com/facebook/buck/cxx:framework_path_arg",
       "//src/com/facebook/buck/cxx:platform",
       "//src/com/facebook/buck/cxx:rules",
+      "//src/com/facebook/buck/cxx/elf:elf",
       "//src/com/facebook/buck/io:MorePaths.java",
+      "//src/com/facebook/buck/io:executable-finder",
       "//src/com/facebook/buck/io:io",
       "//src/com/facebook/buck/model:model",
       "//src/com/facebook/buck/parser:rule_pattern",
@@ -27,8 +29,8 @@
       "//src/com/facebook/buck/test:test",
       "//src/com/facebook/buck/test/selectors:selectors",
       "//src/com/facebook/buck/util:exceptions",
-      "//src/com/facebook/buck/util:io",
       "//src/com/facebook/buck/util:object_mapper",
+      "//src/com/facebook/buck/util:process_executor",
       "//src/com/facebook/buck/util:util",
       "//src/com/facebook/buck/util/cache:cache",
       "//src/com/facebook/buck/util/environment:platform",
@@ -48,6 +50,25 @@
       "//third-party/java/hamcrest:java-hamcrest",
       "//third-party/java/jackson:jackson-core",
       "//third-party/java/jackson:jackson-databind",
+      "//third-party/java/junit:junit"
+    ],
+    "exported_deps" : [ ]
+  },
+  "cxx-binary-integration" : {
+    "deps" : [
+      "//src/com/facebook/buck/cxx:platform",
+      "//src/com/facebook/buck/cxx:rules",
+      "//src/com/facebook/buck/io:io",
+      "//src/com/facebook/buck/model:model",
+      "//src/com/facebook/buck/rules:build_rule",
+      "//src/com/facebook/buck/util/environment:platform",
+      "//test/com/facebook/buck/android:testutil",
+      "//test/com/facebook/buck/cli:FakeBuckConfig",
+      "//test/com/facebook/buck/cxx:testutil",
+      "//test/com/facebook/buck/model:testutil",
+      "//test/com/facebook/buck/testutil/integration:util",
+      "//third-party/java/guava:guava",
+      "//third-party/java/hamcrest:java-hamcrest",
       "//third-party/java/junit:junit"
     ],
     "exported_deps" : [ ]

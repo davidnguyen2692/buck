@@ -52,6 +52,8 @@ public class ProvisioningProfileStore implements RuleKeyAppendable {
       Optional.empty();
   public static final Optional<ImmutableList<CodeSignIdentity>> MATCH_ANY_IDENTITY =
       Optional.empty();
+  public static final ImmutableList<String> DEFAULT_READ_COMMAND =
+      ImmutableList.of("openssl", "smime", "-inform", "der", "-verify", "-noverify", "-in");
 
   private static final Logger LOG = Logger.get(ProvisioningProfileStore.class);
   private final Supplier<ImmutableList<ProvisioningProfileMetadata>>
@@ -98,7 +100,7 @@ public class ProvisioningProfileStore implements RuleKeyAppendable {
       Optional<? extends Iterable<CodeSignIdentity>> identities) {
     final Optional<String> prefix;
     if (entitlements.isPresent()) {
-      prefix = Optional.of(ProvisioningProfileMetadata.prefixFromEntitlements(entitlements.get()));
+      prefix = ProvisioningProfileMetadata.prefixFromEntitlements(entitlements.get());
     } else {
       prefix = Optional.empty();
     }
@@ -192,6 +194,7 @@ public class ProvisioningProfileStore implements RuleKeyAppendable {
 
   public static ProvisioningProfileStore fromSearchPath(
       final ProcessExecutor executor,
+      final ImmutableList<String> readCommand,
       final Path searchPath) {
     LOG.debug("Provisioning profile search path: " + searchPath);
     return new ProvisioningProfileStore(Suppliers.memoize(
@@ -209,6 +212,7 @@ public class ProvisioningProfileStore implements RuleKeyAppendable {
                         ProvisioningProfileMetadata profile =
                             ProvisioningProfileMetadata.fromProvisioningProfilePath(
                                 executor,
+                                readCommand,
                                 file);
                         profilesBuilder.add(profile);
                       } catch (IOException | IllegalArgumentException e) {

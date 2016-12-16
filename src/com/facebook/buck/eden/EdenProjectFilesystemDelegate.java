@@ -16,6 +16,7 @@
 
 package com.facebook.buck.eden;
 
+import com.facebook.buck.event.EventBus;
 import com.facebook.buck.io.DefaultProjectFilesystemDelegate;
 import com.facebook.buck.io.ProjectFilesystemDelegate;
 import com.facebook.buck.util.sha1.Sha1HashCode;
@@ -48,6 +49,11 @@ public final class EdenProjectFilesystemDelegate implements ProjectFilesystemDel
     this.mount = mount;
     this.delegate = delegate;
     this.bindMounts = mount.getBindMounts();
+  }
+
+  @Override
+  public void ensureConcreteFilesExist(EventBus eventBus) {
+    return;
   }
 
   @Override

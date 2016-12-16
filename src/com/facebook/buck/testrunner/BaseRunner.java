@@ -16,7 +16,6 @@
 
 package com.facebook.buck.testrunner;
 
-import com.facebook.buck.test.selectors.TestDescription;
 import com.facebook.buck.test.selectors.TestSelectorList;
 
 import org.w3c.dom.Document;
@@ -31,9 +30,7 @@ import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
 
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
@@ -49,15 +46,18 @@ import javax.xml.transform.stream.StreamResult;
  * Base class for both the JUnit and TestNG runners.
  */
 public abstract class BaseRunner {
-  protected static final String FILTER_DESCRIPTION = "TestSelectorList-filter";
   protected static final String ENCODING = "UTF-8";
+  // This is to be extended when introducing new information into the result .xml file and allow
+  // consumers of that information to understand whether the testrunner they're using supports the
+  // new features.
+  protected static final String[] RUNNER_CAPABILITIES = {"simple_test_selector"};
 
   protected File outputDirectory;
   protected List<String> testClassNames;
   protected long defaultTestTimeoutMillis;
   protected TestSelectorList testSelectorList;
   protected boolean isDryRun;
-  protected Set<TestDescription> seenDescriptions = new HashSet<>();
+  protected boolean shouldExplainTestSelectors;
 
   public abstract void run() throws Throwable;
 
@@ -76,10 +76,14 @@ public abstract class BaseRunner {
 
     Element root = doc.createElement("testcase");
     root.setAttribute("name", testClassName);
+    root.setAttribute("runner_capabilities", getRunnerCapabilities());
     doc.appendChild(root);
 
     for (TestResult result : results) {
       Element test = doc.createElement("test");
+
+      // suite attribute
+      test.setAttribute("suite", result.testClassName);
 
       // name attribute
       test.setAttribute("name", result.testMethodName);
@@ -167,6 +171,19 @@ public abstract class BaseRunner {
     }
   }
 
+  private static String getRunnerCapabilities() {
+    StringBuilder result = new StringBuilder();
+    int capsLen = RUNNER_CAPABILITIES.length;
+    for (int i = 0; i < capsLen; i++) {
+      String capability = RUNNER_CAPABILITIES[i];
+      result.append(capability);
+      if (i != capsLen - 1) {
+        result.append(',');
+      }
+    }
+    return result.toString();
+  }
+
   private String stackTraceToString(Throwable exc) {
     StringWriter writer = new StringWriter();
     exc.printStackTrace(new PrintWriter(writer, /* autoFlush */true));
@@ -185,8 +202,9 @@ public abstract class BaseRunner {
   protected void parseArgs(String... args) {
     File outputDirectory = null;
     long defaultTestTimeoutMillis = Long.MAX_VALUE;
-    TestSelectorList testSelectorList = TestSelectorList.empty();
+    TestSelectorList.Builder testSelectorList = TestSelectorList.builder();
     boolean isDryRun = false;
+    boolean shouldExplainTestSelectors = false;
 
     List<String> testClassNames = new ArrayList<>();
 
@@ -197,9 +215,26 @@ public abstract class BaseRunner {
           break;
         case "--test-selectors":
           List<String> rawSelectors = Arrays.asList(args[++i].split("\n"));
-          testSelectorList = TestSelectorList.builder()
-              .addRawSelectors(rawSelectors)
-              .build();
+          testSelectorList.addRawSelectors(rawSelectors);
+          break;
+        case "--simple-test-selector":
+          try {
+            testSelectorList.addSimpleTestSelector(args[++i]);
+          } catch (IllegalArgumentException e) {
+            System.err.printf("--simple-test-selector takes 2 args: [suite] and [method name].");
+            System.exit(1);
+          }
+          break;
+        case "--b64-test-selector":
+          try {
+            testSelectorList.addBase64EncodedTestSelector(args[++i]);
+          } catch (IllegalArgumentException e) {
+            System.err.printf("--b64-test-selector takes 2 args: [suite] and [method name].");
+            System.exit(1);
+          }
+          break;
+        case "--explain-test-selectors":
+          shouldExplainTestSelectors = true;
           break;
         case "--dry-run":
           isDryRun = true;
@@ -225,7 +260,8 @@ public abstract class BaseRunner {
     this.defaultTestTimeoutMillis = defaultTestTimeoutMillis;
     this.isDryRun = isDryRun;
     this.testClassNames = testClassNames;
-    this.testSelectorList = testSelectorList;
+    this.testSelectorList = testSelectorList.build();
+    this.shouldExplainTestSelectors = shouldExplainTestSelectors;
   }
 
   protected void runAndExit() {

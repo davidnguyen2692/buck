@@ -56,8 +56,7 @@ import java.util.List;
 import java.util.Map;
 
 @RunWith(Parameterized.class)
-public class
-CxxCompilationDatabaseIntegrationTest {
+public class CxxCompilationDatabaseIntegrationTest {
 
   @Parameterized.Parameters(name = "sandbox_sources={0}")
   public static Collection<Object[]> data() {
@@ -79,6 +78,10 @@ CxxCompilationDatabaseIntegrationTest {
               "-fdebug-compilation-dir",
               "-Xclang",
               "." + Strings.repeat("/", 249)) :
+          ImmutableList.of();
+  private static final ImmutableList<String> MORE_COMPILER_SPECIFIC_FLAGS =
+      Platform.detect() == Platform.LINUX ?
+          ImmutableList.of("-gno-record-gcc-switches") :
           ImmutableList.of();
   private static final boolean PREPROCESSOR_SUPPORTS_HEADER_MAPS =
       Platform.detect() == Platform.MACOS;
@@ -138,6 +141,9 @@ CxxCompilationDatabaseIntegrationTest {
     assertEquals(1, fileToEntry.size());
     String path =
         sandboxSources ? "buck-out/gen/binary_with_dep#default,sandbox/foo.cpp" : "foo.cpp";
+    BuildTarget compilationTarget = target.withFlavors(
+        ImmutableFlavor.of("default"),
+        ImmutableFlavor.of("compile-" + sanitize("foo.cpp.o")));
     assertHasEntry(
         fileToEntry,
         path,
@@ -151,18 +157,23 @@ CxxCompilationDatabaseIntegrationTest {
             .addAll(COMPILER_SPECIFIC_FLAGS)
             .add("-x")
             .add("c++")
+            .add("-fdebug-prefix-map=" + rootPath + "=.")
+            .addAll(MORE_COMPILER_SPECIFIC_FLAGS)
             .add("-c")
+            .add("-MD")
+            .add("-MF")
+            .add(
+                rootPath
+                    .resolve(
+                        BuildTargets.getScratchPath(
+                            filesystem,
+                            compilationTarget,
+                            "%s-tmp/dep.tmp"))
+                    .toString())
+            .add(Paths.get(path).toString())
             .add("-o")
             .add(
-                BuildTargets
-                    .getGenPath(
-                        filesystem,
-                        target.withFlavors(
-                            ImmutableFlavor.of("default"),
-                            ImmutableFlavor.of("compile-" + sanitize("foo.cpp.o"))),
-                        "%s/foo.cpp.o")
-                    .toString())
-            .add(rootPath.resolve(Paths.get(path)).toString())
+                BuildTargets.getGenPath(filesystem, compilationTarget, "%s/foo.cpp.o").toString())
             .build());
   }
 
@@ -204,6 +215,9 @@ CxxCompilationDatabaseIntegrationTest {
     assertEquals(1, fileToEntry.size());
     String path =
         sandboxSources ? "buck-out/gen/library_with_header#default,sandbox/bar.cpp" : "bar.cpp";
+    BuildTarget compilationTarget = target.withFlavors(
+        ImmutableFlavor.of("default"),
+        ImmutableFlavor.of("compile-pic-" + sanitize("bar.cpp.o")));
     assertHasEntry(
         fileToEntry,
         path,
@@ -219,18 +233,23 @@ CxxCompilationDatabaseIntegrationTest {
             .addAll(COMPILER_SPECIFIC_FLAGS)
             .add("-x")
             .add("c++")
+            .add("-fdebug-prefix-map=" + rootPath + "=.")
+            .addAll(MORE_COMPILER_SPECIFIC_FLAGS)
             .add("-c")
+            .add("-MD")
+            .add("-MF")
+            .add(
+                rootPath
+                    .resolve(
+                        BuildTargets.getScratchPath(
+                            filesystem,
+                            compilationTarget,
+                            "%s-tmp/dep.tmp"))
+                    .toString())
+            .add(Paths.get(path).toString())
             .add("-o")
             .add(
-                BuildTargets
-                    .getGenPath(
-                        filesystem,
-                        target.withFlavors(
-                            ImmutableFlavor.of("default"),
-                            ImmutableFlavor.of("compile-pic-" + sanitize("bar.cpp.o"))),
-                        "%s/bar.cpp.o")
-                    .toString())
-            .add(rootPath.resolve(Paths.get(path)).toString())
+                BuildTargets.getGenPath(filesystem, compilationTarget, "%s/bar.cpp.o").toString())
             .build());
   }
 
@@ -267,6 +286,9 @@ CxxCompilationDatabaseIntegrationTest {
     assertEquals(1, fileToEntry.size());
     String path =
         sandboxSources ? "buck-out/gen/test#default,sandbox/test.cpp" : "test.cpp";
+    BuildTarget compilationTarget = target.withFlavors(
+        ImmutableFlavor.of("default"),
+        ImmutableFlavor.of("compile-pic-" + sanitize("test.cpp.o")));
     assertHasEntry(
         fileToEntry,
         path,
@@ -282,18 +304,23 @@ CxxCompilationDatabaseIntegrationTest {
             .addAll(COMPILER_SPECIFIC_FLAGS)
             .add("-x")
             .add("c++")
+            .add("-fdebug-prefix-map=" + rootPath + "=.")
+            .addAll(MORE_COMPILER_SPECIFIC_FLAGS)
             .add("-c")
+            .add("-MD")
+            .add("-MF")
+            .add(
+                rootPath
+                    .resolve(
+                        BuildTargets.getScratchPath(
+                            filesystem,
+                            compilationTarget,
+                            "%s-tmp/dep.tmp"))
+                    .toString())
+            .add(Paths.get(path).toString())
             .add("-o")
             .add(
-                BuildTargets
-                    .getGenPath(
-                        filesystem,
-                        target.withFlavors(
-                            ImmutableFlavor.of("default"),
-                            ImmutableFlavor.of("compile-pic-" + sanitize("test.cpp.o"))),
-                        "%s/test.cpp.o")
-                    .toString())
-            .add(rootPath.resolve(Paths.get(path)).toString())
+                BuildTargets.getGenPath(filesystem, compilationTarget, "%s/test.cpp.o").toString())
             .build());
   }
 
@@ -334,6 +361,9 @@ CxxCompilationDatabaseIntegrationTest {
     assertEquals(1, fileToEntry.size());
     String path =
         sandboxSources ? "buck-out/gen/test#default,sandbox/test.cpp" : "test.cpp";
+    BuildTarget compilationTarget = target.withFlavors(
+        ImmutableFlavor.of("default"),
+        ImmutableFlavor.of("compile-pic-" + sanitize("test.cpp.o")));
     assertHasEntry(
         fileToEntry,
         path,
@@ -349,27 +379,29 @@ CxxCompilationDatabaseIntegrationTest {
             .addAll(COMPILER_SPECIFIC_FLAGS)
             .add("-x")
             .add("c++")
+            .add("-fdebug-prefix-map=" + rootPath + "=.")
+            .addAll(MORE_COMPILER_SPECIFIC_FLAGS)
             .add("-c")
+            .add("-MD")
+            .add("-MF")
+            .add(
+                rootPath
+                    .resolve(
+                        BuildTargets.getScratchPath(
+                            filesystem,
+                            compilationTarget,
+                            "%s-tmp/dep.tmp"))
+                    .toString())
+            .add(Paths.get(path).toString())
             .add("-o")
             .add(
-                BuildTargets
-                    .getGenPath(
-                        filesystem,
-                        target.withFlavors(
-                            ImmutableFlavor.of("default"),
-                            ImmutableFlavor.of("compile-pic-" + sanitize("test.cpp.o"))),
-                        "%s/test.cpp.o")
-                    .toString())
-            .add(rootPath.resolve(Paths.get(path)).toString())
+                BuildTargets.getGenPath(filesystem, compilationTarget, "%s/test.cpp.o").toString())
             .build());
   }
 
   @Test
   public void compilationDatabaseFetchedFromCacheAlsoFetchesSymlinkTreeOrHeaderMap()
       throws IOException {
-    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
-        this, "compilation_database", tmp);
-    workspace.setUp();
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
 
     // This test only fails if the directory cache is enabled and we don't update
@@ -443,10 +475,19 @@ CxxCompilationDatabaseIntegrationTest {
 
   @Test
   public void compilationDatabaseWithDepsFetchedFromCacheAlsoFetchesSymlinkTreeOrHeaderMapOfDeps()
-      throws IOException {
+      throws Exception {
+    // Create a new temporary path since this test uses a different testdata directory than the
+    // one used in the common setup method.
+    tmp.after();
+    tmp = new TemporaryPaths();
+    tmp.before();
+
     ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
         this, "compilation_database_with_deps", tmp);
     workspace.setUp();
+    workspace.writeContentsToPath(
+        "[cxx]\ngtest_dep = //:fake-gtest\nsandbox_sources=" + sandboxSources,
+        ".buckconfig");
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
 
     // This test only fails if the directory cache is enabled and we don't update

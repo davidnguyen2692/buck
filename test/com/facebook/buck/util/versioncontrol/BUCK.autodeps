@@ -4,6 +4,8 @@
       "//src/com/facebook/buck/cli:config",
       "//src/com/facebook/buck/util/versioncontrol:impl",
       "//src/com/facebook/buck/util/versioncontrol:versioncontrol",
+      "//src/com/facebook/buck/util/versioncontrol:versioncontrol_config",
+      "//src/com/facebook/buck/util/versioncontrol:versioncontrol_hg",
       "//src/com/facebook/buck/zip:unzip",
       "//test/com/facebook/buck/cli:FakeBuckConfig",
       "//test/com/facebook/buck/testutil/integration:util",

@@ -57,6 +57,7 @@ import com.facebook.buck.apple.CodeSignIdentityStore;
 import com.facebook.buck.apple.CoreDataModelDescription;
 import com.facebook.buck.apple.PrebuiltAppleFrameworkDescription;
 import com.facebook.buck.apple.ProvisioningProfileStore;
+import com.facebook.buck.apple.SceneKitAssetsDescription;
 import com.facebook.buck.apple.XcodePostbuildScriptDescription;
 import com.facebook.buck.apple.XcodePrebuildScriptDescription;
 import com.facebook.buck.apple.XcodeWorkspaceConfigDescription;
@@ -143,6 +144,7 @@ import com.facebook.buck.rust.PrebuiltRustLibraryDescription;
 import com.facebook.buck.rust.RustBinaryDescription;
 import com.facebook.buck.rust.RustBuckConfig;
 import com.facebook.buck.rust.RustLibraryDescription;
+import com.facebook.buck.rust.RustTestDescription;
 import com.facebook.buck.shell.ExportFileDescription;
 import com.facebook.buck.shell.GenruleDescription;
 import com.facebook.buck.shell.ShBinaryDescription;
@@ -249,6 +251,7 @@ public class KnownBuildRuleTypes {
   }
 
   private static ImmutableList<AppleCxxPlatform> buildAppleCxxPlatforms(
+      ProjectFilesystem filesystem,
       Supplier<Optional<Path>> appleDeveloperDirectorySupplier,
       ImmutableList<Path> extraToolchainPaths,
       ImmutableList<Path> extraPlatformPaths,
@@ -296,6 +299,7 @@ public class KnownBuildRuleTypes {
       LOG.debug("SDK %s using default version %s", sdk, targetSdkVersion);
       for (String architecture : sdk.getArchitectures()) {
         AppleCxxPlatform appleCxxPlatform = AppleCxxPlatforms.build(
+            filesystem,
             sdk,
             targetSdkVersion,
             architecture,
@@ -331,6 +335,7 @@ public class KnownBuildRuleTypes {
     SwiftBuckConfig swiftBuckConfig = new SwiftBuckConfig(config);
 
     final ImmutableList<AppleCxxPlatform> appleCxxPlatforms = buildAppleCxxPlatforms(
+        filesystem,
         appleConfig.getAppleDeveloperDirectorySupplier(processExecutor),
         appleConfig.getExtraToolchainPaths(),
         appleConfig.getExtraPlatformPaths(),
@@ -403,7 +408,8 @@ public class KnownBuildRuleTypes {
           appleCxxPlatform.getCxxPlatform());
     }
 
-    CxxPlatform defaultHostCxxPlatform = DefaultCxxPlatforms.build(platform, cxxBuckConfig);
+    CxxPlatform defaultHostCxxPlatform =
+        DefaultCxxPlatforms.build(platform, filesystem, cxxBuckConfig);
     cxxSystemPlatformsBuilder.put(defaultHostCxxPlatform.getFlavor(), defaultHostCxxPlatform);
     ImmutableMap<Flavor, CxxPlatform> cxxSystemPlatformsMap = cxxSystemPlatformsBuilder.build();
 
@@ -429,11 +435,10 @@ public class KnownBuildRuleTypes {
     for (Flavor flavor: cxxFlavors) {
       if (!cxxSystemPlatformsMap.containsKey(flavor)) {
         if (possibleHostFlavors.contains(flavor)) {
-            // If a flavor is for an alternate host, it's safe to skip.
-            continue;
+          // If a flavor is for an alternate host, it's safe to skip.
+          continue;
         }
-        throw new HumanReadableException(
-            "Could not find platform for which overrides were specified: " + flavor);
+        LOG.warn("Could not find platform for which overrides were specified: " + flavor);
       }
 
       cxxOverridePlatformsMap.put(flavor, CxxPlatforms.copyPlatformWithFlavorAndConfig(
@@ -558,12 +563,14 @@ public class KnownBuildRuleTypes {
             platformFlavorsToSwiftPlatforms);
     builder.register(swiftLibraryDescription);
 
-    CodeSignIdentityStore codeSignIdentityStore = appleConfig.useDryRunCodeSigning() ?
-        CodeSignIdentityStore.fromIdentities(ImmutableList.of()) :
-        CodeSignIdentityStore.fromSystem(processExecutor);
+    CodeSignIdentityStore codeSignIdentityStore =
+        CodeSignIdentityStore.fromSystem(
+            processExecutor,
+            appleConfig.getCodeSignIdentitiesCommand());
     ProvisioningProfileStore provisioningProfileStore =
         ProvisioningProfileStore.fromSearchPath(
             processExecutor,
+            appleConfig.getProvisioningProfileReadCommand(),
             appleConfig.getProvisioningProfileSearchPath());
 
     AppleLibraryDescription appleLibraryDescription =
@@ -574,8 +581,7 @@ public class KnownBuildRuleTypes {
             defaultCxxPlatform,
             codeSignIdentityStore,
             provisioningProfileStore,
-            appleConfig.getDefaultDebugInfoFormatForLibraries(),
-            appleConfig.useDryRunCodeSigning());
+            appleConfig);
     builder.register(appleLibraryDescription);
     PrebuiltAppleFrameworkDescription appleFrameworkDescription =
         new PrebuiltAppleFrameworkDescription();
@@ -588,8 +594,7 @@ public class KnownBuildRuleTypes {
             platformFlavorsToAppleCxxPlatforms,
             codeSignIdentityStore,
             provisioningProfileStore,
-            appleConfig.getDefaultDebugInfoFormatForBinaries(),
-            appleConfig.useDryRunCodeSigning());
+            appleConfig);
     builder.register(appleBinaryDescription);
 
     HaskellBuckConfig haskellBuckConfig = new HaskellBuckConfig(config, executableFinder);
@@ -653,8 +658,7 @@ public class KnownBuildRuleTypes {
             defaultCxxPlatform,
             codeSignIdentityStore,
             provisioningProfileStore,
-            appleConfig.getDefaultDebugInfoFormatForBinaries(),
-            appleConfig.useDryRunCodeSigning());
+            appleConfig);
     builder.register(appleBundleDescription);
     builder.register(new AppleResourceDescription());
     builder.register(
@@ -667,9 +671,7 @@ public class KnownBuildRuleTypes {
             codeSignIdentityStore,
             provisioningProfileStore,
             appleConfig.getAppleDeveloperDirectorySupplierForTests(processExecutor),
-            appleConfig.getDefaultDebugInfoFormatForTests(),
-            defaultTestRuleTimeoutMs,
-            appleConfig.useDryRunCodeSigning()));
+            defaultTestRuleTimeoutMs));
     builder.register(new CoreDataModelDescription());
     builder.register(new CsharpLibraryDescription());
     builder.register(cxxBinaryDescription);
@@ -751,7 +753,7 @@ public class KnownBuildRuleTypes {
             pythonPlatforms));
     builder.register(new LuaLibraryDescription());
     builder.register(new NdkLibraryDescription(ndkVersion, ndkCxxPlatforms));
-    OcamlBuckConfig ocamlBuckConfig = new OcamlBuckConfig(platform, config);
+    OcamlBuckConfig ocamlBuckConfig = new OcamlBuckConfig(platform, filesystem, config);
     builder.register(new OcamlBinaryDescription(ocamlBuckConfig));
     builder.register(new OcamlLibraryDescription(ocamlBuckConfig));
     builder.register(new PrebuiltCxxLibraryDescription(cxxBuckConfig, cxxPlatforms));
@@ -781,6 +783,7 @@ public class KnownBuildRuleTypes {
             defaultCxxPlatform));
     builder.register(new RustBinaryDescription(rustBuckConfig, defaultCxxPlatform));
     builder.register(new RustLibraryDescription(rustBuckConfig, defaultCxxPlatform));
+    builder.register(new RustTestDescription(rustBuckConfig, defaultCxxPlatform));
     builder.register(new PrebuiltRustLibraryDescription(rustBuckConfig, defaultCxxPlatform));
     builder.register(new ScalaLibraryDescription(scalaConfig));
     builder.register(new ScalaTestDescription(
@@ -788,6 +791,7 @@ public class KnownBuildRuleTypes {
         defaultJavaOptionsForTests,
         defaultTestRuleTimeoutMs,
         defaultCxxPlatform));
+    builder.register(new SceneKitAssetsDescription());
     builder.register(new ShBinaryDescription());
     builder.register(new ShTestDescription(defaultTestRuleTimeoutMs));
     ThriftBuckConfig thriftBuckConfig = new ThriftBuckConfig(config);

@@ -44,6 +44,7 @@ import com.facebook.buck.rules.macros.MacroHandler;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.OptionalCompat;
+import com.facebook.buck.versions.VersionRoot;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Supplier;
@@ -56,12 +57,12 @@ import com.google.common.collect.Maps;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.Collections;
 import java.util.Optional;
 
 public class PythonTestDescription implements
     Description<PythonTestDescription.Arg>,
-    ImplicitDepsInferringDescription<PythonTestDescription.Arg> {
+    ImplicitDepsInferringDescription<PythonTestDescription.Arg>,
+    VersionRoot<PythonTestDescription.Arg> {
 
   private static final Flavor BINARY_FLAVOR = ImmutableFlavor.of("binary");
 
@@ -183,42 +184,24 @@ public class PythonTestDescription implements
     Path baseModule = PythonUtil.getBasePath(params.getBuildTarget(), args.baseModule);
 
     ImmutableMap<Path, SourcePath> srcs =
-        ImmutableMap.<Path, SourcePath>builder()
-            .putAll(
-                PythonUtil.toModuleMap(
-                    params.getBuildTarget(),
-                    pathResolver,
-                    "srcs",
-                    baseModule,
-                    Collections.singleton(args.srcs)))
-            .putAll(
-                PythonUtil.toModuleMap(
-                    params.getBuildTarget(),
-                    pathResolver,
-                    "platformSrcs",
-                    baseModule,
-                    args.platformSrcs
-                        .getMatchingValues(pythonPlatform.getFlavor().toString())))
-            .build();
+        PythonUtil.getModules(
+            params.getBuildTarget(),
+            pathResolver,
+            "srcs",
+            baseModule,
+            args.srcs,
+            args.platformSrcs,
+            pythonPlatform);
 
     ImmutableMap<Path, SourcePath> resources =
-        ImmutableMap.<Path, SourcePath>builder()
-            .putAll(
-                PythonUtil.toModuleMap(
-                    params.getBuildTarget(),
-                    pathResolver,
-                    "resources",
-                    baseModule,
-                    Collections.singleton(args.resources)))
-            .putAll(
-                PythonUtil.toModuleMap(
-                    params.getBuildTarget(),
-                    pathResolver,
-                    "platformResources",
-                    baseModule,
-                    args.platformResources
-                        .getMatchingValues(pythonPlatform.getFlavor().toString())))
-            .build();
+        PythonUtil.getModules(
+            params.getBuildTarget(),
+            pathResolver,
+            "resources",
+            baseModule,
+            args.resources,
+            args.platformResources,
+            pythonPlatform);
 
     // Convert the passed in module paths into test module names.
     ImmutableSet.Builder<String> testModulesBuilder = ImmutableSet.builder();
@@ -384,6 +367,11 @@ public class PythonTestDescription implements
     return targets.build();
   }
 
+  @Override
+  public boolean isVersionRoot(ImmutableSet<Flavor> flavors) {
+    return true;
+  }
+
   @SuppressFieldNotInitialized
   public static class Arg extends PythonLibraryDescription.Arg {
     public Optional<String> mainModule;
@@ -400,6 +388,7 @@ public class PythonTestDescription implements
 
     public ImmutableMap<String, String> env = ImmutableMap.of();
     public Optional<Long> testRuleTimeoutMs;
+    public Optional<String> versionUniverse;
   }
 
 }

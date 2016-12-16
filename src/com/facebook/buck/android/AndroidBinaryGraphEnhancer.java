@@ -26,10 +26,10 @@ import com.facebook.buck.android.aapt.RDotTxtEntry.RType;
 import com.facebook.buck.cxx.CxxBuckConfig;
 import com.facebook.buck.jvm.java.DefaultJavaLibrary;
 import com.facebook.buck.jvm.java.JavaLibrary;
+import com.facebook.buck.jvm.java.JavaLibraryRules;
 import com.facebook.buck.jvm.java.JavacOptions;
 import com.facebook.buck.jvm.java.JavacOptionsAmender;
 import com.facebook.buck.jvm.java.JavacToJarStepFactory;
-import com.facebook.buck.jvm.java.Keystore;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.HasBuildTarget;
@@ -113,7 +113,6 @@ public class AndroidBinaryGraphEnhancer {
   private final boolean includesVectorDrawables;
   private final JavacOptions javacOptions;
   private final EnumSet<ExopackageMode> exopackageModes;
-  private final Keystore keystore;
   private final BuildConfigFields buildConfigValues;
   private final Optional<SourcePath> buildConfigValuesFile;
   private final Optional<Integer> xzCompressionLevel;
@@ -142,7 +141,6 @@ public class AndroidBinaryGraphEnhancer {
       boolean includesVectorDrawables,
       JavacOptions javacOptions,
       EnumSet<ExopackageMode> exopackageModes,
-      Keystore keystore,
       BuildConfigFields buildConfigValues,
       Optional<SourcePath> buildConfigValuesFile,
       Optional<Integer> xzCompressionLevel,
@@ -180,7 +178,6 @@ public class AndroidBinaryGraphEnhancer {
     this.includesVectorDrawables = includesVectorDrawables;
     this.javacOptions = javacOptions;
     this.exopackageModes = exopackageModes;
-    this.keystore = keystore;
     this.buildConfigValues = buildConfigValues;
     this.buildConfigValuesFile = buildConfigValuesFile;
     this.dxExecutorService = dxExecutorService;
@@ -267,7 +264,8 @@ public class AndroidBinaryGraphEnhancer {
           /* providedDeps */ ImmutableSortedSet.of(),
           // We just use the full output jar as the ABI jar.
           // Because no Java libraries depend on us, there is no risk of wasteful rebuilding.
-          new BuildTargetSourcePath(compileMergedNativeLibGenCode),
+          compileMergedNativeLibGenCode,
+          JavaLibraryRules.getAbiInputs(ruleResolver, paramsForCompileGenCode.getDeps()),
           /* trackClassUsage */ false,
           /* additionalClasspathEntries */ ImmutableSet.of(),
           new JavacToJarStepFactory(
@@ -449,7 +447,8 @@ public class AndroidBinaryGraphEnhancer {
         /* providedDeps */ ImmutableSortedSet.of(),
         // Because the Uber R.java has no method bodies or private methods or fields,
         // we can just use its output as the ABI.
-        new BuildTargetSourcePath(compileUberRDotJavaTarget),
+        compileUberRDotJavaTarget,
+        JavaLibraryRules.getAbiInputs(ruleResolver, paramsForCompileUberRDotJava.getDeps()),
         /* trackClassUsage */ false,
         /* additionalClasspathEntries */ ImmutableSet.of(),
         new JavacToJarStepFactory(
@@ -494,7 +493,7 @@ public class AndroidBinaryGraphEnhancer {
       BuildRuleParams paramsForComputeExopackageAbi = buildRuleParams.copyWithChanges(
           createBuildTargetWithFlavor(CALCULATE_ABI_FLAVOR),
           Suppliers.ofInstance(enhancedDeps.build()),
-          /* extraDeps */ Suppliers.ofInstance(ImmutableSortedSet.of()));
+        /* extraDeps */ Suppliers.ofInstance(ImmutableSortedSet.of()));
       computeExopackageDepsAbi = Optional.of(
           new ComputeExopackageDepsAbi(
               paramsForComputeExopackageAbi,
@@ -504,8 +503,8 @@ public class AndroidBinaryGraphEnhancer {
               aaptPackageResources,
               copyNativeLibraries,
               packageStringAssets,
-              preDexMerge,
-              keystore));
+              preDexMerge
+          ));
       ruleResolver.addToIndex(computeExopackageDepsAbi.get());
       enhancedDeps.add(computeExopackageDepsAbi.get());
     }
@@ -539,7 +538,7 @@ public class AndroidBinaryGraphEnhancer {
   private void addBuildConfigDeps(
       AndroidPackageableCollection packageableCollection,
       ImmutableSortedSet.Builder<BuildRule> enhancedDeps,
-      ImmutableList.Builder<BuildRule> compilationRulesBuilder) {
+      ImmutableList.Builder<BuildRule> compilationRulesBuilder) throws NoSuchBuildTargetException {
     BuildConfigFields buildConfigConstants = BuildConfigFields.fromFields(
         ImmutableList.of(
             BuildConfigFields.Field.of(

@@ -1,1 +1,4 @@
-standard_java_test()
+standard_java_test(
+  run_test_separately=True,
+  labels = ['long_running'],
+)

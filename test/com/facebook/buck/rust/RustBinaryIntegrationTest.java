@@ -100,6 +100,43 @@ public class RustBinaryIntegrationTest {
   }
 
   @Test
+  public void simpleCrateRootBinary() throws IOException, InterruptedException {
+    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this, "simple_binary", tmp);
+    workspace.setUp();
+
+    workspace.runBuckBuild("//:xyzzy_crate_root").assertSuccess();
+    BuckBuildLog buildLog = workspace.getBuildLog();
+    buildLog.assertTargetBuiltLocally("//:xyzzy_crate_root");
+    workspace.resetBuildLogFile();
+
+    ProcessExecutor.Result result = workspace.runCommand(
+        workspace.resolve("buck-out/gen/xyzzy_crate_root/xyzzy_crate_root").toString());
+    assertThat(result.getExitCode(), Matchers.equalTo(0));
+    assertThat(result.getStdout().get(), Matchers.containsString("Another top-level source"));
+    assertThat(result.getStderr().get(), Matchers.blankString());
+  }
+
+  @Test
+  public void binaryWithGeneratedSource() throws IOException, InterruptedException {
+    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this, "binary_with_generated", tmp);
+    workspace.setUp();
+
+    workspace.runBuckBuild("//:thing").assertSuccess();
+    BuckBuildLog buildLog = workspace.getBuildLog();
+    buildLog.assertTargetBuiltLocally("//:thing");
+    workspace.resetBuildLogFile();
+
+    ProcessExecutor.Result result = workspace.runCommand(
+        workspace.resolve("buck-out/gen/thing/thing").toString());
+    assertThat(result.getExitCode(), Matchers.equalTo(0));
+    assertThat(result.getStdout().get(),
+        Matchers.containsString("info is: this is generated info"));
+    assertThat(result.getStderr().get(), Matchers.blankString());
+  }
+
+  @Test
   public void rustBinaryCompilerArgs() throws IOException, InterruptedException {
     ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
         this, "simple_binary", tmp);
@@ -188,6 +225,118 @@ public class RustBinaryIntegrationTest {
     workspace.writeContentsToPath(
         workspace.getFileContents("main.rs") + "// this is a comment",
         "main.rs");
+  }
+
+  @Test
+  public void simpleTestFailure() throws IOException {
+    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this, "binary_with_tests", tmp);
+    workspace.setUp();
+
+    ProjectWorkspace.ProcessResult result = workspace.runBuckCommand("test", "//:test_failure");
+    result.assertTestFailure();
+    assert(result.getStderr().contains("assertion failed: false"));
+  }
+
+  @Test
+  public void simpleTestSuccess() throws IOException {
+    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this, "binary_with_tests", tmp);
+    workspace.setUp();
+
+    ProjectWorkspace.ProcessResult result = workspace.runBuckCommand("test", "//:test_success");
+    result.assertSuccess();
+  }
+
+  @Test
+  public void simpleTestIgnore() throws IOException {
+    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this, "binary_with_tests", tmp);
+    workspace.setUp();
+
+    ProjectWorkspace.ProcessResult result = workspace.runBuckCommand("test", "//:test_ignore");
+    result.assertSuccess();
+  }
+
+  @Test
+  public void testManyModules() throws IOException {
+    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this, "binary_with_tests", tmp);
+    workspace.setUp();
+
+    ProjectWorkspace.ProcessResult result = workspace.runBuckCommand(
+        "test", "//:test_many_modules");
+    result.assertTestFailure();
+  }
+
+  @Test
+  public void testSuccessFailure() throws IOException {
+    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this, "binary_with_tests", tmp);
+    workspace.setUp();
+
+    ProjectWorkspace.ProcessResult result = workspace.runBuckCommand(
+        "test", "//:success_failure");
+    result.assertTestFailure();
+  }
+
+  @Test
+  public void runnableTest() throws IOException {
+    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this, "binary_with_tests", tmp);
+    workspace.setUp();
+
+    assertThat(
+        workspace.runBuckCommand("run", "//:test_success").assertSuccess().getStdout(),
+        Matchers.containsString("test test_hello_world ... ok"));
+  }
+
+  @Test
+  public void testWithCrateRoot() throws IOException {
+    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this, "binary_with_tests", tmp);
+    workspace.setUp();
+
+    ProjectWorkspace.ProcessResult result = workspace.runBuckCommand(
+        "test", "//:with_crate_root");
+    result.assertSuccess();
+  }
+
+  @Test
+  public void binaryWithLibrary() throws IOException, InterruptedException {
+    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this, "binary_with_library", tmp);
+    workspace.setUp();
+
+    assertThat(
+        workspace.runBuckCommand("run", "//:hello").assertSuccess().getStdout(),
+        Matchers.allOf(
+            Matchers.containsString("Hello, world!"),
+            Matchers.containsString("I have a message to deliver to you")));
+  }
+
+  @Test
+  public void binaryWithHyphenatedLibrary() throws IOException, InterruptedException {
+    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this, "binary_with_library", tmp);
+    workspace.setUp();
+
+    assertThat(
+        workspace.runBuckCommand("run", "//:hyphen").assertSuccess().getStdout(),
+        Matchers.containsString("Hyphenated: Audrey fforbes-Hamilton"));
+  }
+
+  @Test
+  public void binaryWithAliasedLibrary() throws IOException, InterruptedException {
+    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this, "binary_with_library", tmp);
+    workspace.setUp();
+
+    assertThat(
+        workspace.runBuckCommand("run", "//:hello_alias").assertSuccess().getStdout(),
+        Matchers.allOf(
+            Matchers.containsString("Hello, world!"),
+            Matchers.containsString("I have a message to deliver to you")));
   }
 
   @Test

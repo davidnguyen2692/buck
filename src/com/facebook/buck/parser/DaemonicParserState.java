@@ -29,7 +29,6 @@ import com.facebook.buck.model.BuildFileTree;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetException;
 import com.facebook.buck.model.FilesystemBackedBuildFileTree;
-import com.facebook.buck.parser.PipelineNodeCache.Cache;
 import com.facebook.buck.rules.Cell;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
 import com.facebook.buck.util.OptionalCompat;
@@ -104,13 +103,15 @@ class DaemonicParserState {
    */
   static final int DEFAULT_INITIAL_CAPACITY = 16;
   static final float DEFAULT_LOAD_FACTOR = 0.75f;
-  static final int DEFAULT_TYPE_CACHE_COUNT = 4;
 
-  private class DaemonicCache<T> implements Cache<BuildTarget, T> {
+  /**
+   * Stateless view of caches on object that conforms to {@link PipelineNodeCache.Cache}.
+   */
+  private class DaemonicCacheView<T> implements PipelineNodeCache.Cache<BuildTarget, T> {
 
     private final Class<T> type;
 
-    private DaemonicCache(Class<T> type) {
+    private DaemonicCacheView(Class<T> type) {
       this.type = type;
     }
 
@@ -119,9 +120,9 @@ class DaemonicParserState {
         throws BuildTargetException {
       invalidateIfProjectBuildFileParserStateChanged(cell);
       final Path buildFile = cell.getAbsolutePathToBuildFileUnsafe(target);
-      invalidateIfBuckConfigHasChanged(cell, buildFile);
+      invalidateIfBuckConfigOrEnvHasChanged(cell, buildFile);
 
-      Cache<BuildTarget, T> state = getCache(cell);
+      PipelineNodeCache.Cache<BuildTarget, T> state = getCache(cell);
       if (state == null) {
         return Optional.empty();
       }
@@ -133,12 +134,12 @@ class DaemonicParserState {
         throws BuildTargetException {
       invalidateIfProjectBuildFileParserStateChanged(cell);
       final Path buildFile = cell.getAbsolutePathToBuildFileUnsafe(target);
-      invalidateIfBuckConfigHasChanged(cell, buildFile);
+      invalidateIfBuckConfigOrEnvHasChanged(cell, buildFile);
 
       return getOrCreateCache(cell).putComputedNodeIfNotPresent(cell, target, targetNode);
     }
 
-    private @Nullable Cache<BuildTarget, T> getCache(Cell cell) {
+    private @Nullable PipelineNodeCache.Cache<BuildTarget, T> getCache(Cell cell) {
       DaemonicCellState cellState = getCellState(cell);
       if (cellState == null) {
         return null;
@@ -146,12 +147,16 @@ class DaemonicParserState {
       return cellState.getCache(type);
     }
 
-    private Cache<BuildTarget, T> getOrCreateCache(Cell cell) {
+    private PipelineNodeCache.Cache<BuildTarget, T> getOrCreateCache(Cell cell) {
       return getOrCreateCellState(cell).getOrCreateCache(type);
     }
   }
 
-  private class DaemonicRawCache implements Cache<Path, ImmutableSet<Map<String, Object>>> {
+  /**
+   * Stateless view of caches on object that conforms to {@link PipelineNodeCache.Cache}.
+   */
+  private class DaemonicRawCacheView
+      implements PipelineNodeCache.Cache<Path, ImmutableSet<Map<String, Object>>> {
 
     @Override
     public Optional<ImmutableSet<Map<String, Object>>> lookupComputedNode(
@@ -160,7 +165,7 @@ class DaemonicParserState {
         throws BuildTargetException {
       Preconditions.checkState(buildFile.isAbsolute());
       invalidateIfProjectBuildFileParserStateChanged(cell);
-      invalidateIfBuckConfigHasChanged(cell, buildFile);
+      invalidateIfBuckConfigOrEnvHasChanged(cell, buildFile);
 
       DaemonicCellState state = getCellState(cell);
       if (state == null) {
@@ -199,6 +204,7 @@ class DaemonicParserState {
       ImmutableSet.Builder<Path> dependentsOfEveryNode = ImmutableSet.builder();
       ImmutableMap<String, ImmutableMap<String, Optional<String>>> configs =
           ImmutableMap.of();
+      ImmutableMap<String, Optional<String>> env = ImmutableMap.of();
       for (Map<String, Object> rawNode : rawNodes) {
         if (rawNode.containsKey(INCLUDES_META_RULE)) {
           for (String path :
@@ -221,7 +227,11 @@ class DaemonicParserState {
           }
           configs = builder.build();
         } else if (rawNode.containsKey(ENV_META_RULE)) {
-          // Skip the env meta rule for now.
+          env =
+              ImmutableMap.copyOf(
+                  Maps.transformValues(
+                      Preconditions.checkNotNull((Map<String, String>) rawNode.get(ENV_META_RULE)),
+                      Optional::ofNullable));
         } else {
           withoutMetaIncludesBuilder.add(rawNode);
         }
@@ -247,7 +257,8 @@ class DaemonicParserState {
           buildFile,
           withoutMetaIncludes,
           dependentsOfEveryNode.build(),
-          configs);
+          configs,
+          env);
     }
   }
 
@@ -268,22 +279,13 @@ class DaemonicParserState {
   @GuardedBy("cellStateLock")
   private final ConcurrentMap<Path, DaemonicCellState> cellPathToDaemonicState;
 
-  @GuardedBy("cellStateLock")
-  private final ConcurrentMap<Class<?>, DaemonicCache<?>> typedNodeCaches;
-  private final DaemonicRawCache rawNodeCache;
+  private final LoadingCache<Class<?>, DaemonicCacheView<?>> typedNodeCaches =
+      CacheBuilder.newBuilder().build(CacheLoader.from(cls -> new DaemonicCacheView<>(cls)));
+  private final DaemonicRawCacheView rawNodeCache;
 
   private final int parsingThreads;
 
   private final LoadingCache<Cell, BuildFileTree> buildFileTrees;
-
-  /**
-   * Environment used by build files. If the environment is changed, then build files need to be
-   * reevaluated with the new environment, so the environment used when populating the rule cache
-   * is stored between requests to parse build files and the cache is invalidated and build files
-   * reevaluated if the environment changes.
-   */
-  @GuardedBy("cachedStateLock")
-  private ImmutableMap<String, String> cachedEnvironment;
 
   /**
    * The default includes used by the previous run of the parser in each cell (the key is the
@@ -339,7 +341,6 @@ class DaemonicParserState {
             return new FilesystemBackedBuildFileTree(cell.getFilesystem(), cell.getBuildFileName());
           }
         });
-    this.cachedEnvironment = ImmutableMap.of();
     this.cachedIncludes = new ConcurrentHashMap<>();
     this.cellPathToDaemonicState =
         new ConcurrentHashMap<>(
@@ -347,12 +348,7 @@ class DaemonicParserState {
             DEFAULT_LOAD_FACTOR,
             parsingThreads);
 
-    this.rawNodeCache = new DaemonicRawCache();
-    this.typedNodeCaches =
-        new ConcurrentHashMap<>(
-            DEFAULT_TYPE_CACHE_COUNT,
-            DEFAULT_LOAD_FACTOR,
-            parsingThreads);
+    this.rawNodeCache = new DaemonicRawCacheView();
 
     this.cachedStateLock = new AutoCloseableReadWriteUpdateLock();
     this.cellStateLock = new AutoCloseableReadWriteUpdateLock();
@@ -367,19 +363,22 @@ class DaemonicParserState {
     return buildFileTrees;
   }
 
+  /**
+   * Retrieve the cache view for caching a particular type.
+   *
+   * Note that the output type is not constrained to the type of the Class object to allow for types
+   * with generics.  Care should be taken to ensure that the correct class object is passed in.
+   */
   @SuppressWarnings("unchecked")
-  public <T> Cache<BuildTarget, T> getOrCreateNodeCache(Class<?> cacheType) {
-    try (AutoCloseableLock writeLock = cellStateLock.writeLock()) {
-      DaemonicCache<?> cache = typedNodeCaches.get(cacheType);
-      if (cache == null) {
-        cache = new DaemonicCache<>(cacheType);
-        typedNodeCaches.put(cacheType, cache);
-      }
-      return (Cache<BuildTarget, T>) cache;
+  public <T> PipelineNodeCache.Cache<BuildTarget, T> getOrCreateNodeCache(Class<?> cacheType) {
+    try {
+      return (PipelineNodeCache.Cache<BuildTarget, T>) typedNodeCaches.get(cacheType);
+    } catch (ExecutionException e) {
+      throw new IllegalStateException("typedNodeCaches CacheLoader should not throw.", e);
     }
   }
 
-  public Cache<Path, ImmutableSet<Map<String, Object>>> getRawNodeCache() {
+  public PipelineNodeCache.Cache<Path, ImmutableSet<Map<String, Object>>> getRawNodeCache() {
     return rawNodeCache;
   }
 
@@ -491,7 +490,7 @@ class DaemonicParserState {
 
     // If we're *not* enforcing package boundary checks, it's possible for multiple ancestor
     // packages to reference the same file
-    if (!cell.isEnforcingBuckPackageBoundaries()) {
+    if (!cell.isEnforcingBuckPackageBoundaries(path)) {
       while (packageBuildFile.isPresent() && packageBuildFile.get().getParent() != null) {
         packageBuildFile =
             buildFiles.getBasePathOfAncestorTarget(packageBuildFile.get().getParent());
@@ -547,7 +546,7 @@ class DaemonicParserState {
     return Iterators.any(cell.getTempFilePatterns().iterator(), patternMatches);
   }
 
-  private synchronized void invalidateIfBuckConfigHasChanged(Cell cell, Path buildFile) {
+  private synchronized void invalidateIfBuckConfigOrEnvHasChanged(Cell cell, Path buildFile) {
     try (AutoCloseableLock readLock = cellStateLock.readLock()) {
       DaemonicCellState state = cellPathToDaemonicState.get(cell.getRoot());
       if (state == null) {
@@ -555,62 +554,52 @@ class DaemonicParserState {
       }
       // Invalidates and also keeps the state cell up-to-date
       state.invalidateIfBuckConfigHasChanged(cell, buildFile);
+      Optional<MapDifference<String, String>> envDiff =
+          state.invalidateIfEnvHasChanged(cell, buildFile);
+      if (envDiff.isPresent()) {
+        MapDifference<String, String> diff = envDiff.get();
+        LOG.warn("Invalidating cache on environment change (%s)", diff);
+        Set<String> environmentChanges = new HashSet<>();
+        environmentChanges.addAll(diff.entriesOnlyOnLeft().keySet());
+        environmentChanges.addAll(diff.entriesOnlyOnRight().keySet());
+        environmentChanges.addAll(diff.entriesDiffering().keySet());
+        cacheInvalidatedByEnvironmentVariableChangeCounter.addAll(environmentChanges);
+        broadcastEventListener.broadcast(
+            ParsingEvent.environmentalChange(environmentChanges.toString()));
+      }
     }
   }
 
   private void invalidateIfProjectBuildFileParserStateChanged(Cell cell) {
-    ImmutableMap<String, String> cellEnv = cell.getBuckConfig().getFilteredEnvironment();
     Iterable<String> defaultIncludes = cell.getBuckConfig().getView(ParserConfig.class)
         .getDefaultIncludes();
 
-    boolean invalidatedByEnvironmentVariableChange = false;
     boolean invalidatedByDefaultIncludesChange = false;
     Iterable<String> expected;
-    ImmutableMap<String, String> originalCachedEnvironment;
     try (AutoCloseableLock updateLock = cachedStateLock.updateLock()) {
-      originalCachedEnvironment = cachedEnvironment;
       expected = cachedIncludes.get(cell.getRoot());
 
-      if (!cellEnv.equals(cachedEnvironment)) {
-        // Contents of System.getenv() have changed. Cowardly refuse to accept we'll parse
-        // everything the same way.
-        invalidatedByEnvironmentVariableChange = true;
-      } else if (expected == null || !Iterables.elementsEqual(defaultIncludes, expected)) {
+      if (expected == null || !Iterables.elementsEqual(defaultIncludes, expected)) {
         // Someone's changed the default includes. That's almost definitely caused all our lovingly
         // cached data to be enormously wonky.
         invalidatedByDefaultIncludesChange = true;
       }
 
-      if (!invalidatedByEnvironmentVariableChange && !invalidatedByDefaultIncludesChange) {
+      if (!invalidatedByDefaultIncludesChange) {
         return;
       }
 
       try (AutoCloseableLock writeLock = cachedStateLock.writeLock()) {
-        cachedEnvironment = cellEnv;
         cachedIncludes.put(cell.getRoot(), defaultIncludes);
       }
     }
     synchronized (this) {
-      if ((invalidatedByEnvironmentVariableChange && invalidateAllCaches()) ||
-          invalidateCellCaches(cell)) {
-        if (invalidatedByEnvironmentVariableChange) {
-          MapDifference<String, String> diff = Maps.difference(originalCachedEnvironment, cellEnv);
-          LOG.warn("Invalidating cache on environment change (%s)", diff);
-          Set<String> environmentChanges = new HashSet<>();
-          environmentChanges.addAll(diff.entriesOnlyOnLeft().keySet());
-          environmentChanges.addAll(diff.entriesOnlyOnRight().keySet());
-          environmentChanges.addAll(diff.entriesDiffering().keySet());
-          cacheInvalidatedByEnvironmentVariableChangeCounter.addAll(environmentChanges);
-          broadcastEventListener.broadcast(ParsingEvent.environmentalChange(
-              environmentChanges.toString()));
-        }
-        if (invalidatedByDefaultIncludesChange) {
-          LOG.warn(
-              "Invalidating cache on default includes change (%s != %s)",
-              expected,
-              defaultIncludes);
-          cacheInvalidatedByDefaultIncludesChangeCounter.inc();
-        }
+      if (invalidateCellCaches(cell) && invalidatedByDefaultIncludesChange) {
+        LOG.warn(
+            "Invalidating cache on default includes change (%s != %s)",
+            expected,
+            defaultIncludes);
+        cacheInvalidatedByDefaultIncludesChangeCounter.inc();
       }
     }
   }

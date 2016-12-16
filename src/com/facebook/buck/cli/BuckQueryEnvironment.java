@@ -34,9 +34,11 @@ import com.facebook.buck.query.QueryFileTarget;
 import com.facebook.buck.query.QueryTarget;
 import com.facebook.buck.query.QueryTargetAccessor;
 import com.facebook.buck.rules.Cell;
+import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.TargetNodes;
+import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.concurrent.MostExecutors;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
@@ -259,6 +261,14 @@ public class BuckQueryEnvironment implements QueryEnvironment {
   }
 
   @Override
+  public Set<QueryTarget> getInputs(QueryTarget target) throws QueryException {
+    TargetNode<?, ?> node = getNode(target);
+    return node.getInputs().stream()
+        .map(QueryFileTarget::of)
+        .collect(MoreCollectors.toImmutableSet());
+  }
+
+  @Override
   public ImmutableSet<QueryTarget> getTransitiveClosure(Set<QueryTarget> targets)
       throws QueryException, InterruptedException {
     Set<TargetNode<?, ?>> nodes = new LinkedHashSet<>();
@@ -364,7 +374,7 @@ public class BuckQueryEnvironment implements QueryEnvironment {
 
   @Override
   public String getTargetKind(QueryTarget target) throws QueryException, InterruptedException {
-    return getNode(target).getType().getName();
+    return Description.getBuildRuleType(getNode(target).getDescription()).getName();
   }
 
   @Override

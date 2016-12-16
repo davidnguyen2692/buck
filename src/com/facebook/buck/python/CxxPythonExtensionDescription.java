@@ -58,6 +58,7 @@ import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
 import com.facebook.buck.util.OptionalCompat;
+import com.facebook.buck.versions.VersionPropagator;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
@@ -75,7 +76,8 @@ import java.util.Optional;
 
 public class CxxPythonExtensionDescription implements
     Description<CxxPythonExtensionDescription.Arg>,
-    ImplicitDepsInferringDescription<CxxPythonExtensionDescription.Arg> {
+    ImplicitDepsInferringDescription<CxxPythonExtensionDescription.Arg>,
+    VersionPropagator<CxxPythonExtensionDescription.Arg> {
 
   private enum Type {
     EXTENSION,
@@ -209,7 +211,6 @@ public class CxxPythonExtensionDescription implements
                 args.langCompilerFlags,
                 cxxPlatform),
             args.prefixHeader,
-            cxxBuckConfig.getPreprocessMode(),
             srcs,
             CxxSourceRuleFactory.PicType.PIC,
             sandboxTree);
@@ -253,7 +254,9 @@ public class CxxPythonExtensionDescription implements
                 args.platformDeps.getMatchingValues(pythonPlatform.getFlavor().toString()))));
 
     // Add a dep on the python C/C++ library.
-    rules.add(ruleResolver.getRule(pythonPlatform.getCxxLibrary().get().getBuildTarget()));
+    if (pythonPlatform.getCxxLibrary().isPresent()) {
+      rules.add(ruleResolver.getRule(pythonPlatform.getCxxLibrary().get().getBuildTarget()));
+    }
 
     return rules.build();
   }
@@ -367,7 +370,7 @@ public class CxxPythonExtensionDescription implements
           CxxPlatform cxxPlatform)
           throws NoSuchBuildTargetException {
         return ruleResolver.requireRule(
-            getBuildTarget().withFlavors(
+            getBuildTarget().withAppendedFlavors(
                 pythonPlatform.getFlavor(),
                 cxxPlatform.getFlavor(),
                 CxxDescriptionEnhancer.SHARED_FLAVOR));

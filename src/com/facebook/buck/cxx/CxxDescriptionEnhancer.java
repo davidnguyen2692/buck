@@ -570,10 +570,7 @@ public class CxxDescriptionEnhancer {
                         .map(Object::toString)
                         .filter(x -> !x.isEmpty())
                         .iterator())
-                .add(
-                    target
-                        .withoutFlavors(platform.getFlavor())
-                        .getShortNameAndFlavorPostfix())
+                .add(target.getShortName())
                 .build());
     String extension = platform.getSharedLibraryExtension();
     return String.format("lib%s.%s", libName, extension);
@@ -767,7 +764,6 @@ public class CxxDescriptionEnhancer {
                 langCompilerFlags,
                 cxxPlatform),
             prefixHeader,
-            cxxBuckConfig.getPreprocessMode(),
             srcs,
             linkStyle == Linker.LinkableDepType.STATIC ?
                 CxxSourceRuleFactory.PicType.PDC :
@@ -1058,7 +1054,6 @@ public class CxxDescriptionEnhancer {
     return CxxCompilationDatabase.createCompilationDatabase(
         params,
         pathResolver,
-        cxxBuckConfig.getPreprocessMode(),
         objects.keySet(),
         requireTransitiveCompilationDatabaseHeaderSymlinkTreeDeps(
             params,
@@ -1219,7 +1214,6 @@ public class CxxDescriptionEnhancer {
             args.langCompilerFlags,
             cxxPlatform),
         args.prefixHeader,
-        cxxBuckConfig.getPreprocessMode(),
         CxxDescriptionEnhancer.parseCxxSources(
             params.getBuildTarget(),
             sourcePathResolver,

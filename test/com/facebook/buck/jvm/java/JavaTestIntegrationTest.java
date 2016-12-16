@@ -236,6 +236,52 @@ public class JavaTestIntegrationTest {
   }
 
   @Test
+  public void testWithJniWithWhitelist() throws IOException {
+    assumeTrue(Platform.detect() != Platform.WINDOWS);
+    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this,
+        "test_with_jni",
+        temp);
+    workspace.setUp();
+    ProjectWorkspace.ProcessResult result = workspace.runBuckCommand("test", "//:jtest-skip-dep");
+    result.assertSuccess();
+  }
+
+  @Test
+  public void testWithJniWithWhitelistAndDangerousSymlink() throws IOException {
+    assumeTrue(Platform.detect() != Platform.WINDOWS);
+    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this,
+        "test_with_jni",
+        temp);
+    workspace.setUp();
+    ProjectWorkspace.ProcessResult result1 = workspace.runBuckCommand(
+        "test",
+        "//:jtest-pernicious",
+        "//:jtest-symlink");
+    result1.assertSuccess();
+
+    workspace.replaceFileContents(
+        "BUCK",
+        "'//:jlib-native',#delete-1",
+        "");
+    workspace.replaceFileContents(
+        "JTestWithoutPernicious.java",
+        "@Test//getValue",
+        "");
+    workspace.replaceFileContents(
+        "JTestWithoutPernicious.java",
+        "//@Test//noTestLib",
+        "@Test");
+
+    ProjectWorkspace.ProcessResult result2 = workspace.runBuckCommand(
+        "test",
+        "//:jtest-pernicious",
+        "//:jtest-symlink");
+    result2.assertSuccess();
+  }
+
+  @Test
   public void testForkMode() throws IOException {
     ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
         this,

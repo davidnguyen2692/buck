@@ -26,6 +26,7 @@ import com.facebook.buck.util.concurrent.AutoCloseableReadWriteUpdateLock;
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.MapDifference;
 import com.google.common.collect.Maps;
 import com.google.common.collect.SetMultimap;
 
@@ -64,7 +65,11 @@ class DaemonicCellState {
       try (AutoCloseableLock writeLock = rawAndComputedNodesLock.writeLock()) {
         T updatedNode = allComputedNodes.putIfAbsentAndGet(target, targetNode);
         if (updatedNode.equals(targetNode)) {
-          targetsCornucopia.put(target.getUnflavoredBuildTarget(), target);
+          if (cell.getBuckConfig().getView(ParserConfig.class).getTrackCellAgnosticTarget()) {
+            targetsCornucopia.put(target.withoutCell().getUnflavoredBuildTarget(), target);
+          } else {
+            targetsCornucopia.put(target.getUnflavoredBuildTarget(), target);
+          }
         }
         return updatedNode;
       }
@@ -80,7 +85,9 @@ class DaemonicCellState {
   private final SetMultimap<UnflavoredBuildTarget, BuildTarget> targetsCornucopia;
   @GuardedBy("rawAndComputedNodesLock")
   private final Map<Path, ImmutableMap<String, ImmutableMap<String, Optional<String>>>>
-    buildFileConfigs;
+      buildFileConfigs;
+  @GuardedBy("rawAndComputedNodesLock")
+  private final Map<Path, ImmutableMap<String, Optional<String>>> buildFileEnv;
   @GuardedBy("rawAndComputedNodesLock")
   private final ConcurrentMapCache<Path, ImmutableSet<Map<String, Object>>> allRawNodes;
   @GuardedBy("rawAndComputedNodesLock")
@@ -96,6 +103,7 @@ class DaemonicCellState {
     this.buildFileDependents = HashMultimap.create();
     this.targetsCornucopia = HashMultimap.create();
     this.buildFileConfigs = new HashMap<>();
+    this.buildFileEnv = new HashMap<>();
     this.allRawNodes = new ConcurrentMapCache<>(parsingThreads);
     this.typedNodeCaches = Maps.newConcurrentMap();
     this.rawAndComputedNodesLock = new AutoCloseableReadWriteUpdateLock();
@@ -141,11 +149,13 @@ class DaemonicCellState {
       final Path buildFile,
       final ImmutableSet<Map<String, Object>> withoutMetaIncludes,
       final ImmutableSet<Path> dependentsOfEveryNode,
-      ImmutableMap<String, ImmutableMap<String, Optional<String>>> configs) {
+      ImmutableMap<String, ImmutableMap<String, Optional<String>>> configs,
+      ImmutableMap<String, Optional<String>> env) {
     try (AutoCloseableLock writeLock = rawAndComputedNodesLock.writeLock()) {
       ImmutableSet<Map<String, Object>> updated =
           allRawNodes.putIfAbsentAndGet(buildFile, withoutMetaIncludes);
       buildFileConfigs.put(buildFile, configs);
+      buildFileEnv.put(buildFile, env);
       if (updated == withoutMetaIncludes) {
         // We now know all the nodes. They all implicitly depend on everything in
         // the "dependentsOfEveryNode" set.
@@ -187,6 +197,7 @@ class DaemonicCellState {
       }
       buildFileDependents.removeAll(path);
       buildFileConfigs.remove(path);
+      buildFileEnv.remove(path);
 
       return invalidatedRawNodes;
     }
@@ -216,4 +227,30 @@ class DaemonicCellState {
       }
     }
   }
+
+  Optional<MapDifference<String, String>> invalidateIfEnvHasChanged(Cell cell, Path buildFile) {
+    try (AutoCloseableLock writeLock = rawAndComputedNodesLock.writeLock()) {
+      // Invalidate if env vars have changed.
+      ImmutableMap<String, Optional<String>> usedEnv = buildFileEnv.get(buildFile);
+      if (usedEnv == null) {
+        this.cell = cell;
+        return Optional.empty();
+      }
+      for (Map.Entry<String, Optional<String>> ent : usedEnv.entrySet()) {
+        Optional<String> value =
+            Optional.ofNullable(cell.getBuckConfig().getEnvironment().get(ent.getKey()));
+        if (!value.equals(ent.getValue())) {
+          invalidatePath(buildFile);
+          this.cell = cell;
+          return Optional.of(
+              Maps.difference(
+                  value.map(v -> ImmutableMap.of(ent.getKey(), v)).orElse(ImmutableMap.of()),
+                  ent.getValue()
+                      .map(v -> ImmutableMap.of(ent.getKey(), v)).orElse(ImmutableMap.of())));
+        }
+      }
+      return Optional.empty();
+    }
+  }
+
 }

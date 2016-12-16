@@ -44,7 +44,7 @@
       "//src/com/facebook/buck/io:io",
       "//src/com/facebook/buck/model:model",
       "//src/com/facebook/buck/step:step",
-      "//src/com/facebook/buck/util:io",
+      "//src/com/facebook/buck/util:process_executor",
       "//src/com/facebook/buck/util/environment:platform",
       "//third-party/java/guava:guava"
     ]
@@ -62,6 +62,7 @@
       "//src/com/facebook/buck/cli:config",
       "//src/com/facebook/buck/io:io",
       "//src/com/facebook/buck/model:model",
+      "//src/com/facebook/buck/model:simple_types",
       "//src/com/facebook/buck/parser:rule_pattern",
       "//src/com/facebook/buck/rules:build_rule",
       "//src/com/facebook/buck/rules:interfaces",
@@ -72,7 +73,7 @@
       "//src/com/facebook/buck/shell:worker_process",
       "//src/com/facebook/buck/shell:worker_tool",
       "//src/com/facebook/buck/step:step",
-      "//src/com/facebook/buck/util:io",
+      "//src/com/facebook/buck/util:process_executor",
       "//src/com/facebook/buck/util/environment:platform",
       "//src/com/facebook/buck/util/immutables:immutables",
       "//third-party/java/guava:guava",
@@ -89,7 +90,7 @@
     ],
     "exported_deps" : [
       "//src/com/facebook/buck/io:io",
-      "//src/com/facebook/buck/util:io",
+      "//src/com/facebook/buck/util:process_executor",
       "//src/com/facebook/buck/util/immutables:immutables",
       "//third-party/java/gson:gson",
       "//third-party/java/guava:guava"

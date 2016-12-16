@@ -19,6 +19,7 @@ package com.facebook.buck.jvm.java;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.UnflavoredBuildTarget;
+import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.AbstractDescriptionArg;
 import com.facebook.buck.rules.AddToRuleKey;
@@ -26,7 +27,6 @@ import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.SourcePath;
@@ -56,22 +56,24 @@ public class PrebuiltJarDescription implements Description<PrebuiltJarDescriptio
       TargetGraph targetGraph,
       BuildRuleParams params,
       BuildRuleResolver resolver,
-      A args) {
+      A args) throws NoSuchBuildTargetException {
     SourcePathResolver pathResolver = new SourcePathResolver(resolver);
 
+    if (params.getBuildTarget().getFlavors().contains(CalculateAbi.FLAVOR)) {
+      return CalculateAbi.of(
+          params.getBuildTarget(),
+          pathResolver,
+          params,
+          args.binaryJar);
+    }
+
     BuildTarget abiJarTarget = params.getBuildTarget().withAppendedFlavors(CalculateAbi.FLAVOR);
-    resolver.addToIndex(
-        CalculateAbi.of(
-            abiJarTarget,
-            pathResolver,
-            params,
-            args.binaryJar));
 
     BuildRule prebuilt = new PrebuiltJar(
         params,
         pathResolver,
         args.binaryJar,
-        new BuildTargetSourcePath(abiJarTarget),
+        abiJarTarget,
         args.sourceJar,
         args.gwtJar,
         args.javadocUrl,

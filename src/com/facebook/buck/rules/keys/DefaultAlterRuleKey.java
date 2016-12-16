@@ -19,15 +19,15 @@ package com.facebook.buck.rules.keys;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.RuleKeyObjectSink;
 
-import java.lang.reflect.Field;
+class DefaultAlterRuleKey implements AlterRuleKey {
+  private final ValueExtractor valueExtractor;
 
-class DefaultAlterRuleKey extends AbstractAlterRuleKey {
-  public DefaultAlterRuleKey(Field field) {
-    super(field);
+  public DefaultAlterRuleKey(ValueExtractor valueExtractor) {
+    this.valueExtractor = valueExtractor;
   }
 
   @Override
   public void amendKey(RuleKeyObjectSink builder, BuildRule rule) {
-    builder.setReflectively(field.getName(), getValue(field, rule));
+    builder.setReflectively(valueExtractor.getName(), valueExtractor.getValue(rule));
   }
 }

@@ -52,6 +52,12 @@ import java.util.regex.Pattern;
 @BuckStyleImmutable
 abstract class AbstractJavacOptions implements RuleKeyAppendable {
 
+  // Default combined source and target level.
+  public static final String TARGETED_JAVA_VERSION = "7";
+
+  public static final String COM_SUN_TOOLS_JAVAC_API_JAVAC_TOOL =
+      "com.sun.tools.javac.api.JavacTool";
+
   /**
    * The method in which the compiler output is spooled.
    */
@@ -80,8 +86,20 @@ abstract class AbstractJavacOptions implements RuleKeyAppendable {
     JDK,
   }
 
+  public enum JavacLocation {
+    /**
+     * Perform compilation inside main process.
+     */
+    IN_PROCESS,
+    /**
+     * Delegate compilation into separate process.
+     */
+    OUT_OF_PROCESS,
+  }
+
   protected abstract Optional<Either<Path, SourcePath>> getJavacPath();
   protected abstract Optional<SourcePath> getJavacJarPath();
+  protected abstract Optional<String> getCompilerClassName();
 
   @Value.Default
   protected SpoolMode getSpoolMode() {
@@ -98,9 +116,16 @@ abstract class AbstractJavacOptions implements RuleKeyAppendable {
     return false;
   }
 
-  public abstract String getSourceLevel();
+  @Value.Default
+  public String getSourceLevel() {
+    return TARGETED_JAVA_VERSION;
+  }
+
   @VisibleForTesting
-  abstract String getTargetLevel();
+  @Value.Default
+  public String getTargetLevel() {
+    return TARGETED_JAVA_VERSION;
+  }
 
   @Value.Default
   public AnnotationProcessingParams getAnnotationProcessingParams() {
@@ -139,20 +164,41 @@ abstract class AbstractJavacOptions implements RuleKeyAppendable {
     }
   }
 
+  @Value.Default
+  public JavacLocation getJavacLocation() {
+    return JavacLocation.IN_PROCESS;
+  }
+
   @Value.Lazy
   public Javac getJavac() {
     final JavacSource javacSource = getJavacSource();
+    final JavacLocation javacLocation = getJavacLocation();
     switch (javacSource) {
       case EXTERNAL:
         return ExternalJavac.createJavac(getJavacPath().get());
       case JAR:
-        return new JarBackedJavac(
-            "com.sun.tools.javac.api.JavacTool",
-            ImmutableSet.of(getJavacJarPath().get()));
+        switch (javacLocation) {
+          case IN_PROCESS:
+            return new JarBackedJavac(
+                getCompilerClassName().orElse(COM_SUN_TOOLS_JAVAC_API_JAVAC_TOOL),
+                ImmutableSet.of(getJavacJarPath().get()));
+          case OUT_OF_PROCESS:
+            return new OutOfProcessJarBackedJavac(
+                getCompilerClassName().orElse(COM_SUN_TOOLS_JAVAC_API_JAVAC_TOOL),
+                ImmutableSet.of(getJavacJarPath().get()));
+        }
+        break;
       case JDK:
-        return new JdkProvidedInMemoryJavac();
+        switch (javacLocation) {
+          case IN_PROCESS:
+            return new JdkProvidedInMemoryJavac();
+          case OUT_OF_PROCESS:
+            return new OutOfProcessJdkProvidedInMemoryJavac();
+        }
+        break;
     }
-    throw new AssertionError("Unknown javac source: " + javacSource);
+    throw new AssertionError(
+        "Unknown javac source/javac location pair: " + javacSource + "/" + javacLocation);
   }
 
   public void validateOptions(Function<String, Boolean> classpathChecker) throws IOException {

@@ -25,15 +25,18 @@ import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.Tool;
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 
 import java.nio.file.Path;
+import java.util.Optional;
 
 public class RustLibrary extends RustCompile implements RustLinkable {
   public RustLibrary(
       BuildRuleParams params,
       SourcePathResolver resolver,
       String crate,
+      Optional<SourcePath> crateRoot,
       ImmutableSortedSet<SourcePath> srcs,
       ImmutableSortedSet<String> features,
       ImmutableList<String> rustcFlags,
@@ -45,6 +48,7 @@ public class RustLibrary extends RustCompile implements RustLinkable {
         params,
         resolver,
         crate,
+        crateRoot,
         srcs,
         ImmutableList.<String>builder()
             .add("--crate-type", "rlib")
@@ -52,7 +56,7 @@ public class RustLibrary extends RustCompile implements RustLinkable {
             .addAll(rustcFlags)
             .build(),
         features,
-        ImmutableSortedSet.of(),
+        ImmutableSet.of(),
         BuildTargets.getGenPath(
             params.getProjectFilesystem(),
             params.getBuildTarget(),
@@ -64,8 +68,8 @@ public class RustLibrary extends RustCompile implements RustLinkable {
   }
 
   @Override
-  protected String getDefaultSource() {
-    return "lib.rs";
+  protected ImmutableSet<String> getDefaultSources() {
+    return ImmutableSet.of("lib.rs");
   }
 
   @Override

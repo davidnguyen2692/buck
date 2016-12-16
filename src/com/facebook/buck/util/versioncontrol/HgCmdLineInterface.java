@@ -24,12 +24,15 @@ import com.facebook.buck.util.ProcessExecutorFactory;
 import com.facebook.buck.util.ProcessExecutorParams;
 import com.google.common.base.Joiner;
 import com.google.common.base.Strings;
+import com.google.common.base.Supplier;
+import com.google.common.base.Suppliers;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 
 import java.io.ByteArrayOutputStream;
+import java.io.File;
 import java.io.IOException;
 import java.io.PrintStream;
 import java.nio.file.Files;
@@ -42,6 +45,8 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.StreamSupport;
 
+import javax.annotation.Nullable;
+
 public class HgCmdLineInterface implements VersionControlCmdLineInterface {
 
   private static final Logger LOG = Logger.get(VersionControlCmdLineInterface.class);
@@ -53,6 +58,18 @@ public class HgCmdLineInterface implements VersionControlCmdLineInterface {
       // Set HGPLAIN to prevent user-defined Hg aliases from interfering with the expected behavior.
       "HGPLAIN", "1"
   );
+
+  /**
+   * Path to the rawmanifest.py Mercurial extenions used to transfer the manifest to Buck.
+   * We can't use PackagedResource here because we need to get the raw manifest from the
+   * AutoSparse ProjectFileSystemDelegate, which should not have access to the parent
+   * ProjectFileSystem.
+   */
+  private static final String PATH_TO_RAWMANIFEST_PY = System.getProperty(
+      "buck.path_to_rawmanifest_py",
+      // Fall back on this value when running Buck from an IDE.
+      new File("src/com/facebook/buck/util/versioncontrol/rawmanifest.py").getAbsolutePath());
+
   private static final Pattern HG_REVISION_ID_PATTERN = Pattern.compile("^[a-zA-Z0-9]+$");
   private static final Pattern HG_DATE_PATTERN = Pattern.compile("(\\d+)\\s([\\-\\+]?\\d+)");
   private static final int HG_UNIX_TS_GROUP_INDEX = 1;
@@ -61,6 +78,10 @@ public class HgCmdLineInterface implements VersionControlCmdLineInterface {
   private static final String NAME_TEMPLATE = "{name}";
   private static final String REVISION_ID_TEMPLATE = "{revision}";
   private static final String REVISION_IDS_TEMPLATE = "{revisions}";
+  private static final String PATH_TEMPLATE = "{path}";
+
+  private static final ImmutableList<String> ROOT_COMMAND =
+      ImmutableList.of(HG_CMD_TEMPLATE, "root");
 
   private static final ImmutableList<String> HG_ROOT_COMMAND =
       ImmutableList.of(HG_CMD_TEMPLATE, "root");
@@ -74,6 +95,14 @@ public class HgCmdLineInterface implements VersionControlCmdLineInterface {
   // -mardu: Track modified, added, deleted, unknown
   private static final ImmutableList<String> CHANGED_FILES_COMMAND =
       ImmutableList.of(HG_CMD_TEMPLATE, "status", "-mardu", "-0", "--rev", REVISION_ID_TEMPLATE);
+
+  private static final ImmutableList<String> SPARSE_REFRESH_COMMAND =
+      ImmutableList.of(HG_CMD_TEMPLATE, "sparse", "--refresh");
+
+  private static final ImmutableList<String> RAW_MANIFEST_COMMAND =
+      ImmutableList.of(HG_CMD_TEMPLATE, "--config",
+          "extensions.rawmanifest=" + PATH_TO_RAWMANIFEST_PY,
+          "rawmanifest", "-d", "-o", PATH_TEMPLATE);
 
   private static final ImmutableList<String> COMMON_ANCESTOR_COMMAND_TEMPLATE =
       ImmutableList.of(
@@ -97,6 +126,7 @@ public class HgCmdLineInterface implements VersionControlCmdLineInterface {
   private final Path projectRoot;
   private final String hgCmd;
   private final ImmutableMap<String, String> environment;
+  private final Supplier<Path> hgRoot;
 
   public HgCmdLineInterface(
       ProcessExecutorFactory processExecutorFactory,
@@ -106,8 +136,21 @@ public class HgCmdLineInterface implements VersionControlCmdLineInterface {
     this.processExecutorFactory = processExecutorFactory;
     this.projectRoot = projectRoot;
     this.hgCmd = hgCmd;
-    this.environment = MoreMaps.merge(environment, HG_ENVIRONMENT_VARIABLES);
-  }
+    this.environment = MoreMaps.merge(
+        environment,
+        HG_ENVIRONMENT_VARIABLES);
+    this.hgRoot = Suppliers.memoize(
+        () -> {
+          try {
+            Path root = Paths.get(executeCommand(ROOT_COMMAND));
+            LOG.debug("Set hg root to %s", root);
+            return root;
+          } catch (VersionControlCommandFailedException | InterruptedException e) {
+            LOG.debug("Unable to obtain a hg root for %s", projectRoot);
+            return null;
+          }
+        });
+    }
 
   @Override
   public boolean isSupportedVersionControlSystem() {
@@ -225,6 +268,34 @@ public class HgCmdLineInterface implements VersionControlCmdLineInterface {
       return ImmutableMap.of();
     }
     return bookmarksRevisions.build();
+  }
+
+  public String extractRawManifest()
+      throws VersionControlCommandFailedException, InterruptedException {
+    try {
+      Path hgmanifestDir = Files.createTempDirectory("hgmanifest");
+      hgmanifestDir.toFile().deleteOnExit();
+      Path hgmanifestOutput = hgmanifestDir.resolve("manifest.raw");
+      executeCommand(
+          replaceTemplateValue(
+              RAW_MANIFEST_COMMAND,
+              PATH_TEMPLATE,
+              hgmanifestOutput.toString()
+          ));
+      return hgmanifestOutput.toString();
+    } catch (IOException e) {
+      throw new VersionControlCommandFailedException("Unable to load hg manifest");
+    }
+  }
+
+  @Nullable
+  public Path getHgRoot() {
+    return hgRoot.get();
+  }
+
+  public void refreshHgSparse()
+      throws VersionControlCommandFailedException, InterruptedException {
+    executeCommand(SPARSE_REFRESH_COMMAND);
   }
 
   private String executeCommand(Iterable<String> command)

@@ -576,6 +576,11 @@ public class ProjectIntegrationTest {
   }
 
   @Test
+  public void testAndroidLibraryProject() throws IOException {
+    runBuckProjectAndVerify("android_library");
+  }
+
+  @Test
   public void testVersion2BuckProject() throws IOException {
     runBuckProjectAndVerify("experimental_project1");
   }
@@ -633,6 +638,11 @@ public class ProjectIntegrationTest {
   @Test
   public void testVersion2BuckProjectWithExcludedResources() throws IOException {
     runBuckProjectAndVerify("experimental_project_with_excluded_resources");
+  }
+
+  @Test
+  public void testVersion2BuckProjectWithLanguageLevel() throws IOException {
+    runBuckProjectAndVerify("experimental_project_with_language_level");
   }
 
   private ProcessResult runBuckProjectAndVerify(

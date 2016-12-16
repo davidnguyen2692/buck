@@ -132,23 +132,6 @@ public class CxxBuckConfig {
     return Optional.of(split.build());
   }
 
-  public CxxPreprocessMode getPreprocessMode() {
-    Optional<CxxPreprocessMode> setting = delegate.getEnum(
-      cxxSection, "preprocess_mode", CxxPreprocessMode.class);
-
-    if (setting.isPresent()) {
-      return setting.get();
-    }
-
-    // Support legacy configuration option
-    return delegate.getBooleanValue(
-            cxxSection,
-            "combined_preprocess_and_compile",
-            /* default*/ false)
-        ? CxxPreprocessMode.COMBINED
-        : CxxPreprocessMode.SEPARATE;
-  }
-
   /*
    * Constructs the appropriate Archiver for the specified platform.
    */

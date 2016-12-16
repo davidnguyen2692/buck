@@ -114,7 +114,6 @@ import com.facebook.buck.util.cache.FileHashCache;
 import com.facebook.buck.util.cache.StackedFileHashCache;
 import com.facebook.buck.util.cache.WatchedFileHashCache;
 import com.facebook.buck.util.concurrent.MostExecutors;
-import com.facebook.buck.util.concurrent.TimeSpan;
 import com.facebook.buck.util.environment.Architecture;
 import com.facebook.buck.util.environment.BuildEnvironmentDescription;
 import com.facebook.buck.util.environment.CommandMode;
@@ -129,6 +128,7 @@ import com.facebook.buck.util.shutdown.NonReentrantSystemExit;
 import com.facebook.buck.util.versioncontrol.DefaultVersionControlCmdLineInterfaceFactory;
 import com.facebook.buck.util.versioncontrol.VersionControlBuckConfig;
 import com.facebook.buck.util.versioncontrol.VersionControlStatsGenerator;
+import com.facebook.buck.versions.VersionedTargetGraphCache;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
@@ -137,8 +137,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.eventbus.EventBus;
-
-
 import com.google.common.reflect.ClassPath;
 import com.google.common.util.concurrent.AbstractScheduledService;
 import com.google.common.util.concurrent.ListeningExecutorService;
@@ -168,6 +166,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.text.SimpleDateFormat;
+import java.time.Duration;
 import java.util.Arrays;
 import java.util.Date;
 import java.util.HashMap;
@@ -205,13 +204,11 @@ public final class Main {
 
   private static final String BUCKD_COLOR_DEFAULT_ENV_VAR = "BUCKD_COLOR_DEFAULT";
 
-  private static final TimeSpan DAEMON_SLAYER_TIMEOUT = new TimeSpan(2, TimeUnit.HOURS);
+  private static final Duration DAEMON_SLAYER_TIMEOUT = Duration.ofHours(2);
 
-  private static final TimeSpan SUPER_CONSOLE_REFRESH_RATE =
-      new TimeSpan(100, TimeUnit.MILLISECONDS);
+  private static final Duration SUPER_CONSOLE_REFRESH_RATE = Duration.ofMillis(100);
 
-  private static final TimeSpan HANG_DETECTOR_TIMEOUT =
-      new TimeSpan(5, TimeUnit.MINUTES);
+  private static final Duration HANG_DETECTOR_TIMEOUT = Duration.ofMinutes(5);
 
   /**
    * Path to a directory of static content that should be served by the {@link WebServer}.
@@ -331,6 +328,7 @@ public final class Main {
     private final EventBus fileEventBus;
     private final Optional<WebServer> webServer;
     private final ConcurrentMap<String, WorkerProcessPool> persistentWorkerPools;
+    private final VersionedTargetGraphCache versionedTargetGraphCache;
     private final ActionGraphCache actionGraphCache;
     private final BroadcastEventListener broadcastEventListener;
 
@@ -350,6 +348,7 @@ public final class Main {
 
       this.broadcastEventListener = new BroadcastEventListener();
       this.actionGraphCache = new ActionGraphCache(broadcastEventListener);
+      this.versionedTargetGraphCache = new VersionedTargetGraphCache();
 
       TypeCoercerFactory typeCoercerFactory = new DefaultTypeCoercerFactory(objectMapper);
       this.parser = new Parser(
@@ -369,13 +368,9 @@ public final class Main {
       if (!initWebServer()) {
         LOG.warn("Can't start web server");
       }
-      Optional<WatchmanWatcher.CursorType> watchmanCursorType = cell.getBuckConfig().getEnum(
-          "project",
-          "watchman_cursor",
-          WatchmanWatcher.CursorType.class);
       ImmutableMap.Builder<Path, WatchmanCursor> cursorBuilder = ImmutableMap.builder();
-      if (watchmanCursorType.isPresent() &&
-          watchmanCursorType.get() == WatchmanWatcher.CursorType.CLOCK_ID &&
+      if (cell.getBuckConfig().getView(ParserConfig.class).getWatchmanCursor() ==
+          WatchmanWatcher.CursorType.CLOCK_ID &&
           !cell.getWatchman().getClockIds().isEmpty()) {
         for (Map.Entry<Path, String> entry : cell.getWatchman().getClockIds().entrySet()) {
           cursorBuilder.put(entry.getKey(), new WatchmanCursor(entry.getValue()));
@@ -448,6 +443,10 @@ public final class Main {
 
     private Parser getParser() {
       return parser;
+    }
+
+    private VersionedTargetGraphCache getVersionedTargetGraphCache() {
+      return versionedTargetGraphCache;
     }
 
     private ActionGraphCache getActionGraphCache() {
@@ -821,7 +820,7 @@ public final class Main {
     ImmutableSet<Path> projectWatchList = ImmutableSet.<Path>builder()
       .add(canonicalRootPath)
       .addAll(
-          config.getBooleanValue("project", "watch_cells", false) ?
+          buckConfig.getView(ParserConfig.class).getWatchCells() ?
               cellPathResolver.getTransitivePathMapping().values() :
               ImmutableList.of())
       .build();
@@ -956,7 +955,6 @@ public final class Main {
         ImmutableList<BuckEventListener> eventListeners = ImmutableList.of();
         ExecutionEnvironment executionEnvironment = new DefaultExecutionEnvironment(
             clientEnvironment,
-            // TODO(bhamiltoncx): Thread through properties from client environment.
             System.getProperties());
 
         FileHashCache cellHashCache;
@@ -1049,6 +1047,8 @@ public final class Main {
         // to the other resources before they are closed.
         InvocationInfo invocationInfo = InvocationInfo.of(
             buildId,
+            isSuperConsoleEnabled(console),
+            isDaemon,
             command.getSubCommandNameForLogging(),
             filesystem.getBuckPaths().getLogDir());
         try (
@@ -1121,6 +1121,13 @@ public final class Main {
                   executionEnvironment,
                   buckConfig);
 
+          Iterable<BuckEventListener> commandEventListeners =
+              command.getSubcommand().isPresent() ?
+                  command
+                      .getSubcommand()
+                      .get()
+                      .getEventListeners(invocationInfo.getLogDirectoryPath(), filesystem) :
+                  ImmutableList.of();
           eventListeners = addEventListeners(
               buildEventBus,
               rootCell.getFilesystem(),
@@ -1132,13 +1139,13 @@ public final class Main {
               consoleListener,
               rootCell.getKnownBuildRuleTypes(),
               clientEnvironment,
-              counterRegistry
+              counterRegistry,
+              commandEventListeners
           );
 
           if (buckConfig.isPublicAnnouncementsEnabled()) {
             PublicAnnouncementManager announcementManager = new PublicAnnouncementManager(
                 clock,
-                executionEnvironment,
                 buildEventBus,
                 consoleListener,
                 buckConfig.getRepository().orElse("unknown"),
@@ -1184,6 +1191,7 @@ public final class Main {
 
           // Create or get Parser and invalidate cached command parameters.
           Parser parser = null;
+          VersionedTargetGraphCache versionedTargetGraphCache = null;
           ActionGraphCache actionGraphCache = null;
 
           if (isDaemon) {
@@ -1205,6 +1213,7 @@ public final class Main {
                   buildEventBus,
                   watchmanWatcher,
                   watchmanFreshInstanceAction);
+              versionedTargetGraphCache = daemon.getVersionedTargetGraphCache();
               actionGraphCache = daemon.getActionGraphCache();
             } catch (WatchmanWatcherException | IOException e) {
               buildEventBus.post(
@@ -1212,6 +1221,10 @@ public final class Main {
                       "Watchman threw an exception while parsing file changes.\n%s",
                       e.getMessage()));
             }
+          }
+
+          if (versionedTargetGraphCache == null) {
+            versionedTargetGraphCache = new VersionedTargetGraphCache();
           }
 
           if (actionGraphCache == null) {
@@ -1284,6 +1297,7 @@ public final class Main {
                   .setFileHashCache(fileHashCache)
                   .setExecutors(executors)
                   .setBuildEnvironmentDescription(buildEnvironmentDescription)
+                  .setVersionedTargetGraphCache(versionedTargetGraphCache)
                   .setActionGraphCache(actionGraphCache)
                   .setKnownBuildRuleTypesFactory(factory)
                   .build());
@@ -1410,6 +1424,9 @@ public final class Main {
 
     } else {
       watchman = Watchman.NULL_WATCHMAN;
+      LOG.debug("Not using Watchman, context present: %s, glob handler: %s",
+          context.isPresent(),
+          parserConfig.getGlobHandler());
     }
     return watchman;
   }
@@ -1682,7 +1699,8 @@ public final class Main {
       AbstractConsoleEventBusListener consoleEventBusListener,
       KnownBuildRuleTypes knownBuildRuleTypes,
       ImmutableMap<String, String> environment,
-      CounterRegistry counterRegistry
+      CounterRegistry counterRegistry,
+      Iterable<BuckEventListener> commandSpecificEventListeners
   ) {
     ImmutableList.Builder<BuckEventListener> eventListenersBuilder =
         ImmutableList.<BuckEventListener>builder()
@@ -1749,12 +1767,15 @@ public final class Main {
     eventListenersBuilder.add(new CacheRateStatsListener(buckEventBus));
     eventListenersBuilder.add(new WatchmanDiagnosticEventListener(buckEventBus));
 
+    eventListenersBuilder.addAll(commandSpecificEventListeners);
+
     ImmutableList<BuckEventListener> eventListeners = eventListenersBuilder.build();
     eventListeners.forEach(buckEventBus::register);
 
 
     return eventListeners;
   }
+
 
   private BuildEnvironmentDescription getBuildEnvironmentDescription(
       ExecutionEnvironment executionEnvironment,
@@ -1776,12 +1797,7 @@ public final class Main {
       Optional<WebServer> webServer,
       Locale locale,
       Path testLogPath) {
-    Verbosity verbosity = console.getVerbosity();
-
-    if (Platform.WINDOWS != Platform.detect() &&
-        console.getAnsi().isAnsiTerminal() &&
-        !verbosity.shouldPrintCommand() &&
-        verbosity.shouldPrintStandardInformation()) {
+    if (isSuperConsoleEnabled(console)) {
       SuperConsoleEventBusListener superConsole = new SuperConsoleEventBusListener(
           config,
           console,
@@ -1793,8 +1809,8 @@ public final class Main {
           testLogPath,
           TimeZone.getDefault());
       superConsole.startRenderScheduler(
-          SUPER_CONSOLE_REFRESH_RATE.getDuration(),
-          SUPER_CONSOLE_REFRESH_RATE.getUnit());
+          SUPER_CONSOLE_REFRESH_RATE.toMillis(),
+          TimeUnit.MILLISECONDS);
       return superConsole;
     }
     return new SimpleConsoleEventBusListener(
@@ -1804,6 +1820,13 @@ public final class Main {
         locale,
         testLogPath,
         executionEnvironment);
+  }
+
+  private boolean isSuperConsoleEnabled(Console console) {
+    return Platform.WINDOWS != Platform.detect() &&
+        console.getAnsi().isAnsiTerminal() &&
+        !console.getVerbosity().shouldPrintCommand() &&
+        console.getVerbosity().shouldPrintStandardInformation();
   }
 
   private static BuildId getBuildId(Optional<NGContext> context) {
@@ -1948,7 +1971,7 @@ public final class Main {
 
   private static final class DaemonSlayer extends AbstractScheduledService {
     private final NGContext context;
-    private final TimeSpan slayerTimeout;
+    private final Duration slayerTimeout;
     private int runCount;
     private int lastRunCount;
     private boolean executingCommand;
@@ -2018,9 +2041,9 @@ public final class Main {
     @Override
     protected Scheduler scheduler() {
       return Scheduler.newFixedRateSchedule(
-          slayerTimeout.getDuration(),
-          slayerTimeout.getDuration(),
-          slayerTimeout.getUnit());
+          slayerTimeout.toMillis(),
+          slayerTimeout.toMillis(),
+          TimeUnit.MILLISECONDS);
     }
   }
 }

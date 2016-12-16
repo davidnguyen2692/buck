@@ -20,7 +20,9 @@ import static com.facebook.buck.jvm.common.ResourceValidator.validateResources;
 
 import com.facebook.buck.jvm.java.CalculateAbi;
 import com.facebook.buck.jvm.java.DefaultJavaLibrary;
+import com.facebook.buck.jvm.java.JavaLibraryRules;
 import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.AbstractDescriptionArg;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
@@ -65,8 +67,18 @@ public class ScalaLibraryDescription implements Description<ScalaLibraryDescript
       TargetGraph targetGraph,
       final BuildRuleParams rawParams,
       final BuildRuleResolver resolver,
-      A args) {
+      A args) throws NoSuchBuildTargetException {
     SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+
+    if (rawParams.getBuildTarget().getFlavors().contains(CalculateAbi.FLAVOR)) {
+      BuildTarget libraryTarget = rawParams.getBuildTarget().withoutFlavors(CalculateAbi.FLAVOR);
+      resolver.requireRule(libraryTarget);
+      return CalculateAbi.of(
+          rawParams.getBuildTarget(),
+          pathResolver,
+          rawParams,
+          new BuildTargetSourcePath(libraryTarget));
+    }
 
     Tool scalac = scalaBuckConfig.getScalac(resolver);
 
@@ -76,55 +88,46 @@ public class ScalaLibraryDescription implements Description<ScalaLibraryDescript
             .addAll(rawParams.getDeclaredDeps().get())
             .add(scalaLibrary)
             .build(),
-        rawParams.getExtraDeps()
-    );
+        rawParams.getExtraDeps());
 
     BuildTarget abiJarTarget = params.getBuildTarget().withAppendedFlavors(CalculateAbi.FLAVOR);
 
-    DefaultJavaLibrary defaultJavaLibrary =
-        resolver.addToIndex(
-            new DefaultJavaLibrary(
-                params.appendExtraDeps(
+    BuildRuleParams javaLibraryParams =
+        params.appendExtraDeps(
+            Iterables.concat(
+                BuildRules.getExportedRules(
                     Iterables.concat(
-                        BuildRules.getExportedRules(
-                            Iterables.concat(
-                                params.getDeclaredDeps().get(),
-                                resolver.getAllRules(args.providedDeps))),
-                        scalac.getDeps(pathResolver))),
-                pathResolver,
-                args.srcs,
-                validateResources(
-                    pathResolver,
-                    params.getProjectFilesystem(),
-                    args.resources),
-                /* generatedSourceFolder */ Optional.empty(),
-                /* proguardConfig */ Optional.empty(),
-                /* postprocessClassesCommands */ ImmutableList.of(),
-                params.getDeclaredDeps().get(),
-                resolver.getAllRules(args.providedDeps),
-                new BuildTargetSourcePath(abiJarTarget),
-                /* trackClassUsage */ false,
-                /* additionalClasspathEntries */ ImmutableSet.of(),
-                new ScalacToJarStepFactory(
-                    scalac,
-                    ScalacToJarStepFactory.collectScalacArguments(
-                        scalaBuckConfig,
-                        resolver,
-                        args.extraArguments)),
-                args.resourcesRoot,
-                args.manifestFile,
-                args.mavenCoords,
-                args.tests,
-                /* classesToRemoveFromJar */ ImmutableSet.of()));
-
-    resolver.addToIndex(
-        CalculateAbi.of(
-            abiJarTarget,
+                        params.getDeclaredDeps().get(),
+                        resolver.getAllRules(args.providedDeps))),
+                scalac.getDeps(pathResolver)));
+    return new DefaultJavaLibrary(
+        javaLibraryParams,
+        pathResolver,
+        args.srcs,
+        validateResources(
             pathResolver,
-            params,
-            new BuildTargetSourcePath(defaultJavaLibrary.getBuildTarget())));
-
-    return defaultJavaLibrary;
+            params.getProjectFilesystem(),
+            args.resources),
+        /* generatedSourceFolder */ Optional.empty(),
+        /* proguardConfig */ Optional.empty(),
+        /* postprocessClassesCommands */ ImmutableList.of(),
+        params.getDeclaredDeps().get(),
+        resolver.getAllRules(args.providedDeps),
+        abiJarTarget,
+        JavaLibraryRules.getAbiInputs(resolver, javaLibraryParams.getDeps()),
+        /* trackClassUsage */ false,
+        /* additionalClasspathEntries */ ImmutableSet.of(),
+        new ScalacToJarStepFactory(
+            scalac,
+            ScalacToJarStepFactory.collectScalacArguments(
+                scalaBuckConfig,
+                resolver,
+                args.extraArguments)),
+        args.resourcesRoot,
+        args.manifestFile,
+        args.mavenCoords,
+        args.tests,
+        /* classesToRemoveFromJar */ ImmutableSet.of());
   }
 
   @Override

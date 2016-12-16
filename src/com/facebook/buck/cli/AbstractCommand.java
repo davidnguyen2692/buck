@@ -17,7 +17,9 @@
 package com.facebook.buck.cli;
 
 import com.facebook.buck.config.CellConfig;
+import com.facebook.buck.event.BuckEventListener;
 import com.facebook.buck.event.ConsoleEvent;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.log.LogConfigSetup;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.parser.BuildTargetParser;
@@ -32,8 +34,6 @@ import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.concurrent.ConcurrencyLimit;
 import com.facebook.buck.versions.VersionBuckConfig;
 import com.facebook.buck.versions.VersionException;
-import com.facebook.buck.versions.VersionUniverseVersionSelector;
-import com.facebook.buck.versions.VersionedTargetGraphBuilder;
 import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -226,7 +226,7 @@ public abstract class AbstractCommand implements Command {
             config,
             new BuildTargetPatternTargetNodeParser());
     for (String arg : targetsAsArgs) {
-      specs.add(parser.parse(config.getCellPathResolver(), arg));
+      specs.addAll(parser.parse(config.getCellPathResolver(), arg));
     }
     return specs.build();
   }
@@ -264,6 +264,7 @@ public abstract class AbstractCommand implements Command {
         .setJavaPackageFinder(params.getJavaPackageFinder())
         .setObjectMapper(params.getObjectMapper())
         .setExecutors(params.getExecutors())
+        .setCellPathResolver(params.getCell().getCellPathResolver())
         .build();
   }
 
@@ -314,16 +315,22 @@ public abstract class AbstractCommand implements Command {
     return false;
   }
 
-  protected TargetGraphAndBuildTargets toVersionedTargetGraph(
+  TargetGraphAndBuildTargets toVersionedTargetGraph(
       CommandRunnerParams params,
       TargetGraphAndBuildTargets targetGraphAndBuildTargets)
       throws VersionException, InterruptedException {
-    return VersionedTargetGraphBuilder.transform(
-        new VersionUniverseVersionSelector(
-            targetGraphAndBuildTargets.getTargetGraph(),
-            new VersionBuckConfig(params.getBuckConfig()).getVersionUniverses()),
+    return params.getVersionedTargetGraphCache().getVersionedTargetGraph(
+        params.getBuckEventBus(),
         targetGraphAndBuildTargets,
-        new ForkJoinPool(params.getBuckConfig().getNumThreads()));
+        new VersionBuckConfig(params.getBuckConfig()).getVersionUniverses(),
+        new ForkJoinPool(params.getBuckConfig().getNumThreads()))
+        .getTargetGraphAndBuildTargets();
   }
 
+  @Override
+  public Iterable<BuckEventListener> getEventListeners(
+      Path logDirectoryPath,
+      ProjectFilesystem filesystem) {
+    return ImmutableList.of();
+  }
 }

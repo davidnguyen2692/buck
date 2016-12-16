@@ -16,7 +16,10 @@
 
 package com.facebook.buck.rust;
 
+import static com.facebook.buck.rust.RustLinkables.ruleToCrateName;
+
 import com.facebook.buck.cxx.CxxPlatform;
+import com.facebook.buck.cxx.CxxPlatforms;
 import com.facebook.buck.cxx.Linker;
 import com.facebook.buck.cxx.LinkerProvider;
 import com.facebook.buck.model.BuildTarget;
@@ -31,6 +34,7 @@ import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.ToolProvider;
+import com.facebook.buck.versions.VersionPropagator;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -42,7 +46,8 @@ import java.util.Optional;
 
 public class RustLibraryDescription implements
     Description<RustLibraryDescription.Arg>,
-    ImplicitDepsInferringDescription<RustLibraryDescription.Arg> {
+    ImplicitDepsInferringDescription<RustLibraryDescription.Arg>,
+    VersionPropagator<RustLibraryDescription.Arg> {
 
   private final RustBuckConfig rustBuckConfig;
   private final CxxPlatform cxxPlatform;
@@ -76,7 +81,8 @@ public class RustLibraryDescription implements
     return new RustLibrary(
         params,
         new SourcePathResolver(resolver),
-        args.crate.orElse(params.getBuildTarget().getShortName()),
+        args.crate.orElse(ruleToCrateName(params.getBuildTarget().getShortName())),
+        args.crateRoot,
         ImmutableSortedSet.copyOf(args.srcs),
         ImmutableSortedSet.copyOf(args.features),
         rustcArgs.build(),
@@ -96,10 +102,7 @@ public class RustLibraryDescription implements
     ToolProvider compiler = rustBuckConfig.getRustCompiler();
     deps.addAll(compiler.getParseTimeDeps());
 
-    LinkerProvider linker =
-        rustBuckConfig.getLinkerProvider(cxxPlatform, cxxPlatform.getLd().getType());
-
-    deps.addAll(linker.getParseTimeDeps());
+    deps.addAll(CxxPlatforms.getParseTimeDeps(cxxPlatform));
 
     return deps.build();
   }
@@ -113,5 +116,6 @@ public class RustLibraryDescription implements
     public ImmutableSortedSet<BuildTarget> deps = ImmutableSortedSet.of();
     public Optional<Linker.LinkableDepType> linkStyle;
     public Optional<String> crate;
+    public Optional<SourcePath> crateRoot;
   }
 }

@@ -55,7 +55,6 @@ import com.facebook.buck.rules.ActionGraphAndResolver;
 import com.facebook.buck.rules.ActionGraphCache;
 import com.facebook.buck.rules.AssociatedTargetNodePredicate;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.ProjectConfig;
 import com.facebook.buck.rules.SourcePathResolver;
@@ -81,6 +80,7 @@ import com.google.common.base.Predicate;
 import com.google.common.base.Predicates;
 import com.google.common.base.Splitter;
 import com.google.common.collect.FluentIterable;
+import com.google.common.collect.ImmutableBiMap;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -547,10 +547,10 @@ public class ProjectCommand extends BuildCommand {
           throw new HumanReadableException("Project graph %s doesn't contain build target " +
               "%s", projectGraph.get(), buildTarget);
         }
-        BuildRuleType nodeType = node.get().getType();
-        boolean canGenerateXcodeProject = canGenerateImplicitWorkspaceForType(nodeType);
+        Description<?> description = node.get().getDescription();
+        boolean canGenerateXcodeProject = canGenerateImplicitWorkspaceForDescription(description);
         canGenerateXcodeProject |=
-            nodeType.equals(Description.getBuildRuleType(XcodeWorkspaceConfigDescription.class));
+            description instanceof XcodeWorkspaceConfigDescription;
         if (guessedIde == null && canGenerateXcodeProject) {
           guessedIde = Ide.XCODE;
         } else if (guessedIde == Ide.XCODE && !canGenerateXcodeProject ||
@@ -984,12 +984,11 @@ public class ProjectCommand extends BuildCommand {
     for (final BuildTarget inputTarget : targets) {
       TargetNode<?, ?> inputNode = targetGraphAndTargets.getTargetGraph().get(inputTarget);
       XcodeWorkspaceConfigDescription.Arg workspaceArgs;
-      BuildRuleType type = inputNode.getType();
-      if (type == Description.getBuildRuleType(XcodeWorkspaceConfigDescription.class)) {
+      if (inputNode.getDescription() instanceof XcodeWorkspaceConfigDescription) {
         TargetNode<XcodeWorkspaceConfigDescription.Arg, ?> castedWorkspaceNode =
             castToXcodeWorkspaceTargetNode(inputNode);
         workspaceArgs = castedWorkspaceNode.getConstructorArg();
-      } else if (canGenerateImplicitWorkspaceForType(type)) {
+      } else if (canGenerateImplicitWorkspaceForDescription(inputNode.getDescription())) {
         workspaceArgs = createImplicitWorkspaceArgs(inputNode);
       } else {
         throw new HumanReadableException(
@@ -1076,6 +1075,7 @@ public class ProjectCommand extends BuildCommand {
               SpeculativeParsing.of(false),
               parserConfig.getDefaultFlavorsMode()).stream()
           .flatMap(Collection::stream)
+          .map(target -> target.withoutCell())
           .collect(MoreCollectors.toImmutableSet());
     } catch (BuildTargetException | BuildFileParseException | HumanReadableException e) {
       params.getBuckEventBus().post(ConsoleEvent.severe(
@@ -1084,6 +1084,28 @@ public class ProjectCommand extends BuildCommand {
     }
     LOG.debug("Selected targets: %s", passedInTargetsSet.toString());
 
+    // Retrieve mapping: cell name -> path.
+    ImmutableMap<String, Path> cellPaths = params.getCell().getCellPathResolver().getCellPaths();
+    ImmutableMap<Path, String> cellNames = ImmutableBiMap.copyOf(cellPaths).inverse();
+
+    // Create a set of unflavored targets that have cell names.
+    ImmutableSet.Builder<UnflavoredBuildTarget> builder = ImmutableSet.builder();
+    for (BuildTarget target : passedInTargetsSet) {
+      String cell = cellNames.get(target.getCellPath());
+      if (cell == null) {
+        builder.add(target.getUnflavoredBuildTarget());
+      } else {
+        UnflavoredBuildTarget targetWithCell = UnflavoredBuildTarget.of(
+            target.getCellPath(),
+            Optional.of(cell),
+            target.getBaseName(),
+            target.getShortName());
+        builder.add(targetWithCell);
+      }
+    }
+    ImmutableSet<UnflavoredBuildTarget> passedInUnflavoredTargetsSet = builder.build();
+    LOG.debug("Selected unflavored targets: %s", passedInUnflavoredTargetsSet.toString());
+
     // Build the set of unflavored targets in the target graph.
     ImmutableSet<UnflavoredBuildTarget> validUnflavoredTargets =
       targetGraphAndTargets.getTargetGraph().getNodes().stream()
@@ -1091,9 +1113,8 @@ public class ProjectCommand extends BuildCommand {
         .collect(MoreCollectors.toImmutableSet());
 
     // Match the targets resolved using the patterns with the valid of valid targets.
-    ImmutableSet<UnflavoredBuildTarget> result = passedInTargetsSet.stream()
-      .filter(target -> validUnflavoredTargets.contains(target.getUnflavoredBuildTarget()))
-      .map(target -> target.getUnflavoredBuildTarget())
+    ImmutableSet<UnflavoredBuildTarget> result = passedInUnflavoredTargetsSet.stream()
+      .filter(target -> validUnflavoredTargets.contains(target))
       .collect(MoreCollectors.toImmutableSet());
 
     LOG.debug("Focused targets: %s", result.toString());
@@ -1131,8 +1152,7 @@ public class ProjectCommand extends BuildCommand {
   private static TargetNode<XcodeWorkspaceConfigDescription.Arg, ?> castToXcodeWorkspaceTargetNode(
       TargetNode<?, ?> targetNode) {
     Preconditions.checkArgument(
-        targetNode.getType() ==
-            Description.getBuildRuleType(XcodeWorkspaceConfigDescription.class));
+        targetNode.getDescription() instanceof XcodeWorkspaceConfigDescription);
     return (TargetNode<XcodeWorkspaceConfigDescription.Arg, ?>) targetNode;
   }
 
@@ -1307,8 +1327,7 @@ public class ProjectCommand extends BuildCommand {
     Iterable<TargetNode<?, ?>> targetNodes = projectGraph.getAll(buildTargets);
     ImmutableSet.Builder<BuildTarget> resultBuilder = ImmutableSet.builder();
     for (TargetNode<?, ?> node : targetNodes) {
-      BuildRuleType type = node.getType();
-      if (type == Description.getBuildRuleType(XcodeWorkspaceConfigDescription.class)) {
+      if (node.getDescription() instanceof XcodeWorkspaceConfigDescription) {
         TargetNode<XcodeWorkspaceConfigDescription.Arg, ?> castedWorkspaceNode =
             castToXcodeWorkspaceTargetNode(node);
         Optional<BuildTarget> srcTarget = castedWorkspaceNode.getConstructorArg().srcTarget;
@@ -1324,13 +1343,13 @@ public class ProjectCommand extends BuildCommand {
     return resultBuilder.build();
   }
 
-  private static boolean canGenerateImplicitWorkspaceForType(BuildRuleType type) {
+  private static boolean canGenerateImplicitWorkspaceForDescription(Description<?> description) {
     // We weren't given a workspace target, but we may have been given something that could
     // still turn into a workspace (for example, a library or an actual app rule). If that's the
     // case we still want to generate a workspace.
-    return type == Description.getBuildRuleType(AppleBinaryDescription.class) ||
-        type == Description.getBuildRuleType(AppleBundleDescription.class) ||
-        type == Description.getBuildRuleType(AppleLibraryDescription.class);
+    return description instanceof AppleBinaryDescription ||
+        description instanceof AppleBundleDescription ||
+        description instanceof AppleLibraryDescription;
   }
 
   /**
@@ -1354,7 +1373,7 @@ public class ProjectCommand extends BuildCommand {
   }
 
   private static boolean isTargetWithAnnotations(TargetNode<?, ?> target) {
-    if (target.getType() != Description.getBuildRuleType(JavaLibraryDescription.class)) {
+    if (target.getDescription() instanceof JavaLibraryDescription) {
       return false;
     }
     JavaLibraryDescription.Arg arg = ((JavaLibraryDescription.Arg) target.getConstructorArg());

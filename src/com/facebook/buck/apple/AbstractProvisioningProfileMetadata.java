@@ -99,26 +99,32 @@ abstract class AbstractProvisioningProfileMetadata implements RuleKeyAppendable 
   }
 
   /**
-   * Takes an ImmutableMap representing an entitlements file, returns the application prefix.
+   * Takes an ImmutableMap representing an entitlements file, returns the application prefix
+   * if it can be inferred from keys in the entitlement.  Otherwise, it returns empty.
    */
-  public static String prefixFromEntitlements(ImmutableMap<String, NSObject> entitlements)
-      throws RuntimeException {
-    NSArray keychainAccessGroups = ((NSArray) entitlements.get("keychain-access-groups"));
-    Preconditions.checkNotNull(keychainAccessGroups);
-    String appID = keychainAccessGroups.objectAtIndex(0).toString();
-    return splitAppID(appID).getFirst();
+  public static Optional<String> prefixFromEntitlements(
+      ImmutableMap<String, NSObject> entitlements) {
+    try {
+      NSArray keychainAccessGroups = ((NSArray) entitlements.get("keychain-access-groups"));
+      Preconditions.checkNotNull(keychainAccessGroups);
+      String appID = keychainAccessGroups.objectAtIndex(0).toString();
+      return Optional.of(splitAppID(appID).getFirst());
+    } catch (RuntimeException e) {
+      return Optional.empty();
+    }
   }
 
   public static ProvisioningProfileMetadata fromProvisioningProfilePath(
       ProcessExecutor executor,
+      ImmutableList<String> readCommand,
       Path profilePath) throws IOException, InterruptedException {
     Set<ProcessExecutor.Option> options = EnumSet.of(ProcessExecutor.Option.EXPECTING_STD_OUT);
 
     // Extract the XML from its signed message wrapper.
     ProcessExecutorParams processExecutorParams =
         ProcessExecutorParams.builder()
-            .setCommand(ImmutableList.of("/usr/bin/security", "cms", "-D", "-i",
-                    profilePath.toString()))
+            .addAllCommand(readCommand)
+            .addCommand(profilePath.toString())
             .build();
     ProcessExecutor.Result result;
     result = executor.launchAndExecute(

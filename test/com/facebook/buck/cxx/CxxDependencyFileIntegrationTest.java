@@ -25,33 +25,17 @@ import com.facebook.buck.rules.BuildRuleSuccessType;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
-import com.google.common.collect.ImmutableList;
 
 import org.hamcrest.Matchers;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.junit.runners.Parameterized;
 
 import java.io.IOException;
 import java.nio.file.Files;
-import java.util.Collection;
 import java.util.Optional;
 
-@RunWith(Parameterized.class)
 public class CxxDependencyFileIntegrationTest {
-
-  @Parameterized.Parameters(name = "{0}")
-  public static Collection<Object[]> data() {
-    return ImmutableList.of(
-        new Object[]{CxxPreprocessMode.COMBINED},
-        new Object[]{CxxPreprocessMode.SEPARATE},
-        new Object[]{CxxPreprocessMode.PIPED});
-  }
-
-  @Parameterized.Parameter
-  public CxxPreprocessMode mode;
 
   @Rule
   public TemporaryPaths tmp = new TemporaryPaths();
@@ -66,7 +50,6 @@ public class CxxDependencyFileIntegrationTest {
     workspace.setUp();
     workspace.writeContentsToPath(
         "[cxx]\n" +
-        "  preprocess_mode = " + mode.toString().toLowerCase() + "\n" +
         "  cppflags = -Wall -Werror\n" +
         "  cxxppflags = -Wall -Werror\n" +
         "  cflags = -Wall -Werror\n" +
@@ -85,12 +68,7 @@ public class CxxDependencyFileIntegrationTest {
         target,
         cxxPlatform);
     String source = "test.cpp";
-    if (mode == CxxPreprocessMode.SEPARATE) {
-      preprocessTarget =
-          cxxSourceRuleFactory.createPreprocessBuildTarget(source, CxxSource.Type.CXX);
-    } else {
-      preprocessTarget = cxxSourceRuleFactory.createCompileBuildTarget(source);
-    }
+    preprocessTarget = cxxSourceRuleFactory.createCompileBuildTarget(source);
     workspace.getBuildLog().assertTargetBuiltLocally(preprocessTarget.toString());
   }
 

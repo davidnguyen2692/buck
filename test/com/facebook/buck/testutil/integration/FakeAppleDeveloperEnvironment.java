@@ -38,7 +38,9 @@ public class FakeAppleDeveloperEnvironment {
   private FakeAppleDeveloperEnvironment() { }
 
   private static final int numCodeSigningIdentities =
-      CodeSignIdentityStore.fromSystem(new DefaultProcessExecutor(new TestConsole()))
+      CodeSignIdentityStore.fromSystem(
+          new DefaultProcessExecutor(new TestConsole()),
+          CodeSignIdentityStore.DEFAULT_IDENTITIES_COMMAND)
           .getIdentities()
           .size();
 
@@ -52,7 +54,10 @@ public class FakeAppleDeveloperEnvironment {
           return false;
         }
         ProvisioningProfileStore store =
-            ProvisioningProfileStore.fromSearchPath(executor, searchPath);
+            ProvisioningProfileStore.fromSearchPath(
+                executor,
+                ProvisioningProfileStore.DEFAULT_READ_COMMAND,
+                searchPath);
         Optional<ProvisioningProfileMetadata> profile =
             store.getBestProvisioningProfile(
                 "*",

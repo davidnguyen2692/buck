@@ -82,7 +82,8 @@ public final class RunCommand extends AbstractCommand {
 
   /** @return the normalized target name for command to run. */
   private String getTarget(BuckConfig buckConfig) {
-      return getCommandLineBuildTargetNormalizer(buckConfig).normalize(arguments.get().get(0));
+      return Iterables.getOnlyElement(
+          getCommandLineBuildTargetNormalizer(buckConfig).normalize(arguments.get().get(0)));
   }
 
   @Override
@@ -150,7 +151,7 @@ public final class RunCommand extends AbstractCommand {
             .setEnvironment(
                 ImmutableMap.<String, String>builder()
                     .putAll(params.getEnvironment())
-                    .putAll(executable.getEnvironment(resolver))
+                    .putAll(executable.getEnvironment())
                     .build())
             .setDirectory(params.getCell().getFilesystem().getRootPath())
             .build();

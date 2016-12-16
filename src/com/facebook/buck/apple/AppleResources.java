@@ -21,7 +21,6 @@ import com.facebook.buck.js.IosReactNativeLibraryDescription;
 import com.facebook.buck.js.ReactNativeBundle;
 import com.facebook.buck.js.ReactNativeLibraryArgs;
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.TargetGraph;
@@ -33,6 +32,12 @@ import com.google.common.collect.ImmutableSet;
 import java.util.Optional;
 
 public class AppleResources {
+
+  private static final ImmutableSet<Class<? extends Description<?>>>
+      APPLE_RESOURCE_DESCRIPTION_CLASSES = ImmutableSet.of(
+          AppleResourceDescription.class,
+          IosReactNativeLibraryDescription.class);
+
   // Utility class, do not instantiate.
   private AppleResources() { }
 
@@ -45,35 +50,34 @@ public class AppleResources {
    */
   public static ImmutableSet<AppleResourceDescription.Arg> collectRecursiveResources(
       final TargetGraph targetGraph,
+      final Optional<AppleDependenciesCache> cache,
       Iterable<? extends TargetNode<?, ?>> targetNodes) {
     return FluentIterable
         .from(targetNodes)
         .transformAndConcat(
             AppleBuildRules.newRecursiveRuleDependencyTransformer(
                 targetGraph,
+                cache,
                 AppleBuildRules.RecursiveDependenciesMode.COPYING,
-                ImmutableSet.of(Description.getBuildRuleType(AppleResourceDescription.class))))
+                ImmutableSet.of(AppleResourceDescription.class)))
         .transform(
             input -> (AppleResourceDescription.Arg) input.getConstructorArg())
         .toSet();
   }
 
   public static <T> AppleBundleResources collectResourceDirsAndFiles(
-      TargetGraph targetGraph,
+      final TargetGraph targetGraph,
+      final Optional<AppleDependenciesCache> cache,
       TargetNode<T, ?> targetNode) {
     AppleBundleResources.Builder builder = AppleBundleResources.builder();
-
-    ImmutableSet<BuildRuleType> types =
-        ImmutableSet.of(
-            Description.getBuildRuleType(AppleResourceDescription.class),
-            Description.getBuildRuleType(IosReactNativeLibraryDescription.class));
 
     Iterable<TargetNode<?, ?>> resourceNodes =
         AppleBuildRules.getRecursiveTargetNodeDependenciesOfTypes(
             targetGraph,
+            cache,
             AppleBuildRules.RecursiveDependenciesMode.COPYING,
             targetNode,
-            Optional.of(types));
+            Optional.of(APPLE_RESOURCE_DESCRIPTION_CLASSES));
 
     ProjectFilesystem filesystem = targetNode.getFilesystem();
 
@@ -105,7 +109,7 @@ public class AppleResources {
     ImmutableSet.Builder<AppleResourceDescription.Arg> builder = ImmutableSet.builder();
     Iterable<TargetNode<?, ?>> deps = targetGraph.getAll(targetNode.getDeps());
     for (TargetNode<?, ?> node : deps) {
-      if (node.getType().equals(Description.getBuildRuleType(AppleResourceDescription.class))) {
+      if (node.getDescription() instanceof AppleResourceDescription) {
         builder.add((AppleResourceDescription.Arg) node.getConstructorArg());
       }
     }

@@ -37,7 +37,6 @@ import com.facebook.buck.cxx.CxxLinkableEnhancer;
 import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.cxx.CxxPlatformUtils;
 import com.facebook.buck.cxx.CxxPreprocessAndCompile;
-import com.facebook.buck.cxx.CxxPreprocessMode;
 import com.facebook.buck.cxx.CxxSource;
 import com.facebook.buck.cxx.CxxSourceRuleFactory;
 import com.facebook.buck.cxx.Linker;
@@ -62,9 +61,10 @@ import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.VersionedTool;
 import com.facebook.buck.rules.args.SourcePathArg;
-import com.facebook.buck.rules.keys.DefaultRuleKeyBuilderFactory;
+import com.facebook.buck.rules.keys.DefaultRuleKeyFactory;
 import com.facebook.buck.swift.SwiftPlatform;
 import com.facebook.buck.testutil.FakeFileHashCache;
+import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.TestLogSink;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.util.HumanReadableException;
@@ -105,6 +105,7 @@ public class AppleCxxPlatformsTest {
       Paths.get("usr/bin/actool"),
       Paths.get("usr/bin/ibtool"),
       Paths.get("usr/bin/momc"),
+      Paths.get("usr/bin/copySceneKitAssets"),
       Paths.get("usr/bin/lldb"),
       Paths.get("usr/bin/xctest"));
 
@@ -155,6 +156,7 @@ public class AppleCxxPlatformsTest {
 
     AppleCxxPlatform appleCxxPlatform =
         AppleCxxPlatforms.buildWithExecutableChecker(
+            new FakeProjectFilesystem(),
             targetSdk,
             "7.0",
             "armv7",
@@ -260,6 +262,7 @@ public class AppleCxxPlatformsTest {
 
     AppleCxxPlatform appleCxxPlatform =
         AppleCxxPlatforms.buildWithExecutableChecker(
+            new FakeProjectFilesystem(),
             targetSdk,
             "2.0",
             "armv7k",
@@ -359,6 +362,7 @@ public class AppleCxxPlatformsTest {
 
     AppleCxxPlatform appleCxxPlatform =
         AppleCxxPlatforms.buildWithExecutableChecker(
+            new FakeProjectFilesystem(),
             targetSdk,
             "9.1",
             "arm64",
@@ -458,6 +462,7 @@ public class AppleCxxPlatformsTest {
 
     AppleCxxPlatform appleCxxPlatform =
         AppleCxxPlatforms.buildWithExecutableChecker(
+            new FakeProjectFilesystem(),
             targetSdk,
             "7.0",
             "cha+rs",
@@ -505,6 +510,7 @@ public class AppleCxxPlatformsTest {
 
     AppleCxxPlatform appleCxxPlatform =
         AppleCxxPlatforms.buildWithExecutableChecker(
+            new FakeProjectFilesystem(),
             targetSdk,
             "7.0",
             "armv7",
@@ -563,6 +569,7 @@ public class AppleCxxPlatformsTest {
         .build();
 
     AppleCxxPlatforms.buildWithExecutableChecker(
+        new FakeProjectFilesystem(),
         targetSdk,
         "7.0",
         "armv7",
@@ -605,6 +612,7 @@ public class AppleCxxPlatformsTest {
 
     AppleCxxPlatform appleCxxPlatform =
         AppleCxxPlatforms.buildWithExecutableChecker(
+            new FakeProjectFilesystem(),
             targetSdk,
             "7.0",
             "armv7",
@@ -658,6 +666,7 @@ public class AppleCxxPlatformsTest {
 
     AppleCxxPlatform appleCxxPlatform =
         AppleCxxPlatforms.buildWithExecutableChecker(
+            new FakeProjectFilesystem(),
             targetSdk,
             "2.0",
             "armv7k",
@@ -711,6 +720,7 @@ public class AppleCxxPlatformsTest {
 
     AppleCxxPlatform appleCxxPlatform =
         AppleCxxPlatforms.buildWithExecutableChecker(
+            new FakeProjectFilesystem(),
             targetSdk,
             "9.1",
             "arm64",
@@ -732,7 +742,6 @@ public class AppleCxxPlatformsTest {
   }
 
   enum Operation {
-    PREPROCESS,
     COMPILE,
     PREPROCESS_AND_COMPILE,
   }
@@ -745,8 +754,8 @@ public class AppleCxxPlatformsTest {
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathResolver pathResolver = new SourcePathResolver(resolver);
     String source = "source.cpp";
-    DefaultRuleKeyBuilderFactory ruleKeyBuilderFactory =
-        new DefaultRuleKeyBuilderFactory(
+    DefaultRuleKeyFactory ruleKeyFactory =
+        new DefaultRuleKeyFactory(
             0,
             FakeFileHashCache.createFromStrings(
                 ImmutableMap.<String, String>builder()
@@ -774,16 +783,6 @@ public class AppleCxxPlatformsTest {
                   CxxSource.of(
                       CxxSource.Type.CXX,
                       new FakeSourcePath(source),
-                      ImmutableList.of()),
-                  CxxPreprocessMode.COMBINED);
-          break;
-        case PREPROCESS:
-          rule =
-              cxxSourceRuleFactory.createPreprocessBuildRule(
-                  source,
-                  CxxSource.of(
-                      CxxSource.Type.CXX,
-                      new FakeSourcePath(source),
                       ImmutableList.of()));
           break;
         case COMPILE:
@@ -793,13 +792,12 @@ public class AppleCxxPlatformsTest {
                   CxxSource.of(
                       CxxSource.Type.CXX_CPP_OUTPUT,
                       new FakeSourcePath(source),
-                      ImmutableList.of()),
-                  false);
+                      ImmutableList.of()));
           break;
         default:
           throw new IllegalStateException();
       }
-      ruleKeys.put(entry.getKey(), ruleKeyBuilderFactory.build(rule));
+      ruleKeys.put(entry.getKey(), ruleKeyFactory.build(rule));
     }
     return ruleKeys.build();
   }
@@ -810,8 +808,8 @@ public class AppleCxxPlatformsTest {
     BuildRuleResolver resolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathResolver pathResolver = new SourcePathResolver(resolver);
-    DefaultRuleKeyBuilderFactory ruleKeyBuilderFactory =
-        new DefaultRuleKeyBuilderFactory(
+    DefaultRuleKeyFactory ruleKeyFactory =
+        new DefaultRuleKeyFactory(
             0,
             FakeFileHashCache.createFromStrings(
                 ImmutableMap.<String, String>builder()
@@ -841,7 +839,7 @@ public class AppleCxxPlatformsTest {
               NativeLinkableInput.builder()
                   .setArgs(SourcePathArg.from(pathResolver, new FakeSourcePath("input.o")))
                   .build());
-      ruleKeys.put(entry.getKey(), ruleKeyBuilderFactory.build(rule));
+      ruleKeys.put(entry.getKey(), ruleKeyFactory.build(rule));
     }
     return ruleKeys.build();
   }
@@ -866,6 +864,7 @@ public class AppleCxxPlatformsTest {
         .setToolchains(ImmutableList.of(toolchain))
         .build();
     return AppleCxxPlatforms.buildWithExecutableChecker(
+        new FakeProjectFilesystem(),
         targetSdk,
         "7.0",
         "armv7",
@@ -882,7 +881,6 @@ public class AppleCxxPlatformsTest {
   @Test
   public void checkRootAndPlatformDoNotAffectRuleKeys() throws Exception {
     Map<String, ImmutableMap<Flavor, RuleKey>> preprocessAndCompileRukeKeys = Maps.newHashMap();
-    Map<String, ImmutableMap<Flavor, RuleKey>> preprocessRukeKeys = Maps.newHashMap();
     Map<String, ImmutableMap<Flavor, RuleKey>> compileRukeKeys = Maps.newHashMap();
     Map<String, ImmutableMap<Flavor, RuleKey>> linkRukeKeys = Maps.newHashMap();
 
@@ -894,11 +892,6 @@ public class AppleCxxPlatformsTest {
           String.format("AppleCxxPlatform(%s)", dir),
           constructCompileRuleKeys(
               Operation.PREPROCESS_AND_COMPILE,
-              ImmutableMap.of(platform.getCxxPlatform().getFlavor(), platform)));
-      preprocessRukeKeys.put(
-          String.format("AppleCxxPlatform(%s)", dir),
-          constructCompileRuleKeys(
-              Operation.PREPROCESS,
               ImmutableMap.of(platform.getCxxPlatform().getFlavor(), platform)));
       compileRukeKeys.put(
           String.format("AppleCxxPlatform(%s)", dir),
@@ -916,10 +909,6 @@ public class AppleCxxPlatformsTest {
     assertThat(
         Arrays.toString(preprocessAndCompileRukeKeys.entrySet().toArray()),
         Sets.newHashSet(preprocessAndCompileRukeKeys.values()),
-        Matchers.hasSize(1));
-    assertThat(
-        Arrays.toString(preprocessRukeKeys.entrySet().toArray()),
-        Sets.newHashSet(preprocessRukeKeys.values()),
         Matchers.hasSize(1));
     assertThat(
         Arrays.toString(compileRukeKeys.entrySet().toArray()),
@@ -1037,6 +1026,7 @@ public class AppleCxxPlatformsTest {
         .add(Paths.get("Toolchains/XcodeDefault.xctoolchain/usr/bin/swift-stdlib-tool"))
         .build();
     return AppleCxxPlatforms.buildWithExecutableChecker(
+        new FakeProjectFilesystem(),
         FakeAppleRuleDescriptions.DEFAULT_IPHONEOS_SDK,
         "7.0",
         "i386",

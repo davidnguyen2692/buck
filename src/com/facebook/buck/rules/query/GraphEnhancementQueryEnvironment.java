@@ -29,12 +29,15 @@ import com.facebook.buck.query.KindFunction;
 import com.facebook.buck.query.QueryBuildTarget;
 import com.facebook.buck.query.QueryEnvironment;
 import com.facebook.buck.query.QueryException;
+import com.facebook.buck.query.QueryFileTarget;
 import com.facebook.buck.query.QueryTarget;
 import com.facebook.buck.query.QueryTargetAccessor;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CellPathResolver;
+import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
+import com.facebook.buck.util.MoreCollectors;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
 import com.google.common.collect.ImmutableList;
@@ -54,6 +57,7 @@ import java.util.stream.Collectors;
  * <pre>
  *  attrfilter
  *  deps
+ *  inputs
  *  except
  *  intersect
  *  filter
@@ -130,6 +134,14 @@ public class GraphEnhancementQueryEnvironment implements QueryEnvironment {
   }
 
   @Override
+  public Set<QueryTarget> getInputs(QueryTarget target) throws QueryException {
+    TargetNode<?, ?> node = getNode(target);
+    return node.getInputs().stream()
+        .map(QueryFileTarget::of)
+        .collect(MoreCollectors.toImmutableSet());
+  }
+
+  @Override
   public Set<QueryTarget> getTransitiveClosure(Set<QueryTarget> targets)
       throws QueryException, InterruptedException {
     throw new UnsupportedOperationException();
@@ -145,7 +157,7 @@ public class GraphEnhancementQueryEnvironment implements QueryEnvironment {
 
   @Override
   public String getTargetKind(QueryTarget target) throws InterruptedException, QueryException {
-    return getNode(target).getType().getName();
+    return Description.getBuildRuleType(getNode(target).getDescription()).getName();
   }
 
   @Override

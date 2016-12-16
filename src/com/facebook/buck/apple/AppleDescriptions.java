@@ -73,8 +73,7 @@ import com.google.common.collect.Sets;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.HashMap;
-import java.util.Map;
+import java.util.HashSet;
 import java.util.Optional;
 import java.util.Set;
 
@@ -193,11 +192,13 @@ public class AppleDescriptions {
       Path headerPathPrefix,
       Function<SourcePath, Path> sourcePathResolver,
       Set<SourcePath> headerPaths) {
-    Map<String, SourcePath> includeToFile = new HashMap<>(headerPaths.size());
+    Set<String> includeToFile = new HashSet<String>(headerPaths.size());
+    ImmutableSortedMap.Builder<String, SourcePath> builder = ImmutableSortedMap.naturalOrder();
     for (SourcePath headerPath : headerPaths) {
       Path fileName = sourcePathResolver.apply(headerPath).getFileName();
       String key = headerPathPrefix.resolve(fileName).toString();
-      if (includeToFile.containsKey(key)) {
+      if (includeToFile.contains(key)) {
+        ImmutableSortedMap<String, SourcePath> result = builder.build();
         throw new HumanReadableException(
             "The same include path maps to multiple files:\n" +
                 "  Include path: %s\n" +
@@ -206,11 +207,12 @@ public class AppleDescriptions {
                 "    %s",
             key,
             headerPath,
-            includeToFile.get(key));
+            result.get(key));
       }
-      includeToFile.put(key, headerPath);
+      includeToFile.add(key);
+      builder.put(key, headerPath);
     }
-    return ImmutableSortedMap.copyOf(includeToFile);
+    return builder.build();
   }
 
   public static void populateCxxConstructorArg(
@@ -330,7 +332,10 @@ public class AppleDescriptions {
     TargetNode<?, ?> targetNode = targetGraph.get(params.getBuildTarget());
 
     ImmutableSet<AppleAssetCatalogDescription.Arg> assetCatalogArgs =
-        AppleBuildRules.collectRecursiveAssetCatalogs(targetGraph, ImmutableList.of(targetNode));
+        AppleBuildRules.collectRecursiveAssetCatalogs(
+            targetGraph,
+            Optional.empty(),
+            ImmutableList.of(targetNode));
 
     ImmutableSortedSet.Builder<SourcePath> assetCatalogDirsBuilder =
         ImmutableSortedSet.naturalOrder();
@@ -403,8 +408,12 @@ public class AppleDescriptions {
       AppleCxxPlatform appleCxxPlatform) {
     TargetNode<?, ?> targetNode = targetGraph.get(params.getBuildTarget());
 
-    ImmutableSet<CoreDataModelDescription.Arg> coreDataModelArgs =
-        AppleBuildRules.collectTransitiveCoreDataModels(targetGraph, ImmutableList.of(targetNode));
+    ImmutableSet<AppleWrapperResourceArg> coreDataModelArgs =
+        AppleBuildRules.collectTransitiveBuildRules(
+            targetGraph,
+            Optional.empty(),
+            AppleBuildRules.CORE_DATA_MODEL_DESCRIPTION_CLASSES,
+            ImmutableList.of(targetNode));
 
     BuildRuleParams coreDataModelParams = params.copyWithChanges(
         params.getBuildTarget().withAppendedFlavors(CoreDataModel.FLAVOR),
@@ -420,6 +429,38 @@ public class AppleDescriptions {
           appleCxxPlatform,
           moduleName,
           coreDataModelArgs.stream()
+              .map(input -> new PathSourcePath(params.getProjectFilesystem(), input.path))
+              .collect(MoreCollectors.toImmutableSet())));
+    }
+  }
+
+  public static Optional<SceneKitAssets> createBuildRulesForSceneKitAssetsDependencies(
+      TargetGraph targetGraph,
+      BuildRuleParams params,
+      SourcePathResolver sourcePathResolver,
+      AppleCxxPlatform appleCxxPlatform) {
+    TargetNode<?, ?> targetNode = targetGraph.get(params.getBuildTarget());
+
+    ImmutableSet<AppleWrapperResourceArg> sceneKitAssetsArgs =
+        AppleBuildRules.collectTransitiveBuildRules(
+            targetGraph,
+            Optional.empty(),
+            AppleBuildRules.SCENEKIT_ASSETS_DESCRIPTION_CLASSES,
+            ImmutableList.of(targetNode));
+
+    BuildRuleParams sceneKitAssetsParams = params.copyWithChanges(
+        params.getBuildTarget().withAppendedFlavors(SceneKitAssets.FLAVOR),
+        Suppliers.ofInstance(ImmutableSortedSet.of()),
+        Suppliers.ofInstance(ImmutableSortedSet.of()));
+
+    if (sceneKitAssetsArgs.isEmpty()) {
+      return Optional.empty();
+    } else {
+      return Optional.of(new SceneKitAssets(
+          sceneKitAssetsParams,
+          sourcePathResolver,
+          appleCxxPlatform,
+          sceneKitAssetsArgs.stream()
               .map(input -> new PathSourcePath(params.getProjectFilesystem(), input.path))
               .collect(MoreCollectors.toImmutableSet())));
     }
@@ -546,7 +587,8 @@ public class AppleDescriptions {
       ImmutableSortedSet<BuildTarget> deps,
       ImmutableSortedSet<BuildTarget> tests,
       AppleDebugFormat debugFormat,
-      boolean dryRunCodeSigning)
+      boolean dryRunCodeSigning,
+      boolean cacheable)
       throws NoSuchBuildTargetException {
     AppleCxxPlatform appleCxxPlatform = ApplePlatforms.getAppleCxxPlatformForBuildTarget(
         cxxPlatformFlavorDomain,
@@ -567,6 +609,7 @@ public class AppleDescriptions {
 
     AppleBundleResources collectedResources = AppleResources.collectResourceDirsAndFiles(
         targetGraph,
+        Optional.empty(),
         targetGraph.get(params.getBuildTarget()));
 
     ImmutableSet.Builder<SourcePath> frameworksBuilder = ImmutableSet.builder();
@@ -604,6 +647,13 @@ public class AppleDescriptions {
             paramsWithoutBundleSpecificFlavors,
             sourcePathResolver,
             AppleBundle.getBinaryName(params.getBuildTarget(), productName),
+            appleCxxPlatform);
+
+    Optional<SceneKitAssets> sceneKitAssets =
+        createBuildRulesForSceneKitAssetsDependencies(
+            targetGraph,
+            paramsWithoutBundleSpecificFlavors,
+            sourcePathResolver,
             appleCxxPlatform);
 
     // TODO(bhamiltoncx): Sort through the changes needed to make project generation work with
@@ -671,6 +721,7 @@ public class AppleDescriptions {
             .add(targetDebuggableBinaryRule)
             .addAll(OptionalCompat.asSet(assetCatalog))
             .addAll(OptionalCompat.asSet(coreDataModel))
+            .addAll(OptionalCompat.asSet(sceneKitAssets))
             .addAll(
                 BuildRules.toBuildRulesFor(
                     params.getBuildTarget(),
@@ -703,10 +754,12 @@ public class AppleDescriptions {
         appleCxxPlatform,
         assetCatalog,
         coreDataModel,
+        sceneKitAssets,
         tests,
         codeSignIdentityStore,
         provisioningProfileStore,
-        dryRunCodeSigning);
+        dryRunCodeSigning,
+        cacheable);
   }
 
   private static BuildRule getBinaryFromBuildRuleWithBinary(BuildRule rule) {

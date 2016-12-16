@@ -15,11 +15,13 @@
  */
 package com.facebook.buck.message_ipc;
 
-import com.google.common.collect.ImmutableList;
+import com.google.common.base.Preconditions;
 
 import java.lang.reflect.InvocationHandler;
-import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
+import java.util.Arrays;
+
+import javax.annotation.Nullable;
 
 /**
  * Connection is a wrapper around MessageTransport class that transforms function calls into
@@ -44,10 +46,13 @@ import java.lang.reflect.Proxy;
  * String result = connection.getRemoteObjectProxy().doString(42, true);
  * // process result
  */
-public class Connection<REMOTE> {
+public class Connection<REMOTE> implements AutoCloseable {
   private final MessageTransport messageTransport;
 
+  @Nullable
   private REMOTE remoteObjectProxy;
+
+  private boolean isClosed = false;
 
   public Connection(MessageTransport messageTransport) {
     this.messageTransport = messageTransport;
@@ -55,15 +60,13 @@ public class Connection<REMOTE> {
 
   @SuppressWarnings("unchecked")
   public void setRemoteInterface(Class<REMOTE> remoteInterface, ClassLoader classLoader) {
-    InvocationHandler invocationHandler = new InvocationHandler() {
-      @Override
-      public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
-        InvocationMessage invocation = new InvocationMessage(
-            method.getName(),
-            ImmutableList.copyOf(args));
-        ReturnResultMessage response = messageTransport.sendMessageAndWaitForResponse(invocation);
-        return response.getValue();
-      }
+    checkNotClose();
+    InvocationHandler invocationHandler = (proxy, method, args) -> {
+      InvocationMessage invocation = new InvocationMessage(
+          method.getName(),
+          Arrays.asList(args));
+      ReturnResultMessage response = messageTransport.sendMessageAndWaitForResponse(invocation);
+      return response.getValue();
     };
     this.remoteObjectProxy = (REMOTE) Proxy.newProxyInstance(
         classLoader,
@@ -72,6 +75,25 @@ public class Connection<REMOTE> {
   }
 
   public REMOTE getRemoteObjectProxy() {
+    checkNotClose();
+    Preconditions.checkNotNull(
+        remoteObjectProxy,
+        "You must set remote interface before obtaining remote object proxy.");
     return remoteObjectProxy;
+  }
+
+  @Override
+  public void close() throws Exception {
+    checkNotClose();
+    isClosed = true;
+    messageTransport.close();
+    remoteObjectProxy = null;
+  }
+
+  private void checkNotClose() {
+    Preconditions.checkState(
+        !isClosed,
+        "%s <%d> is already closed",
+        this.getClass().getSimpleName(), System.identityHashCode(this));
   }
 }

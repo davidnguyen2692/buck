@@ -21,7 +21,9 @@ import com.facebook.buck.event.AbstractBuckEvent;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.EventKey;
 import com.facebook.buck.event.WorkAdvanceEvent;
+import com.facebook.buck.log.views.JsonViews;
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonView;
 import com.google.common.hash.HashCode;
 
 import java.util.Optional;
@@ -37,6 +39,7 @@ public abstract class BuildRuleEvent extends AbstractBuckEvent implements WorkAd
     this.rule = rule;
   }
 
+  @JsonView(JsonViews.MachineReadableLog.class)
   public BuildRule getBuildRule() {
     return rule;
   }
@@ -76,14 +79,14 @@ public abstract class BuildRuleEvent extends AbstractBuckEvent implements WorkAd
 
   public static Suspended suspended(
       BuildRule rule,
-      RuleKeyBuilderFactory<RuleKey> ruleKeyBuilderFactory) {
-    return new Suspended(rule, ruleKeyBuilderFactory);
+      RuleKeyFactory<RuleKey> ruleKeyFactory) {
+    return new Suspended(rule, ruleKeyFactory);
   }
 
   public static Resumed resumed(
       BuildRule rule,
-      RuleKeyBuilderFactory<RuleKey> ruleKeyBuilderFactory) {
-    return new Resumed(rule, ruleKeyBuilderFactory);
+      RuleKeyFactory<RuleKey> ruleKeyFactory) {
+    return new Resumed(rule, ruleKeyFactory);
   }
 
   public static class Started extends BuildRuleEvent {
@@ -134,10 +137,12 @@ public abstract class BuildRuleEvent extends AbstractBuckEvent implements WorkAd
       this.inputsSize = inputsSize;
     }
 
+    @JsonView(JsonViews.MachineReadableLog.class)
     public BuildRuleStatus getStatus() {
       return status;
     }
 
+    @JsonView(JsonViews.MachineReadableLog.class)
     public CacheResult getCacheResult() {
       return cacheResult;
     }
@@ -147,12 +152,12 @@ public abstract class BuildRuleEvent extends AbstractBuckEvent implements WorkAd
       return successType;
     }
 
-    @JsonIgnore
+    @JsonView(JsonViews.MachineReadableLog.class)
     public BuildRuleKeys getRuleKeys() {
       return ruleKeys;
     }
 
-    @JsonIgnore
+    @JsonView(JsonViews.MachineReadableLog.class)
     public Optional<HashCode> getOutputHash() {
       return outputHash;
     }
@@ -215,9 +220,9 @@ public abstract class BuildRuleEvent extends AbstractBuckEvent implements WorkAd
 
     private final String ruleKey;
 
-    protected Suspended(BuildRule rule, RuleKeyBuilderFactory<RuleKey> ruleKeyBuilderFactory) {
+    protected Suspended(BuildRule rule, RuleKeyFactory<RuleKey> ruleKeyFactory) {
       super(rule);
-      this.ruleKey = ruleKeyBuilderFactory.build(rule).toString();
+      this.ruleKey = ruleKeyFactory.build(rule).toString();
     }
 
     @JsonIgnore
@@ -241,9 +246,9 @@ public abstract class BuildRuleEvent extends AbstractBuckEvent implements WorkAd
 
     private final String ruleKey;
 
-    protected Resumed(BuildRule rule, RuleKeyBuilderFactory<RuleKey> ruleKeyBuilderFactory) {
+    protected Resumed(BuildRule rule, RuleKeyFactory<RuleKey> ruleKeyFactory) {
       super(rule);
-      this.ruleKey = ruleKeyBuilderFactory.build(rule).toString();
+      this.ruleKey = ruleKeyFactory.build(rule).toString();
     }
 
     @JsonIgnore
@@ -265,17 +270,17 @@ public abstract class BuildRuleEvent extends AbstractBuckEvent implements WorkAd
   public static Scope startSuspendScope(
       BuckEventBus eventBus,
       BuildRule rule,
-      RuleKeyBuilderFactory<RuleKey> ruleKeyBuilderFactory) {
+      RuleKeyFactory<RuleKey> ruleKeyFactory) {
     eventBus.post(BuildRuleEvent.started(rule));
-    return new Scope(eventBus, () -> BuildRuleEvent.suspended(rule, ruleKeyBuilderFactory));
+    return new Scope(eventBus, () -> BuildRuleEvent.suspended(rule, ruleKeyFactory));
   }
 
   public static Scope resumeSuspendScope(
       BuckEventBus eventBus,
       BuildRule rule,
-      RuleKeyBuilderFactory<RuleKey> ruleKeyBuilderFactory) {
-    eventBus.post(BuildRuleEvent.resumed(rule, ruleKeyBuilderFactory));
-    return new Scope(eventBus, () -> BuildRuleEvent.suspended(rule, ruleKeyBuilderFactory));
+      RuleKeyFactory<RuleKey> ruleKeyFactory) {
+    eventBus.post(BuildRuleEvent.resumed(rule, ruleKeyFactory));
+    return new Scope(eventBus, () -> BuildRuleEvent.suspended(rule, ruleKeyFactory));
   }
 
 

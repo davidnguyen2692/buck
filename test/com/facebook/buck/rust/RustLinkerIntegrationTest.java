@@ -97,6 +97,34 @@ public class RustLinkerIntegrationTest {
   }
 
   @Test
+  public void rustRuleLinkerFlagsOverride() throws IOException, InterruptedException {
+    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this, "simple_binary", tmp);
+    workspace.setUp();
+
+    assertThat(
+        workspace
+            .runBuckBuild("//:xyzzy_linkerflags")
+            .assertFailure()
+            .getStderr(),
+        Matchers.containsString("this-is-a-bad-option"));
+  }
+
+  @Test
+  public void rustTestRuleLinkerFlagsOverride() throws IOException, InterruptedException {
+    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this, "binary_with_tests", tmp);
+    workspace.setUp();
+
+    assertThat(
+        workspace
+            .runBuckBuild("//:test_success_linkerflags")
+            .assertFailure()
+            .getStderr(),
+        Matchers.containsString("this-is-a-bad-option"));
+  }
+
+  @Test
   public void cxxLinkerOverride() throws IOException, InterruptedException {
     ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
         this, "simple_binary", tmp);

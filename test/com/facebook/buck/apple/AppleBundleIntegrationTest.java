@@ -27,6 +27,7 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assume.assumeTrue;
 
 import com.dd.plist.NSDictionary;
+import com.dd.plist.NSNumber;
 import com.dd.plist.NSString;
 import com.dd.plist.PropertyListParser;
 import com.facebook.buck.cxx.LinkerMapMode;
@@ -89,7 +90,7 @@ public class AppleBundleIntegrationTest {
         absoluteBundlePath);
   }
 
-  private void runSimpleApplicationBunldeTestWithBuildTarget(String fqtn)
+  private void runSimpleApplicationBundleTestWithBuildTarget(String fqtn)
       throws IOException, InterruptedException {
     ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
         this,
@@ -125,16 +126,34 @@ public class AppleBundleIntegrationTest {
   }
 
   @Test
+  public void testDisablingBundleCaching() throws IOException {
+    assumeTrue(Platform.detect() == Platform.MACOS);
+    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this,
+        "simple_application_bundle_no_debug",
+        tmp);
+    workspace.setUp();
+
+    final String target = "//:DemoApp#iphonesimulator-x86_64,no-debug,no-include-frameworks";
+
+    workspace.enableDirCache();
+    workspace.runBuckBuild("-c", "apple.cache_bundles_and_packages=false", target).assertSuccess();
+    workspace.runBuckCommand("clean");
+    workspace.runBuckBuild("-c", "apple.cache_bundles_and_packages=false", target).assertSuccess();
+    workspace.getBuildLog().assertTargetBuiltLocally(target);
+  }
+
+  @Test
   public void simpleApplicationBundle() throws IOException, InterruptedException {
     assumeTrue(Platform.detect() == Platform.MACOS);
-    runSimpleApplicationBunldeTestWithBuildTarget("//:DemoApp#iphonesimulator-x86_64,no-debug");
+    runSimpleApplicationBundleTestWithBuildTarget("//:DemoApp#iphonesimulator-x86_64,no-debug");
   }
 
   @Test
   public void simpleApplicationBundleWithLinkerMapDoesNotAffectOutput()
       throws IOException, InterruptedException {
     assumeTrue(Platform.detect() == Platform.MACOS);
-    runSimpleApplicationBunldeTestWithBuildTarget(
+    runSimpleApplicationBundleTestWithBuildTarget(
         "//:DemoApp#iphonesimulator-x86_64,no-debug");
   }
 
@@ -142,7 +161,7 @@ public class AppleBundleIntegrationTest {
   public void simpleApplicationBundleWithoutLinkerMapDoesNotAffectOutput()
       throws IOException, InterruptedException {
     assumeTrue(Platform.detect() == Platform.MACOS);
-    runSimpleApplicationBunldeTestWithBuildTarget(
+    runSimpleApplicationBundleTestWithBuildTarget(
         "//:DemoApp#iphonesimulator-x86_64,no-debug,no-linkermap");
   }
 
@@ -184,6 +203,14 @@ public class AppleBundleIntegrationTest {
     assertTrue(checkCodeSigning(appPath));
   }
 
+  private NSDictionary verifyAndParsePlist(Path path) throws Exception {
+    assertTrue(Files.exists(path));
+    String resultContents = filesystem.readFileIfItExists(path).get();
+    NSDictionary resultPlist = (NSDictionary)
+        PropertyListParser.parse(resultContents.getBytes(Charsets.UTF_8));
+    return resultPlist;
+  }
+
   @Test
   public void simpleApplicationBundleWithDryRunCodeSigning() throws Exception {
     assumeTrue(Platform.detect() == Platform.MACOS);
@@ -194,12 +221,10 @@ public class AppleBundleIntegrationTest {
         "simple_application_bundle_with_codesigning",
         tmp);
     workspace.setUp();
-    workspace.writeContentsToPath(
-        "[apple]\n  dry_run_code_signing = true\n",
-        ".buckconfig.local");
+    workspace.addBuckConfigLocalOption("apple", "dry_run_code_signing", "true");
 
     BuildTarget target =
-        workspace.newBuildTarget("//:DemoApp#iphoneos-arm64,no-debug");
+        workspace.newBuildTarget("//:DemoAppWithFramework#iphoneos-arm64,no-debug");
     workspace.runBuckCommand("build", target.getFullyQualifiedName()).assertSuccess();
 
     Path appPath = workspace.getPath(
@@ -214,17 +239,20 @@ public class AppleBundleIntegrationTest {
     Path codeSignResultsPath = appPath.resolve("BUCK_code_sign_entitlements.plist");
     assertTrue(Files.exists(codeSignResultsPath));
 
-    Path dryRunResultsPath = appPath.resolve("BUCK_pp_dry_run.plist");
-    assertTrue(Files.exists(dryRunResultsPath));
-
-    String resultContents = filesystem.readFileIfItExists(dryRunResultsPath).get();
-    NSDictionary resultPlist = (NSDictionary)
-        PropertyListParser.parse(resultContents.getBytes(Charsets.UTF_8));
-
+    NSDictionary resultPlist = verifyAndParsePlist(appPath.resolve("BUCK_pp_dry_run.plist"));
     assertEquals(new NSString("com.example.DemoApp"), resultPlist.get("bundle-id"));
     assertEquals(new NSString("12345ABCDE"), resultPlist.get("team-identifier"));
     assertEquals(new NSString("00000000-0000-0000-0000-000000000000"),
         resultPlist.get("provisioning-profile-uuid"));
+
+    // Codesigning main bundle
+    resultPlist = verifyAndParsePlist(appPath.resolve("BUCK_code_sign_args.plist"));
+    assertEquals(new NSNumber(true), resultPlist.get("use-entitlements"));
+
+    // Codesigning embedded framework bundle
+    resultPlist = verifyAndParsePlist(
+        appPath.resolve("Frameworks/DemoFramework.framework/BUCK_code_sign_args.plist"));
+    assertEquals(new NSNumber(false), resultPlist.get("use-entitlements"));
   }
 
   @Test
@@ -904,6 +932,7 @@ public class AppleBundleIntegrationTest {
     assertTrue(Files.exists(workspace.getPath(appPath.resolve("AppViewController.nib"))));
     assertTrue(Files.exists(workspace.getPath(appPath.resolve("Model.momd"))));
     assertTrue(Files.exists(workspace.getPath(appPath.resolve("Model2.momd"))));
+    assertTrue(Files.exists(workspace.getPath(appPath.resolve("DemoApp.scnassets"))));
   }
 
   @Test

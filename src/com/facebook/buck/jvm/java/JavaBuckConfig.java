@@ -35,8 +35,6 @@ import java.util.Optional;
  * A java-specific "view" of BuckConfig.
  */
 public class JavaBuckConfig implements ConfigView<BuckConfig> {
-  // Default combined source and target level.
-  public static final String TARGETED_JAVA_VERSION = "7";
   private final BuckConfig delegate;
 
   // Interface for reflection-based ConfigView to instantiate this class.
@@ -72,8 +70,26 @@ public class JavaBuckConfig implements ConfigView<BuckConfig> {
   }
 
   public JavacOptions getDefaultJavacOptions() {
+    JavacOptions.Builder builder = JavacOptions.builderForUseInJavaBuckConfig();
+
     Optional<String> sourceLevel = delegate.getValue("java", "source_level");
+    if (sourceLevel.isPresent()) {
+      builder.setSourceLevel(sourceLevel.get());
+    }
+
     Optional<String> targetLevel = delegate.getValue("java", "target_level");
+    if (targetLevel.isPresent()) {
+      builder.setTargetLevel(targetLevel.get());
+    }
+
+    Optional<JavacOptions.JavacLocation> location = delegate.getEnum(
+        "java",
+        "location",
+        JavacOptions.JavacLocation.class);
+    if (location.isPresent()) {
+      builder.setJavacLocation(location.get());
+    }
+
     ImmutableList<String> extraArguments = delegate.getListWithoutComments(
         "java",
         "extra_arguments");
@@ -82,14 +98,19 @@ public class JavaBuckConfig implements ConfigView<BuckConfig> {
         "java",
         "safe_annotation_processors");
 
-    AbstractJavacOptions.SpoolMode spoolMode = delegate
-        .getEnum("java", "jar_spool_mode", AbstractJavacOptions.SpoolMode.class).orElse(
-            AbstractJavacOptions.SpoolMode.INTERMEDIATE_TO_DISK);
+    Optional<AbstractJavacOptions.SpoolMode> spoolMode = delegate
+        .getEnum("java", "jar_spool_mode", AbstractJavacOptions.SpoolMode.class);
+    if (spoolMode.isPresent()) {
+      builder.setSpoolMode(spoolMode.get());
+    }
 
     // This is just to make it possible to turn off dep-based rulekeys in case anything goes wrong
     // and can be removed when we're sure class usage tracking and dep-based keys for Java
     // work fine.
-    boolean trackClassUsage = delegate.getBooleanValue("java", "track_class_usage", true);
+    Optional<Boolean> trackClassUsage = delegate.getBoolean("java", "track_class_usage");
+    if (trackClassUsage.isPresent()) {
+      builder.setTrackClassUsageNotDisabled(trackClassUsage.get());
+    }
 
     ImmutableMap<String, String> allEntries = delegate.getEntriesForSection("java");
     ImmutableMap.Builder<String, String> bootclasspaths = ImmutableMap.builder();
@@ -99,17 +120,14 @@ public class JavaBuckConfig implements ConfigView<BuckConfig> {
       }
     }
 
-    return JavacOptions.builderForUseInJavaBuckConfig()
+    return builder
         .setJavacPath(
             getJavacPath().map(Either::ofLeft))
         .setJavacJarPath(getJavacJarPath())
-        .setSourceLevel(sourceLevel.orElse(TARGETED_JAVA_VERSION))
-        .setTargetLevel(targetLevel.orElse(TARGETED_JAVA_VERSION))
-        .setSpoolMode(spoolMode)
+        .setCompilerClassName(getCompilerClassName())
         .putAllSourceToBootclasspath(bootclasspaths.build())
         .addAllExtraArguments(extraArguments)
         .setSafeAnnotationProcessors(safeAnnotationProcessors)
-        .setTrackClassUsageNotDisabled(trackClassUsage)
         .build();
   }
 
@@ -140,6 +158,10 @@ public class JavaBuckConfig implements ConfigView<BuckConfig> {
 
   Optional<SourcePath> getJavacJarPath() {
     return delegate.getSourcePath("tools", "javac_jar");
+  }
+
+  Optional<String> getCompilerClassName() {
+    return delegate.getValue("tools", "compiler_class_name");
   }
 
   public boolean getSkipCheckingMissingDeps() {

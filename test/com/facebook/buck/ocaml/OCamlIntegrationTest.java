@@ -31,7 +31,6 @@ import com.facebook.buck.cxx.CxxBuckConfig;
 import com.facebook.buck.cxx.CxxDescriptionEnhancer;
 import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.cxx.CxxPlatformUtils;
-import com.facebook.buck.cxx.CxxSource;
 import com.facebook.buck.cxx.CxxSourceRuleFactory;
 import com.facebook.buck.cxx.CxxSourceRuleFactoryHelper;
 import com.facebook.buck.cxx.HeaderVisibility;
@@ -84,6 +83,7 @@ public class OCamlIntegrationTest {
 
     OcamlBuckConfig ocamlBuckConfig = new OcamlBuckConfig(
         Platform.detect(),
+        filesystem,
         buckConfig);
 
     assumeTrue(ocamlBuckConfig.getOcamlCompiler().isPresent());
@@ -430,8 +430,6 @@ public class OCamlIntegrationTest {
             cxxPlatform.getFlavor(),
             CxxSourceRuleFactory.PicType.PDC);
     String sourceName = "cc/cc.cpp";
-    BuildTarget ppObj =
-        cxxSourceRuleFactory.createPreprocessBuildTarget(sourceName, CxxSource.Type.CXX);
     BuildTarget ccObj = cxxSourceRuleFactory.createCompileBuildTarget(sourceName);
     BuildTarget headerSymlinkTreeTarget =
         CxxDescriptionEnhancer.createHeaderSymlinkTreeTarget(
@@ -452,7 +450,6 @@ public class OCamlIntegrationTest {
     buildLog.assertTargetBuiltLocally(libplusStatic.toString());
     buildLog.assertTargetBuiltLocally(cclibbin.toString());
     buildLog.assertTargetBuiltLocally(ccObj.toString());
-    buildLog.assertTargetBuiltLocally(ppObj.toString());
     buildLog.assertTargetBuiltLocally(headerSymlinkTreeTarget.toString());
     buildLog.assertTargetBuiltLocally(exportedHeaderSymlinkTreeTarget.toString());
 
@@ -472,7 +469,6 @@ public class OCamlIntegrationTest {
     buildLog.assertTargetBuiltLocally(libplusStatic.toString());
     buildLog.assertTargetBuiltLocally(cclibbin.toString());
     buildLog.assertTargetBuiltLocally(ccObj.toString());
-    buildLog.assertTargetBuiltLocally(ppObj.toString());
   }
 
   @Test

@@ -87,6 +87,7 @@ public class AppleBundle
   private static final String FRAMEWORK_EXTENSION =
       AppleBundleExtension.FRAMEWORK.toFileExtension();
   private static final String PP_DRY_RUN_RESULT_FILE = "BUCK_pp_dry_run.plist";
+  private static final String CODE_SIGN_DRY_RUN_ARGS_FILE = "BUCK_code_sign_args.plist";
   private static final String CODE_SIGN_DRY_RUN_ENTITLEMENTS_FILE =
       "BUCK_code_sign_entitlements.plist";
 
@@ -153,6 +154,7 @@ public class AppleBundle
 
   private final Optional<AppleAssetCatalog> assetCatalog;
   private final Optional<CoreDataModel> coreDataModel;
+  private final Optional<SceneKitAssets> sceneKitAssets;
   private final Optional<String> platformBuildVersion;
   private final Optional<String> xcodeVersion;
   private final Optional<String> xcodeBuildVersion;
@@ -164,6 +166,8 @@ public class AppleBundle
   private final Path bundleBinaryPath;
 
   private final boolean hasBinary;
+  private final boolean cacheable;
+
 
   AppleBundle(
       BuildRuleParams params,
@@ -181,10 +185,12 @@ public class AppleBundle
       AppleCxxPlatform appleCxxPlatform,
       Optional<AppleAssetCatalog> assetCatalog,
       Optional<CoreDataModel> coreDataModel,
+      Optional<SceneKitAssets> sceneKitAssets,
       Set<BuildTarget> tests,
       CodeSignIdentityStore codeSignIdentityStore,
       ProvisioningProfileStore provisioningProfileStore,
-      boolean dryRunCodeSigning) {
+      boolean dryRunCodeSigning,
+      boolean cacheable) {
     super(params, resolver);
     this.extension = extension.isLeft() ?
         extension.getLeft().toFileExtension() :
@@ -201,6 +207,7 @@ public class AppleBundle
     this.ibtool = appleCxxPlatform.getIbtool();
     this.assetCatalog = assetCatalog;
     this.coreDataModel = coreDataModel;
+    this.sceneKitAssets = sceneKitAssets;
     this.binaryName = getBinaryName(getBuildTarget(), this.productName);
     this.bundleRoot =
         getBundleRoot(getProjectFilesystem(), getBuildTarget(), this.binaryName, this.extension);
@@ -216,6 +223,7 @@ public class AppleBundle
     this.xcodeBuildVersion = appleCxxPlatform.getXcodeBuildVersion();
     this.xcodeVersion = appleCxxPlatform.getXcodeVersion();
     this.dryRunCodeSigning = dryRunCodeSigning;
+    this.cacheable = cacheable;
 
     bundleBinaryPath = bundleRoot.resolve(binaryPath);
     hasBinary = binary.isPresent() && binary.get().getPathToOutput() != null;
@@ -298,7 +306,6 @@ public class AppleBundle
         new MakeCleanDirectoryStep(getProjectFilesystem(), bundleRoot));
 
     Path resourcesDestinationPath = bundleRoot.resolve(this.destinations.getResourcesPath());
-
     if (assetCatalog.isPresent()) {
       stepsBuilder.add(new MkdirStep(getProjectFilesystem(), resourcesDestinationPath));
       Path bundleDir = assetCatalog.get().getOutputDir();
@@ -316,6 +323,16 @@ public class AppleBundle
           CopyStep.forDirectory(
               getProjectFilesystem(),
               coreDataModel.get().getOutputDir(),
+              resourcesDestinationPath,
+              CopyStep.DirectoryMode.CONTENTS_ONLY));
+    }
+
+    if (sceneKitAssets.isPresent()) {
+      stepsBuilder.add(new MkdirStep(getProjectFilesystem(), resourcesDestinationPath));
+      stepsBuilder.add(
+          CopyStep.forDirectory(
+              getProjectFilesystem(),
+              sceneKitAssets.get().getPathToOutput(),
               resourcesDestinationPath,
               CopyStep.DirectoryMode.CONTENTS_ONLY));
     }
@@ -490,6 +507,9 @@ public class AppleBundle
               provisioningProfileCopyStep.getSelectedProvisioningProfileFuture());
 
           if (!selectedProfile.isPresent()) {
+            // This should only happen in dry-run codesign mode (since otherwise an exception
+            // would have been thrown already.)  Still, we need to return *something*.
+            Preconditions.checkState(dryRunCodeSigning);
             return CodeSignIdentity.AD_HOC;
           }
 
@@ -509,9 +529,6 @@ public class AppleBundle
             }
           }
 
-          if (dryRunCodeSigning) {
-            return CodeSignIdentity.AD_HOC;
-          }
           throw new HumanReadableException(
               "No code sign identity available for provisioning profile: %s\n" +
                   "Profile requires an identity with one of the following SHA1 fingerprints " +
@@ -533,22 +550,28 @@ public class AppleBundle
       for (Path codeSignOnCopyPath : codeSignOnCopyPathsBuilder.build()) {
         stepsBuilder.add(
             new CodeSignStep(
-                getProjectFilesystem().getRootPath(),
+                getProjectFilesystem(),
                 getResolver(),
                 codeSignOnCopyPath,
                 Optional.empty(),
                 codeSignIdentitySupplier,
-                codesignAllocatePath));
+                codesignAllocatePath,
+                dryRunCodeSigning ?
+                    Optional.of(codeSignOnCopyPath.resolve(CODE_SIGN_DRY_RUN_ARGS_FILE)) :
+                    Optional.empty()));
       }
 
       stepsBuilder.add(
           new CodeSignStep(
-              getProjectFilesystem().getRootPath(),
+              getProjectFilesystem(),
               getResolver(),
               bundleRoot,
-              dryRunCodeSigning ? Optional.empty() : signingEntitlementsTempPath,
+              signingEntitlementsTempPath,
               codeSignIdentitySupplier,
-              codesignAllocatePath));
+              codesignAllocatePath,
+              dryRunCodeSigning ?
+                  Optional.of(bundleRoot.resolve(CODE_SIGN_DRY_RUN_ARGS_FILE)) :
+                  Optional.empty()));
     } else {
       addSwiftStdlibStepIfNeeded(
           bundleRoot.resolve(Paths.get("Frameworks")),
@@ -773,7 +796,7 @@ public class AppleBundle
       stepsBuilder.add(
           new IbtoolStep(
               getProjectFilesystem(),
-              ibtool.getEnvironment(getResolver()),
+              ibtool.getEnvironment(),
               ibtool.getCommandPrefix(getResolver()),
               ImmutableList.of("--target-device", "watch", "--compile"),
               sourcePath,
@@ -782,7 +805,7 @@ public class AppleBundle
       stepsBuilder.add(
           new IbtoolStep(
               getProjectFilesystem(),
-              ibtool.getEnvironment(getResolver()),
+              ibtool.getEnvironment(),
               ibtool.getCommandPrefix(getResolver()),
               ImmutableList.of("--target-device", "watch", "--link"),
               compiledStoryboardPath,
@@ -799,7 +822,7 @@ public class AppleBundle
       stepsBuilder.add(
           new IbtoolStep(
               getProjectFilesystem(),
-              ibtool.getEnvironment(getResolver()),
+              ibtool.getEnvironment(),
               ibtool.getCommandPrefix(getResolver()),
               ImmutableList.of("--compile"),
               sourcePath,
@@ -838,7 +861,7 @@ public class AppleBundle
         stepsBuilder.add(
             new IbtoolStep(
                 getProjectFilesystem(),
-                ibtool.getEnvironment(getResolver()),
+                ibtool.getEnvironment(),
                 ibtool.getCommandPrefix(getResolver()),
                 ImmutableList.of("--compile"),
                 sourcePath,
@@ -910,5 +933,10 @@ public class AppleBundle
       }
     }
     return ImmutableSortedSet.of();
+  }
+
+  @Override
+  public boolean isCacheable() {
+    return cacheable;
   }
 }

@@ -22,6 +22,7 @@ import com.dd.plist.NSString;
 import com.facebook.buck.apple.AppleAssetCatalogDescription;
 import com.facebook.buck.apple.AppleHeaderVisibilities;
 import com.facebook.buck.apple.AppleResourceDescription;
+import com.facebook.buck.apple.AppleWrapperResourceArg;
 import com.facebook.buck.apple.GroupedSource;
 import com.facebook.buck.apple.RuleUtils;
 import com.facebook.buck.apple.XcodePostbuildScriptDescription;
@@ -50,7 +51,6 @@ import com.facebook.buck.js.ReactNativeBundle;
 import com.facebook.buck.js.ReactNativeLibraryArgs;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourceWithFlags;
 import com.facebook.buck.rules.TargetNode;
@@ -122,6 +122,7 @@ class NewNativeTargetProjectMutator {
   private ImmutableSet<AppleResourceDescription.Arg> directResources = ImmutableSet.of();
   private ImmutableSet<AppleAssetCatalogDescription.Arg> recursiveAssetCatalogs = ImmutableSet.of();
   private ImmutableSet<AppleAssetCatalogDescription.Arg> directAssetCatalogs = ImmutableSet.of();
+  private ImmutableSet<AppleWrapperResourceArg> wrapperResources = ImmutableSet.of();
   private Iterable<PBXShellScriptBuildPhase> preBuildRunScriptPhases = ImmutableList.of();
   private Iterable<PBXBuildPhase> copyFilesPhases = ImmutableList.of();
   private Iterable<PBXShellScriptBuildPhase> postBuildRunScriptPhases = ImmutableList.of();
@@ -224,6 +225,12 @@ class NewNativeTargetProjectMutator {
   public NewNativeTargetProjectMutator setDirectResources(
       ImmutableSet<AppleResourceDescription.Arg> directResources) {
     this.directResources = directResources;
+    return this;
+  }
+
+  public NewNativeTargetProjectMutator setWrapperResources(
+      ImmutableSet<AppleWrapperResourceArg> wrapperResources) {
+    this.wrapperResources = wrapperResources;
     return this;
   }
 
@@ -498,6 +505,7 @@ class NewNativeTargetProjectMutator {
     collectResourcePathsFromConstructorArgs(
         directResources,
         directAssetCatalogs,
+        ImmutableSet.of(),
         resourceFiles,
         resourceDirs,
         variantResourceFiles);
@@ -519,6 +527,7 @@ class NewNativeTargetProjectMutator {
     collectResourcePathsFromConstructorArgs(
         recursiveResources,
         recursiveAssetCatalogs,
+        wrapperResources,
         resourceFiles,
         resourceDirs,
         variantResourceFiles);
@@ -544,9 +553,10 @@ class NewNativeTargetProjectMutator {
     return phase;
   }
 
-  void collectResourcePathsFromConstructorArgs(
+  private void collectResourcePathsFromConstructorArgs(
       Set<AppleResourceDescription.Arg> resourceArgs,
       Set<AppleAssetCatalogDescription.Arg> assetCatalogArgs,
+      Set<AppleWrapperResourceArg> resourcePathArgs,
       ImmutableSet.Builder<Path> resourceFilesBuilder,
       ImmutableSet.Builder<Path> resourceDirsBuilder,
       ImmutableSet.Builder<Path> variantResourceFilesBuilder) {
@@ -559,6 +569,10 @@ class NewNativeTargetProjectMutator {
 
     for (AppleAssetCatalogDescription.Arg arg : assetCatalogArgs) {
       resourceDirsBuilder.addAll(Iterables.transform(arg.dirs, sourcePathResolver));
+    }
+
+    for (AppleWrapperResourceArg arg : resourcePathArgs) {
+      resourceDirsBuilder.add(arg.path);
     }
   }
 
@@ -628,11 +642,9 @@ class NewNativeTargetProjectMutator {
     for (TargetNode<?, ?> node : nodes) {
       PBXShellScriptBuildPhase shellScriptBuildPhase = new PBXShellScriptBuildPhase();
       boolean nodeIsPrebuildScript =
-          Description.getBuildRuleType(XcodePrebuildScriptDescription.class)
-              .equals(node.getType());
+          node.getDescription() instanceof XcodePrebuildScriptDescription;
       boolean nodeIsPostbuildScript =
-          Description.getBuildRuleType(XcodePostbuildScriptDescription.class)
-              .equals(node.getType());
+          node.getDescription() instanceof XcodePostbuildScriptDescription;
       if (nodeIsPrebuildScript || nodeIsPostbuildScript) {
         XcodeScriptDescriptionArg arg = (XcodeScriptDescriptionArg) node.getConstructorArg();
         shellScriptBuildPhase
@@ -645,9 +657,7 @@ class NewNativeTargetProjectMutator {
                     .toSet());
         shellScriptBuildPhase.getOutputPaths().addAll(arg.outputs);
         shellScriptBuildPhase.setShellScript(arg.cmd);
-      } else if (
-          Description.getBuildRuleType(IosReactNativeLibraryDescription.class)
-              .equals(node.getType())) {
+      } else if (node.getDescription() instanceof IosReactNativeLibraryDescription) {
         shellScriptBuildPhase.setShellScript(generateXcodeShellScript(node));
       } else {
         // unreachable

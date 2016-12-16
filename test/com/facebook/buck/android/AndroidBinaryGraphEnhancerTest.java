@@ -18,7 +18,6 @@ package com.facebook.buck.android;
 
 import static com.facebook.buck.jvm.java.JavaCompilationConstants.ANDROID_JAVAC_OPTIONS;
 import static org.easymock.EasyMock.createMock;
-import static org.easymock.EasyMock.createNiceMock;
 import static org.easymock.EasyMock.createStrictMock;
 import static org.easymock.EasyMock.replay;
 import static org.easymock.EasyMock.verify;
@@ -52,11 +51,13 @@ import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.TestCellBuilder;
 import com.facebook.buck.rules.coercer.BuildConfigFields;
 import com.facebook.buck.rules.coercer.ManifestEntries;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.MoreAsserts;
+import com.facebook.buck.testutil.TargetGraphFactory;
 import com.facebook.buck.util.MoreCollectors;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
@@ -78,29 +79,35 @@ public class AndroidBinaryGraphEnhancerTest {
 
   @Test
   public void testCreateDepsForPreDexing() throws Exception {
-    BuildRuleResolver ruleResolver =
-        new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-
     // Create three Java rules, :dep1, :dep2, and :lib. :lib depends on :dep1 and :dep2.
     BuildTarget javaDep1BuildTarget = BuildTargetFactory.newInstance("//java/com/example:dep1");
-    BuildRule javaDep1 = JavaLibraryBuilder
+    TargetNode<?, ?> javaDep1Node = JavaLibraryBuilder
         .createBuilder(javaDep1BuildTarget)
         .addSrc(Paths.get("java/com/example/Dep1.java"))
-        .build(ruleResolver);
+        .build();
 
     BuildTarget javaDep2BuildTarget = BuildTargetFactory.newInstance("//java/com/example:dep2");
-    BuildRule javaDep2 = JavaLibraryBuilder
+    TargetNode<?, ?> javaDep2Node = JavaLibraryBuilder
         .createBuilder(javaDep2BuildTarget)
         .addSrc(Paths.get("java/com/example/Dep2.java"))
-        .build(ruleResolver);
+        .build();
 
     BuildTarget javaLibBuildTarget = BuildTargetFactory.newInstance("//java/com/example:lib");
-    BuildRule javaLib = JavaLibraryBuilder
+    TargetNode<?, ?> javaLibNode = JavaLibraryBuilder
         .createBuilder(javaLibBuildTarget)
         .addSrc(Paths.get("java/com/example/Lib.java"))
-        .addDep(javaDep1.getBuildTarget())
-        .addDep(javaDep2.getBuildTarget())
-        .build(ruleResolver);
+        .addDep(javaDep1Node.getBuildTarget())
+        .addDep(javaDep2Node.getBuildTarget())
+        .build();
+
+    TargetGraph targetGraph =
+        TargetGraphFactory.newInstance(javaDep1Node, javaDep2Node, javaLibNode);
+    BuildRuleResolver ruleResolver =
+        new BuildRuleResolver(targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
+
+    BuildRule javaDep1 = ruleResolver.requireRule(javaDep1BuildTarget);
+    BuildRule javaDep2 = ruleResolver.requireRule(javaDep2BuildTarget);
+    BuildRule javaLib = ruleResolver.requireRule(javaLibBuildTarget);
 
     // Assume we are enhancing an android_binary rule whose only dep
     // is //java/com/example:lib, and that //java/com/example:dep2 is in its no_dx list.
@@ -138,7 +145,6 @@ public class AndroidBinaryGraphEnhancerTest {
         /* includesVectorDrawables */ false,
         ANDROID_JAVAC_OPTIONS,
         EnumSet.noneOf(ExopackageMode.class),
-        createStrictMock(Keystore.class),
         /* buildConfigValues */ BuildConfigFields.empty(),
         /* buildConfigValuesFile */ Optional.empty(),
         /* xzCompressionLevel */ Optional.empty(),
@@ -294,7 +300,6 @@ public class AndroidBinaryGraphEnhancerTest {
         /* includesVectorDrawables */ false,
         ANDROID_JAVAC_OPTIONS,
         EnumSet.of(ExopackageMode.SECONDARY_DEX),
-        keystore,
         /* buildConfigValues */ BuildConfigFields.empty(),
         /* buildConfigValuesFiles */ Optional.empty(),
         /* xzCompressionLevel */ Optional.empty(),
@@ -438,7 +443,6 @@ public class AndroidBinaryGraphEnhancerTest {
         /* includesVectorDrawables */ false,
         ANDROID_JAVAC_OPTIONS,
         EnumSet.of(ExopackageMode.SECONDARY_DEX),
-        createNiceMock(Keystore.class),
         /* buildConfigValues */ BuildConfigFields.empty(),
         /* buildConfigValuesFiles */ Optional.empty(),
         /* xzCompressionLevel */ Optional.empty(),
@@ -499,7 +503,6 @@ public class AndroidBinaryGraphEnhancerTest {
         /* includesVectorDrawables */ false,
         ANDROID_JAVAC_OPTIONS,
         EnumSet.of(ExopackageMode.SECONDARY_DEX),
-        createNiceMock(Keystore.class),
         /* buildConfigValues */ BuildConfigFields.empty(),
         /* buildConfigValuesFiles */ Optional.empty(),
         /* xzCompressionLevel */ Optional.empty(),
@@ -587,7 +590,6 @@ public class AndroidBinaryGraphEnhancerTest {
         /* includesVectorDrawables */ false,
         ANDROID_JAVAC_OPTIONS,
         EnumSet.of(ExopackageMode.SECONDARY_DEX),
-        createNiceMock(Keystore.class),
         /* buildConfigValues */ BuildConfigFields.empty(),
         /* buildConfigValuesFiles */ Optional.empty(),
         /* xzCompressionLevel */ Optional.empty(),

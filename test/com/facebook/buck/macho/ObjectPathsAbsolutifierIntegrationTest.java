@@ -133,13 +133,7 @@ public class ObjectPathsAbsolutifierIntegrationTest {
             "%s")
         .resolve("main.c.o");
 
-    Path relativeSanitizedSourceFilePath = BuildTargets
-        .getGenPath(
-            filesystem,
-            target.withFlavors(
-                platformFlavor,
-                ImmutableFlavor.of("preprocess-" + sanitize("main.c.i"))),
-            "%s");
+    Path relativeSourceFilePath = Paths.get("Apps/TestApp/main.c");
 
     Path sanitizedBinaryPath = workspace.getPath(
         BuildTargets
@@ -193,7 +187,7 @@ public class ObjectPathsAbsolutifierIntegrationTest {
     assertThat(sanitizedOutput, containsString("SOL Apps/TestApp/main.c"));
     assertThat(unsanitizedOutput, not(containsString("SOL Apps/TestApp/main.c")));
 
-    // check that absolute path to included source file is correct
+    // check that absolute path to source file is correct
     assertThat(
         unsanitizedOutput,
         containsString("SOL " + newCompDirValue + "/Apps/TestApp/main.c"));
@@ -202,10 +196,14 @@ public class ObjectPathsAbsolutifierIntegrationTest {
         unsanitizedOutput,
         containsString("OSO " + newCompDirValue + "/buck-out/bin/" +
             relativeSanitizedObjectFilePath.toString()));
-    // check that absolute path to source file is correct
     assertThat(
         unsanitizedOutput,
-        containsString("SO " + newCompDirValue + "/" + relativeSanitizedSourceFilePath.toString()));
+        containsString(
+            "SO " + newCompDirValue + "/" + relativeSourceFilePath.getParent().toString()));
+    assertThat(
+        unsanitizedOutput,
+        containsString(
+            "SOL " + newCompDirValue + "/" + relativeSourceFilePath.toString()));
   }
 
   private boolean checkCodeSigning(Path absoluteBundlePath)
@@ -302,9 +300,11 @@ public class ObjectPathsAbsolutifierIntegrationTest {
     assertThat(checkCodeSigning(appPath), equalTo(true));
 
     Path unsanizitedBinaryPath = workspace.getPath(
-        filesystem.getBuckPaths().getScratchDir()
-            .resolve(sanitizedBinaryPath.getParent())
+        filesystem.getBuckPaths().getTmpDir()
+            .resolve(sanitizedBinaryPath.getParent().getFileName())
             .resolve(sanitizedBinaryPath.getFileName()));
+
+    filesystem.mkdirs(unsanizitedBinaryPath.getParent());
 
     // copy bundle
     MoreFiles.copyRecursively(sanitizedBinaryPath.getParent(), unsanizitedBinaryPath.getParent());

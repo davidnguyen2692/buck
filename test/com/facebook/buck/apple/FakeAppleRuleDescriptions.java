@@ -31,6 +31,7 @@ import com.facebook.buck.model.FlavorDomain;
 import com.facebook.buck.swift.SwiftBuckConfig;
 import com.facebook.buck.swift.SwiftLibraryDescription;
 import com.facebook.buck.swift.SwiftPlatform;
+import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.util.FakeProcess;
 import com.facebook.buck.util.FakeProcessExecutor;
@@ -103,6 +104,7 @@ public class FakeAppleRuleDescriptions {
           Paths.get("usr/bin/actool"),
           Paths.get("usr/bin/ibtool"),
           Paths.get("usr/bin/momc"),
+          Paths.get("usr/bin/copySceneKitAssets"),
           Paths.get("usr/bin/lldb"),
           Paths.get("Tools/otest"),
           Paths.get("usr/bin/xctest")));
@@ -113,6 +115,7 @@ public class FakeAppleRuleDescriptions {
 
   public static final AppleCxxPlatform DEFAULT_IPHONEOS_I386_PLATFORM =
       AppleCxxPlatforms.buildWithExecutableChecker(
+          new FakeProjectFilesystem(),
           DEFAULT_IPHONEOS_SDK,
           "8.0",
           "i386",
@@ -125,6 +128,7 @@ public class FakeAppleRuleDescriptions {
 
   public static final AppleCxxPlatform DEFAULT_IPHONEOS_X86_64_PLATFORM =
       AppleCxxPlatforms.buildWithExecutableChecker(
+          new FakeProjectFilesystem(),
           DEFAULT_IPHONEOS_SDK,
           "8.0",
           "x86_64",
@@ -138,6 +142,7 @@ public class FakeAppleRuleDescriptions {
 
   public static final AppleCxxPlatform DEFAULT_MACOSX_X86_64_PLATFORM =
       AppleCxxPlatforms.buildWithExecutableChecker(
+          new FakeProjectFilesystem(),
           DEFAULT_MACOSX_SDK,
           "8.0",
           "x86_64",
@@ -152,6 +157,7 @@ public class FakeAppleRuleDescriptions {
 
   public static final CxxPlatform DEFAULT_PLATFORM = DefaultCxxPlatforms.build(
       Platform.MACOS,
+      new FakeProjectFilesystem(),
       new CxxBuckConfig(DEFAULT_BUCK_CONFIG));
 
   public static final FlavorDomain<CxxPlatform> DEFAULT_APPLE_FLAVOR_DOMAIN =
@@ -200,8 +206,7 @@ public class FakeAppleRuleDescriptions {
         CodeSignIdentityStore.fromIdentities(ImmutableList.of(CodeSignIdentity.AD_HOC)),
         ProvisioningProfileStore.fromProvisioningProfiles(
             ImmutableList.of()),
-        AppleDebugFormat.NONE,
-        false);
+        new FakeAppleConfig());
 
   /**
    * A fake apple_binary description with an iOS platform for use in tests.
@@ -218,8 +223,7 @@ public class FakeAppleRuleDescriptions {
         CodeSignIdentityStore.fromIdentities(ImmutableList.of(CodeSignIdentity.AD_HOC)),
         ProvisioningProfileStore.fromProvisioningProfiles(
             ImmutableList.of()),
-        AppleDebugFormat.NONE,
-        false);
+        new FakeAppleConfig());
 
   /**
    * A fake apple_bundle description with an iOS platform for use in tests.
@@ -234,8 +238,7 @@ public class FakeAppleRuleDescriptions {
           CodeSignIdentityStore.fromIdentities(ImmutableList.of(CodeSignIdentity.AD_HOC)),
           ProvisioningProfileStore.fromProvisioningProfiles(
               ImmutableList.of()),
-          AppleDebugFormat.NONE,
-          false);
+          new FakeAppleConfig());
 
   /**
    * A fake apple_test description with an iOS platform for use in tests.
@@ -251,7 +254,5 @@ public class FakeAppleRuleDescriptions {
           ProvisioningProfileStore.fromProvisioningProfiles(
               ImmutableList.of()),
           Suppliers.ofInstance(Optional.empty()),
-          AppleDebugFormat.NONE,
-          DEFAULT_TIMEOUT,
-          false);
+          DEFAULT_TIMEOUT);
 }

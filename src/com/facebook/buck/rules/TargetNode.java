@@ -28,6 +28,7 @@ import com.google.common.hash.HashCode;
 
 import java.nio.file.Path;
 import java.util.Optional;
+import java.util.stream.Stream;
 
 /**
  * A {@link TargetNode} represents a node in the target graph which is created by the
@@ -93,10 +94,6 @@ public class TargetNode<T, U extends Description<T>>
     return description;
   }
 
-  public BuildRuleType getType() {
-    return Description.getBuildRuleType(description);
-  }
-
   public T getConstructorArg() {
     return constructorArg;
   }
@@ -127,6 +124,17 @@ public class TargetNode<T, U extends Description<T>>
     builder.addAll(getDeclaredDeps());
     builder.addAll(getExtraDeps());
     return builder.build();
+  }
+
+  /**
+   * Stream-style API for getting dependencies. This may return duplicates if certain dependencies
+   * are in both declared deps and exported deps.
+   *
+   * This method can be faster than {@link #getDeps()} in cases where repeated traversals and set
+   * operations are not necessary, as it avoids creating the intermediate set.
+   */
+  public Stream<BuildTarget> getDepsStream() {
+    return Stream.concat(getDeclaredDeps().stream(), getExtraDeps().stream());
   }
 
   /**

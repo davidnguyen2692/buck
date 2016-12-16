@@ -44,7 +44,6 @@ import com.google.common.jimfs.Jimfs;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
-import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -333,14 +332,25 @@ public class FakeProjectFilesystem extends ProjectFilesystem {
     directories.clear();
   }
 
+  public BasicFileAttributes readBasicAttributes(
+      Path pathRelativeToProjectRoot) throws IOException {
+    if (!exists(pathRelativeToProjectRoot)) {
+      throw new NoSuchFileException(pathRelativeToProjectRoot.toString());
+    }
+    return isFile(pathRelativeToProjectRoot)
+           ? FakeFileAttributes.forFileWithSize(pathRelativeToProjectRoot, 0)
+           : FakeFileAttributes.forDirectory(pathRelativeToProjectRoot);
+  }
+
   @Override
   public <A extends BasicFileAttributes> A readAttributes(
       Path pathRelativeToProjectRoot,
       Class<A> type,
       LinkOption... options) throws IOException {
-    // Converting FileAttribute to BasicFileAttributes sub-interfaces is
-    // really annoying. Let's just not do it.
-    throw new UnsupportedOperationException();
+    if (type == BasicFileAttributes.class) {
+      return type.cast(readBasicAttributes(pathRelativeToProjectRoot));
+    }
+    throw new UnsupportedOperationException("cannot mock instance of: " + type);
   }
 
   @Override
@@ -351,7 +361,7 @@ public class FakeProjectFilesystem extends ProjectFilesystem {
   @Override
   public long getFileSize(Path path) throws IOException {
     if (!exists(path)) {
-      throw new FileNotFoundException(path.toString());
+      throw new NoSuchFileException(path.toString());
     }
     return getFileBytes(path).length;
   }

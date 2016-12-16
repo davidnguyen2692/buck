@@ -16,6 +16,7 @@
 
 package com.facebook.buck.cli;
 
+import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.io.MoreProjectFilesystems;
 import com.facebook.buck.io.ProjectFilesystem;
@@ -54,6 +55,7 @@ import com.facebook.buck.test.TestStatusMessage;
 import com.facebook.buck.test.result.type.ResultType;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreCollectors;
+import com.facebook.buck.util.concurrent.MoreFutures;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Charsets;
 import com.google.common.base.Preconditions;
@@ -182,8 +184,7 @@ public class TestRunning {
       final Callable<TestResults> resultsInterpreter = getCachingCallable(
           test.interpretTestResults(
               executionContext,
-              /*isUsingTestSelectors*/ !options.getTestSelectorList().isEmpty(),
-              /*isDryRun*/ options.isDryRun()));
+              /*isUsingTestSelectors*/ !options.getTestSelectorList().isEmpty()));
 
       boolean isTestRunRequired;
       isTestRunRequired = isTestRunRequiredForTest(
@@ -194,8 +195,7 @@ public class TestRunning {
           options.getTestResultCacheMode(),
           resultsInterpreter,
           !options.getTestSelectorList().isEmpty(),
-          !options.getEnvironmentOverrides().isEmpty(),
-          options.isDryRun());
+          !options.getEnvironmentOverrides().isEmpty());
 
       final Map<String, UUID> testUUIDMap = new HashMap<>();
       final AtomicReference<TestStatusMessageEvent.Started> currentTestStatusMessageEvent =
@@ -316,33 +316,16 @@ public class TestRunning {
       }
     }
 
-    final StepRunner.StepRunningCallback testStepRunningCallback =
-        new StepRunner.StepRunningCallback() {
-          @Override
-          public void stepsWillRun(Optional<BuildTarget> buildTarget) {
-            Preconditions.checkState(buildTarget.isPresent());
-            LOG.debug("Test steps will run for %s", buildTarget);
-            params.getBuckEventBus().post(TestRuleEvent.started(buildTarget.get()));
-          }
-
-          @Override
-          public void stepsDidRun(Optional<BuildTarget> buildTarget) {
-            Preconditions.checkState(buildTarget.isPresent());
-            LOG.debug("Test steps did run for %s", buildTarget);
-            params.getBuckEventBus().post(TestRuleEvent.finished(buildTarget.get()));
-          }
-        };
-
     for (TestRun testRun : parallelTestRuns) {
-      ListenableFuture<TestResults> testResults =
-          stepRunner.runStepsAndYieldResult(
-              executionContext,
-              testRun.getSteps(),
-              testRun.getTestResultsCallable(),
-              Optional.of(testRun.getTest().getBuildTarget()),
-              service,
-              testStepRunningCallback);
-        results.add(
+      ListenableFuture<TestResults> testResults = runStepsAndYieldResult(
+          stepRunner,
+          executionContext,
+          testRun.getSteps(),
+          testRun.getTestResultsCallable(),
+          testRun.getTest().getBuildTarget(),
+          params.getBuckEventBus(),
+          service);
+      results.add(
             transformTestResults(
                 params,
                 testResults,
@@ -359,7 +342,7 @@ public class TestRunning {
     final List<TestResults> completedResults = Lists.newArrayList();
 
     final ListeningExecutorService directExecutorService = MoreExecutors.newDirectExecutorService();
-    ListenableFuture<Void> uberFuture = stepRunner.addCallback(
+    ListenableFuture<Void> uberFuture = MoreFutures.addListenableCallback(
         parallelTestStepsFuture,
         new FutureCallback<List<TestResults>>() {
           @Override
@@ -371,13 +354,14 @@ public class TestRunning {
               separateResultsList.add(
                   transformTestResults(
                       params,
-                      stepRunner.runStepsAndYieldResult(
+                      runStepsAndYieldResult(
+                          stepRunner,
                           executionContext,
                           testRun.getSteps(),
                           testRun.getTestResultsCallable(),
-                          Optional.of(testRun.getTest().getBuildTarget()),
-                          directExecutorService,
-                          testStepRunningCallback),
+                          testRun.getTest().getBuildTarget(),
+                          params.getBuckEventBus(),
+                          directExecutorService),
                       testRun.getTest(),
                       testRun.getTestReportingCallback(),
                       testTargets,
@@ -614,8 +598,7 @@ public class TestRunning {
       TestRunningOptions.TestResultCacheMode resultCacheMode,
       Callable<TestResults> testResultInterpreter,
       boolean isRunningWithTestSelectors,
-      boolean hasEnvironmentOverrides,
-      boolean isDryRun)
+      boolean hasEnvironmentOverrides)
       throws IOException, ExecutionException, InterruptedException {
     boolean isTestRunRequired;
     BuildResult result;
@@ -630,9 +613,6 @@ public class TestRunning {
       isTestRunRequired = true;
     } else if (hasEnvironmentOverrides) {
       // This is rather obtuse, ideally the environment overrides can be hashed and compared...
-      isTestRunRequired = true;
-    } else if (isDryRun) {
-      // Test result caching does not work for dry runs, as the result file used is different.
       isTestRunRequired = true;
     } else if (((result = cachingBuildEngine.getBuildRuleResult(
         test.getBuildTarget())) != null) &&
@@ -899,5 +879,29 @@ public class TestRunning {
     }
 
     return ImmutableSet.copyOf(srcFolders);
+  }
+
+  private static ListenableFuture<TestResults> runStepsAndYieldResult(
+      StepRunner stepRunner,
+      ExecutionContext context,
+      final List<Step> steps,
+      final Callable<TestResults> interpretResults,
+      final BuildTarget buildTarget,
+      BuckEventBus eventBus,
+      ListeningExecutorService listeningExecutorService) {
+    Preconditions.checkState(!listeningExecutorService.isShutdown());
+    Callable<TestResults> callable = () -> {
+      LOG.debug("Test steps will run for %s", buildTarget);
+      eventBus.post(TestRuleEvent.started(buildTarget));
+      for (Step step : steps) {
+        stepRunner.runStepForBuildTarget(context, step, Optional.of(buildTarget));
+      }
+      LOG.debug("Test steps did run for %s", buildTarget);
+      eventBus.post(TestRuleEvent.finished(buildTarget));
+
+      return interpretResults.call();
+    };
+
+    return listeningExecutorService.submit(callable);
   }
 }

@@ -20,10 +20,12 @@ import static com.facebook.buck.jvm.common.ResourceValidator.validateResources;
 
 import com.facebook.buck.jvm.java.CalculateAbi;
 import com.facebook.buck.jvm.java.DefaultJavaLibrary;
+import com.facebook.buck.jvm.java.JavaLibraryRules;
 import com.facebook.buck.jvm.java.JavacOptions;
 import com.facebook.buck.jvm.java.JavacOptionsFactory;
 import com.facebook.buck.jvm.java.JvmLibraryArg;
 import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
@@ -65,58 +67,60 @@ public class GroovyLibraryDescription implements Description<GroovyLibraryDescri
       TargetGraph targetGraph,
       BuildRuleParams params,
       BuildRuleResolver resolver,
-      A args) {
+      A args) throws NoSuchBuildTargetException {
     SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+
+    if (params.getBuildTarget().getFlavors().contains(CalculateAbi.FLAVOR)) {
+      BuildTarget libraryTarget = params.getBuildTarget().withoutFlavors(CalculateAbi.FLAVOR);
+      resolver.requireRule(libraryTarget);
+      return CalculateAbi.of(
+          params.getBuildTarget(),
+          pathResolver,
+          params,
+          new BuildTargetSourcePath(libraryTarget));
+    }
 
     BuildTarget abiJarTarget = params.getBuildTarget().withAppendedFlavors(CalculateAbi.FLAVOR);
 
     ImmutableSortedSet<BuildRule> exportedDeps = resolver.getAllRules(args.exportedDeps);
-    DefaultJavaLibrary defaultJavaLibrary =
-        resolver.addToIndex(
-            new DefaultJavaLibrary(
-                params.appendExtraDeps(
-                        BuildRules.getExportedRules(
-                            Iterables.concat(
-                                params.getDeclaredDeps().get(),
-                                exportedDeps,
-                                resolver.getAllRules(args.providedDeps)))),
-                pathResolver,
-                args.srcs,
-                validateResources(
-                    pathResolver,
-                    params.getProjectFilesystem(),
-                    args.resources),
-                Optional.empty(),
-                Optional.empty(),
-                ImmutableList.of(),
-                exportedDeps,
-                resolver.getAllRules(args.providedDeps),
-                new BuildTargetSourcePath(abiJarTarget),
-                /* trackClassUsage */ false,
-                /* additionalClasspathEntries */ ImmutableSet.of(),
-                new GroovycToJarStepFactory(
-                    groovyBuckConfig.getGroovyCompiler().get(),
-                    Optional.of(args.extraGroovycArguments),
-                    JavacOptionsFactory.create(
-                        defaultJavacOptions,
-                        params,
-                        resolver,
-                        pathResolver,
-                        args)),
-                Optional.empty(),
-                /* manifest file */ Optional.empty(),
-                Optional.empty(),
-                ImmutableSortedSet.of(),
-                /* classesToRemoveFromJar */ ImmutableSet.of()));
-
-    resolver.addToIndex(
-        CalculateAbi.of(
-            abiJarTarget,
+    BuildRuleParams javaLibraryParams =
+        params.appendExtraDeps(
+            BuildRules.getExportedRules(
+                Iterables.concat(
+                    params.getDeclaredDeps().get(),
+                    exportedDeps,
+                    resolver.getAllRules(args.providedDeps))));
+    return new DefaultJavaLibrary(
+        javaLibraryParams,
+        pathResolver,
+        args.srcs,
+        validateResources(
             pathResolver,
-            params,
-            new BuildTargetSourcePath(defaultJavaLibrary.getBuildTarget())));
-
-    return defaultJavaLibrary;
+            params.getProjectFilesystem(),
+            args.resources),
+        Optional.empty(),
+        Optional.empty(),
+        ImmutableList.of(),
+        exportedDeps,
+        resolver.getAllRules(args.providedDeps),
+        abiJarTarget,
+        JavaLibraryRules.getAbiInputs(resolver, javaLibraryParams.getDeps()),
+        /* trackClassUsage */ false,
+        /* additionalClasspathEntries */ ImmutableSet.of(),
+        new GroovycToJarStepFactory(
+            groovyBuckConfig.getGroovyCompiler().get(),
+            Optional.of(args.extraGroovycArguments),
+            JavacOptionsFactory.create(
+                defaultJavacOptions,
+                params,
+                resolver,
+                pathResolver,
+                args)),
+        Optional.empty(),
+        /* manifest file */ Optional.empty(),
+        Optional.empty(),
+        ImmutableSortedSet.of(),
+        /* classesToRemoveFromJar */ ImmutableSet.of());
   }
 
   @SuppressFieldNotInitialized

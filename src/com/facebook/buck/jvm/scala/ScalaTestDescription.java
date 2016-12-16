@@ -22,6 +22,7 @@ import com.facebook.buck.jvm.java.CalculateAbi;
 import com.facebook.buck.jvm.java.DefaultJavaLibrary;
 import com.facebook.buck.jvm.java.ForkMode;
 import com.facebook.buck.jvm.java.JavaLibrary;
+import com.facebook.buck.jvm.java.JavaLibraryRules;
 import com.facebook.buck.jvm.java.JavaOptions;
 import com.facebook.buck.jvm.java.JavaTest;
 import com.facebook.buck.jvm.java.JavaTestDescription;
@@ -77,12 +78,22 @@ public class ScalaTestDescription implements Description<ScalaTestDescription.Ar
   }
 
   @Override
-  public <A extends Arg> JavaTest createBuildRule(
+  public <A extends Arg> BuildRule createBuildRule(
       TargetGraph targetGraph,
       final BuildRuleParams rawParams,
       final BuildRuleResolver resolver,
       A args) throws NoSuchBuildTargetException {
     SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+
+    if (rawParams.getBuildTarget().getFlavors().contains(CalculateAbi.FLAVOR)) {
+      BuildTarget testTarget = rawParams.getBuildTarget().withoutFlavors(CalculateAbi.FLAVOR);
+      resolver.requireRule(testTarget);
+      return CalculateAbi.of(
+          rawParams.getBuildTarget(),
+          pathResolver,
+          rawParams,
+          new BuildTargetSourcePath(testTarget));
+    }
 
     final BuildRule scalaLibrary = resolver.getRule(config.getScalaLibraryTarget());
     BuildRuleParams params = rawParams.copyWithDeps(
@@ -90,8 +101,7 @@ public class ScalaTestDescription implements Description<ScalaTestDescription.Ar
             .addAll(rawParams.getDeclaredDeps().get())
             .add(scalaLibrary)
             .build(),
-        rawParams.getExtraDeps()
-    );
+        rawParams.getExtraDeps());
 
     JavaTestDescription.CxxLibraryEnhancement cxxLibraryEnhancement =
         new JavaTestDescription.CxxLibraryEnhancement(
@@ -107,17 +117,19 @@ public class ScalaTestDescription implements Description<ScalaTestDescription.Ar
 
     BuildTarget abiJarTarget = params.getBuildTarget().withAppendedFlavors(CalculateAbi.FLAVOR);
 
+    BuildRuleParams javaLibraryParams =
+        params.appendExtraDeps(
+            Iterables.concat(
+                BuildRules.getExportedRules(
+                    Iterables.concat(
+                        params.getDeclaredDeps().get(),
+                        resolver.getAllRules(args.providedDeps))),
+                scalac.getDeps(pathResolver)))
+            .withFlavor(JavaTest.COMPILED_TESTS_LIBRARY_FLAVOR);
     JavaLibrary testsLibrary =
         resolver.addToIndex(
             new DefaultJavaLibrary(
-                params.appendExtraDeps(
-                    Iterables.concat(
-                        BuildRules.getExportedRules(
-                            Iterables.concat(
-                                params.getDeclaredDeps().get(),
-                                resolver.getAllRules(args.providedDeps))),
-                        scalac.getDeps(pathResolver)))
-                    .withFlavor(JavaTest.COMPILED_TESTS_LIBRARY_FLAVOR),
+                javaLibraryParams,
                 pathResolver,
                 args.srcs,
                 ResourceValidator.validateResources(
@@ -129,7 +141,8 @@ public class ScalaTestDescription implements Description<ScalaTestDescription.Ar
                 /* postprocessClassesCommands */ ImmutableList.of(),
                 /* exportDeps */ ImmutableSortedSet.of(),
                 /* providedDeps */ ImmutableSortedSet.of(),
-                new BuildTargetSourcePath(abiJarTarget),
+                abiJarTarget,
+                JavaLibraryRules.getAbiInputs(resolver, javaLibraryParams.getDeps()),
                 /* trackClassUsage */ false,
                 /* additionalClasspathEntries */ ImmutableSet.of(),
                 new ScalacToJarStepFactory(
@@ -145,37 +158,26 @@ public class ScalaTestDescription implements Description<ScalaTestDescription.Ar
                 /* tests */ ImmutableSortedSet.of(),
                 /* classesToRemoveFromJar */ ImmutableSet.of()));
 
-    JavaTest scalaTest =
-        resolver.addToIndex(
-            new JavaTest(
-                params.copyWithDeps(
-                    Suppliers.ofInstance(ImmutableSortedSet.of(testsLibrary)),
-                    Suppliers.ofInstance(ImmutableSortedSet.of())),
-                pathResolver,
-                testsLibrary,
-                /* additionalClasspathEntries */ ImmutableSet.of(),
-                args.labels,
-                args.contacts,
-                args.testType.orElse(TestType.JUNIT),
-                javaOptions.getJavaRuntimeLauncher(),
-                args.vmArgs,
-                cxxLibraryEnhancement.nativeLibsEnvironment,
-                args.testRuleTimeoutMs.map(Optional::of).orElse(defaultTestRuleTimeoutMs),
-                args.testCaseTimeoutMs,
-                args.env,
-                args.runTestSeparately.orElse(false),
-                args.forkMode.orElse(ForkMode.NONE),
-                args.stdOutLogLevel,
-                args.stdErrLogLevel));
-
-    resolver.addToIndex(
-        CalculateAbi.of(
-            abiJarTarget,
-            pathResolver,
-            params,
-            new BuildTargetSourcePath(testsLibrary.getBuildTarget())));
-
-    return scalaTest;
+    return new JavaTest(
+        params.copyWithDeps(
+            Suppliers.ofInstance(ImmutableSortedSet.of(testsLibrary)),
+            Suppliers.ofInstance(ImmutableSortedSet.of())),
+        pathResolver,
+        testsLibrary,
+        /* additionalClasspathEntries */ ImmutableSet.of(),
+        args.labels,
+        args.contacts,
+        args.testType.orElse(TestType.JUNIT),
+        javaOptions.getJavaRuntimeLauncher(),
+        args.vmArgs,
+        cxxLibraryEnhancement.nativeLibsEnvironment,
+        args.testRuleTimeoutMs.map(Optional::of).orElse(defaultTestRuleTimeoutMs),
+        args.testCaseTimeoutMs,
+        args.env,
+        args.runTestSeparately.orElse(false),
+        args.forkMode.orElse(ForkMode.NONE),
+        args.stdOutLogLevel,
+        args.stdErrLogLevel);
   }
 
   @Override

@@ -16,7 +16,7 @@
 package com.facebook.buck.shell;
 
 import java.io.IOException;
-import java.nio.file.Path;
+import java.nio.file.Paths;
 
 public class FakeWorkerProcessProtocol implements WorkerProcessProtocol {
 
@@ -29,8 +29,15 @@ public class FakeWorkerProcessProtocol implements WorkerProcessProtocol {
   public void receiveHandshake(int handshakeID) throws IOException {}
 
   @Override
-  public void sendCommand(int messageID, Path argsPath, Path stdoutPath, Path stderrPath)
-      throws IOException {}
+  public void sendCommand(int messageID, WorkerProcessCommand command) throws IOException {}
+
+  @Override
+  public WorkerProcessCommand receiveCommand(int messageID) throws IOException {
+    return WorkerProcessCommand.of(Paths.get(""), Paths.get(""), Paths.get(""));
+  }
+
+  @Override
+  public void sendCommandResponse(int messageID, String type, int exitCode) throws IOException {}
 
   @Override
   public int receiveCommandResponse(int messageID) throws IOException {

@@ -31,7 +31,8 @@ import com.facebook.buck.jvm.java.DefaultJavaLibrary;
 import com.facebook.buck.jvm.java.JavaLibraryDescription;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.FlavorDomain;
-import com.facebook.buck.rules.keys.DefaultRuleKeyBuilderFactory;
+import com.facebook.buck.parser.NoSuchBuildTargetException;
+import com.facebook.buck.rules.keys.DefaultRuleKeyFactory;
 import com.facebook.buck.testutil.FakeFileHashCache;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.util.FakeProcess;
@@ -114,6 +115,7 @@ public class KnownBuildRuleTypesTest {
     arg.javaVersion = Optional.empty();
     arg.javac = Optional.empty();
     arg.javacJar = Optional.empty();
+    arg.compilerClassName = Optional.empty();
     arg.compiler = Optional.empty();
     arg.extraArguments = ImmutableList.of();
     arg.removeClasses = ImmutableSet.of();
@@ -131,7 +133,8 @@ public class KnownBuildRuleTypesTest {
     arg.tests = ImmutableSortedSet.of();
   }
 
-  private DefaultJavaLibrary createJavaLibrary(KnownBuildRuleTypes buildRuleTypes) {
+  private DefaultJavaLibrary createJavaLibrary(KnownBuildRuleTypes buildRuleTypes)
+      throws NoSuchBuildTargetException {
     JavaLibraryDescription description =
         (JavaLibraryDescription) buildRuleTypes.getDescription(
             Description.getBuildRuleType(JavaLibraryDescription.class));
@@ -181,9 +184,9 @@ public class KnownBuildRuleTypesTest {
      );
     FakeFileHashCache hashCache = new FakeFileHashCache(
         ImmutableMap.of(javac, MorePaths.asByteSource(javac).hash(Hashing.sha1())));
-    RuleKey configuredKey = new DefaultRuleKeyBuilderFactory(0, hashCache, resolver).build(
+    RuleKey configuredKey = new DefaultRuleKeyFactory(0, hashCache, resolver).build(
         configuredRule);
-    RuleKey libraryKey = new DefaultRuleKeyBuilderFactory(0, hashCache, resolver).build(
+    RuleKey libraryKey = new DefaultRuleKeyFactory(0, hashCache, resolver).build(
         libraryRule);
 
     assertNotEquals(libraryKey, configuredKey);

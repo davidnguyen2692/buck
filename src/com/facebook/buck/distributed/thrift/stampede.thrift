@@ -30,6 +30,19 @@ struct BuildId {
   1 : optional string id;
 }
 
+struct RunId {
+  1 : optional string id;
+}
+
+struct BuildSlaveInfo {
+  1: optional RunId runId;
+  2: optional string hostname;
+  3: optional string command;
+  4: optional list<string> stdOut;
+  5: optional list<string> stdErr;
+  6: optional binary logDirZipContents;
+}
+
 enum BuildStatus {
   UNKNOWN = 0,
 
@@ -64,6 +77,11 @@ struct FileInfo {
   2: optional binary content;
 }
 
+struct PathInfo {
+  1: optional string contentHash;
+  2: optional string path;
+}
+
 enum BuckVersionType {
   // When this is not explicitly set.
   UNKNOWN = 0,
@@ -86,6 +104,8 @@ struct BuildJob {
   2: optional DebugInfo debug;
   3: optional BuildStatus status = BuildStatus.UNKNOWN;
   4: optional BuckVersion buckVersion;
+  5: optional map<string, BuildSlaveInfo> slaveInfoByRunId;
+  6: optional list<PathInfo> dotFiles;
 }
 
 struct Announcement {
@@ -169,7 +189,15 @@ struct SetBuckVersionRequest {
   2: optional BuckVersion buckVersion;
 }
 
-# Used to obtain announcements for users regarding current issues with Buck and solutions.
+# Used to store the paths and hashes of dot-files associated with a distributed
+# build.
+struct SetBuckDotFilePathsRequest {
+  1: optional BuildId buildId;
+  2: optional list<PathInfo> dotFiles;
+}
+
+# Used to obtain announcements for users regarding current issues with Buck and
+# solutions.
 struct AnnouncementRequest {
   1: optional string buckVersion;
   2: optional string repository;
@@ -197,6 +225,7 @@ enum FrontendRequestType {
   FETCH_BUILD_GRAPH = 11,
   SET_BUCK_VERSION = 12,
   ANNOUNCEMENT = 13,
+  SET_DOTFILE_PATHS = 14,
 
   // [100-199] Values are reserved for the buck cache request types.
 }
@@ -214,8 +243,9 @@ struct FrontendRequest {
   12: optional FetchBuildGraphRequest fetchBuildGraphRequest;
   13: optional SetBuckVersionRequest setBuckVersionRequest;
   14: optional AnnouncementRequest announcementRequest;
+  15: optional SetBuckDotFilePathsRequest setBuckDotFilePathsRequest;
 
-  // Next Free ID: 15
+  // Next Free ID: 16
 
   // [100-199] Values are reserved for the buck cache request types.
 }

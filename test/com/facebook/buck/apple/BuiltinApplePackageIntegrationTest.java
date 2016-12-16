@@ -158,8 +158,7 @@ public class BuiltinApplePackageIntegrationTest {
         "watch_application_bundle",
         tmp);
     workspace.setUp();
-    workspace.writeContentsToPath("[apple]\n  watchsimulator_target_sdk_version = 2.0",
-        ".buckconfig.local");
+    workspace.addBuckConfigLocalOption("apple", "watchsimulator_target_sdk_version", "2.0");
     packageHasProperStructureForWatchHelper(workspace, true);
   }
 
@@ -171,8 +170,7 @@ public class BuiltinApplePackageIntegrationTest {
         "watch_application_bundle",
         tmp);
     workspace.setUp();
-    workspace.writeContentsToPath("[apple]\n  watchsimulator_target_sdk_version = 2.1",
-        ".buckconfig.local");
+    workspace.addBuckConfigLocalOption("apple", "watchsimulator_target_sdk_version", "2.1");
     packageHasProperStructureForWatchHelper(workspace, false);
   }
 
@@ -272,5 +270,25 @@ public class BuiltinApplePackageIntegrationTest {
     String output = result.getStdout().get();
     assertTrue(output.contains("i386"));
     assertTrue(output.contains("x86_64"));
+  }
+
+  @Test
+  public void testDisablingPackageCaching() throws IOException {
+    assumeTrue(Platform.detect() == Platform.MACOS);
+    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this,
+        "simple_application_bundle_no_debug",
+        tmp);
+    workspace.setUp();
+
+    workspace.enableDirCache();
+    workspace
+        .runBuckBuild("-c", "apple.cache_bundles_and_packages=false", "//:DemoAppPackage")
+        .assertSuccess();
+    workspace.runBuckCommand("clean");
+    workspace
+        .runBuckBuild("-c", "apple.cache_bundles_and_packages=false", "//:DemoAppPackage")
+        .assertSuccess();
+    workspace.getBuildLog().assertTargetBuiltLocally("//:DemoAppPackage");
   }
 }

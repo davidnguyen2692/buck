@@ -1,10 +1,12 @@
 {
   "artifact_cache" : {
     "deps" : [
+      "//src/com/facebook/buck/log/views:views",
       "//third-party/java/immutables:processor"
     ],
     "exported_deps" : [
       "//src/com/facebook/buck/event:event",
+      "//src/com/facebook/buck/event:interfaces",
       "//src/com/facebook/buck/io:io",
       "//src/com/facebook/buck/model:build_id",
       "//src/com/facebook/buck/model:model",

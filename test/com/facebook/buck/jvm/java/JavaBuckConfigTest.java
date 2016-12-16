@@ -17,7 +17,7 @@
 package com.facebook.buck.jvm.java;
 
 
-import static com.facebook.buck.jvm.java.JavaBuckConfig.TARGETED_JAVA_VERSION;
+import static com.facebook.buck.jvm.java.JavacOptions.TARGETED_JAVA_VERSION;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.hasEntry;
 import static org.hamcrest.Matchers.hasKey;
@@ -42,6 +42,7 @@ import com.google.common.base.Functions;
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableMap;
 
+import org.hamcrest.Matchers;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
@@ -301,6 +302,43 @@ public class JavaBuckConfigTest {
         new StringReader(config + "\n[java]\ntrack_class_usage = false"))
         .getDefaultJavacOptions()
         .trackClassUsage());
+  }
+
+  @Test
+  public void testJavaLocationOutOfProcess()
+      throws IOException, NoSuchBuildTargetException, InterruptedException {
+    String content = Joiner.on('\n').join(
+        "[java]",
+        "    location = OUT_OF_PROCESS");
+    JavaBuckConfig config = createWithDefaultFilesystem(new StringReader(content));
+    JavacOptions options = config.getDefaultJavacOptions();
+    assertThat(
+        options.getJavacLocation(),
+        Matchers.equalTo(JavacOptions.JavacLocation.OUT_OF_PROCESS));
+  }
+
+  @Test
+  public void testJavaLocationInProcessByDefault()
+      throws IOException, NoSuchBuildTargetException, InterruptedException {
+    JavaBuckConfig config = createWithDefaultFilesystem(new StringReader(""));
+
+    JavacOptions options = config.getDefaultJavacOptions();
+    assertThat(
+        options.getJavacLocation(),
+        Matchers.equalTo(JavacOptions.JavacLocation.IN_PROCESS));
+  }
+
+  @Test
+  public void testJavaLocationInProcess()
+      throws IOException, NoSuchBuildTargetException, InterruptedException {
+    String content = Joiner.on('\n').join(
+        "[java]",
+        "    location = IN_PROCESS");
+    JavaBuckConfig config = createWithDefaultFilesystem(new StringReader(content));
+    JavacOptions options = config.getDefaultJavacOptions();
+    assertThat(
+        options.getJavacLocation(),
+        Matchers.equalTo(JavacOptions.JavacLocation.IN_PROCESS));
   }
 
   private void assertOptionKeyAbsent(JavacOptions options, String key) {

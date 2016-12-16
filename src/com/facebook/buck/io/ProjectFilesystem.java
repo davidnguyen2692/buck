@@ -17,6 +17,7 @@
 package com.facebook.buck.io;
 
 import com.facebook.buck.config.Config;
+import com.facebook.buck.event.EventBus;
 import com.facebook.buck.util.BuckConstant;
 import com.facebook.buck.util.environment.Platform;
 import com.facebook.buck.util.sha1.Sha1HashCode;
@@ -148,13 +149,14 @@ public class ProjectFilesystem {
   protected boolean ignoreValidityOfPaths;
 
   public ProjectFilesystem(Path root) {
-    this(root.getFileSystem(), root, ImmutableSet.of(), getDefaultBuckPaths(root));
+    this(root, new Config());
   }
 
   /**
    * This constructor is restricted to {@code protected} because it is generally best to let
-   * {@link ProjectFilesystemDelegateFactory#newInstance(Path)} create an appropriate
-   * delegate. Currently, the only case in which we need to override this behavior is in unit tests.
+   * {@link ProjectFilesystemDelegateFactory#newInstance(Path, String, boolean, ImmutableList,
+   * Optional)} create an appropriate delegate. Currently, the only case in which we need to
+   * override this behavior is in unit tests.
    */
   protected ProjectFilesystem(Path root, ProjectFilesystemDelegate delegate) {
     this(
@@ -170,20 +172,15 @@ public class ProjectFilesystem {
         root.getFileSystem(),
         root,
         extractIgnorePaths(root, config, getConfiguredBuckPaths(root, config)),
-        getConfiguredBuckPaths(root, config));
-  }
-
-  private ProjectFilesystem(
-      FileSystem vfs,
-      final Path root,
-      ImmutableSet<PathOrGlobMatcher> blackListedPaths,
-      BuckPaths buckPaths) {
-    this(
-        vfs,
-        root,
-        blackListedPaths,
-        buckPaths,
-        ProjectFilesystemDelegateFactory.newInstance(root));
+        getConfiguredBuckPaths(root, config),
+        ProjectFilesystemDelegateFactory.newInstance(
+            root,
+            config.getValue("version_control", "hg_cmd").orElse("hg"),
+            config.getBooleanValue("project", "enable_autosparse", false),
+            config.getListWithoutComments("autosparse", "ignore"),
+            config.getValue("autosparse", "baseprofile")
+        )
+    );
   }
 
   /**
@@ -343,6 +340,14 @@ public class ProjectFilesystem {
   }
 
   /**
+   * Hook for virtual filesystems to materialise virtual files as Buck will need to be able to read
+   * them past this point.
+   */
+  public void ensureConcreteFilesExist(EventBus eventBus) {
+    delegate.ensureConcreteFilesExist(eventBus);
+  }
+
+  /**
    * @return the specified {@code path} resolved against {@link #getRootPath()} to an absolute path.
    */
   public Path resolve(Path path) {
@@ -416,17 +421,17 @@ public class ProjectFilesystem {
       return file;
     }
 
+    if (exists(file)) {
+      return file;
+    }
+
     // TODO(bolinfest): Eliminate this temporary exemption for symbolic links.
     if (isSymLink(file)) {
       return file;
     }
 
-    if (!exists(file)) {
-      throw new RuntimeException(
-          String.format("Not an ordinary file: '%s'.", pathRelativeToProjectRoot));
-    }
-
-    return file;
+    throw new RuntimeException(
+        String.format("Not an ordinary file: '%s'.", pathRelativeToProjectRoot));
   }
 
   public boolean exists(Path pathRelativeToProjectRoot, LinkOption... options) {
@@ -891,8 +896,9 @@ public class ProjectFilesystem {
    */
   public Optional<String> readFirstLineFromFile(Path file) {
     try {
-      return Optional.ofNullable(
-          Files.newBufferedReader(file, Charsets.UTF_8).readLine());
+      try (BufferedReader reader = Files.newBufferedReader(file, Charsets.UTF_8)) {
+        return Optional.ofNullable(reader.readLine());
+      }
     } catch (IOException e) {
       // Because the file is not even guaranteed to exist, swallow the IOException.
       return Optional.empty();

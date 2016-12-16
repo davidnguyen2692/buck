@@ -1,12 +1,22 @@
 PUBLIC_SRCS = [
   'AbstractVersionControlStats.java',
-  'VersionControlBuckConfig.java',
   'VersionControlCmdLineInterface.java',
   'VersionControlCmdLineInterfaceFactory.java',
   'VersionControlCommandFailedException.java',
+  'NoOpCmdLineInterface.java',
+]
+
+CONFIG_SRCS = [
+  'VersionControlBuckConfig.java',
+]
+
+GENERATOR_SRCS = [
   'VersionControlStatsEvent.java',
   'VersionControlStatsGenerator.java',
-  'NoOpCmdLineInterface.java',
+]
+
+HG_SRCS = [
+  'HgCmdLineInterface.java',
 ]
 
 java_immutables_library(
@@ -18,6 +28,9 @@ java_immutables_library(
   tests = [
     '//test/com/facebook/buck/util/versioncontrol:versioncontrol',
   ],
+  resources = [
+    'rawmanifest.py',
+  ],
   autodeps = True,
   visibility = [
     'PUBLIC',
@@ -25,8 +38,52 @@ java_immutables_library(
 )
 
 java_library(
+  name = 'versioncontrol_config',
+  srcs = CONFIG_SRCS,
+  tests = [
+    '//test/com/facebook/buck/util/versioncontrol:versioncontrol',
+  ],
+  autodeps=True,
+  visibility = [
+    'PUBLIC',
+  ],
+)
+
+java_library(
+  name = 'versioncontrol_generator',
+  srcs = GENERATOR_SRCS,
+  tests = [
+    '//test/com/facebook/buck/util/versioncontrol:versioncontrol',
+  ],
+  autodeps=True,
+  visibility = [
+    'PUBLIC',
+  ],
+)
+
+java_library(
+  name = 'versioncontrol_hg',
+  srcs = HG_SRCS,
+  tests = [
+    '//test/com/facebook/buck/util/versioncontrol:versioncontrol',
+  ],
+  autodeps=True,
+  visibility = [
+    'PUBLIC',
+  ],
+)
+
+export_file(
+  name = 'rawmanifest',
+  src = 'rawmanifest.py',
+  visibility = [
+    'PUBLIC',
+  ],
+)
+
+java_library(
   name = 'impl',
-  srcs = glob(['*.java'], excludes = PUBLIC_SRCS),
+  srcs = glob(['*.java'], excludes = PUBLIC_SRCS + CONFIG_SRCS + GENERATOR_SRCS + HG_SRCS),
   tests = [
     '//test/com/facebook/buck/util/versioncontrol:versioncontrol',
   ],
@@ -35,5 +92,6 @@ java_library(
    '//src/com/facebook/buck/util/versioncontrol:versioncontrol',
    '//src/com/facebook/buck/cli:cli',
    '//test/com/facebook/buck/util/versioncontrol/...',
+   '//test/com/facebook/buck/util/autosparse/...',
   ],
 )

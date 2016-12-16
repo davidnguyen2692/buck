@@ -32,7 +32,6 @@ import com.facebook.buck.rules.keys.SupportsInputBasedRuleKey;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.MkdirStep;
-import com.facebook.buck.util.HumanReadableException;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -88,7 +87,7 @@ public class CxxPreprocessAndCompile
     if (precompiledHeaderRef.isPresent()) {
       Preconditions.checkState(
           operation == CxxPreprocessAndCompileStep.Operation.COMPILE_MUNGE_DEBUGINFO,
-          "Precompiled headers can only be used for same process preprocess/compile operations.");
+          "Precompiled headers can only be used for compile operations.");
     }
     this.operation = operation;
     this.preprocessDelegate = preprocessDelegate;
@@ -143,35 +142,6 @@ public class CxxPreprocessAndCompile
   }
 
   /**
-   * @return a {@link CxxPreprocessAndCompile} step that preprocesses the given source.
-   */
-  public static CxxPreprocessAndCompile preprocess(
-      BuildRuleParams params,
-      SourcePathResolver resolver,
-      PreprocessorDelegate preprocessorDelegate,
-      CompilerDelegate compilerDelegate,
-      Path output,
-      SourcePath input,
-      CxxSource.Type inputType,
-      DebugPathSanitizer compilerSanitizer,
-      DebugPathSanitizer assemblerSanitizer,
-      Optional<SymlinkTree> sandboxTree) {
-    return new CxxPreprocessAndCompile(
-        params,
-        resolver,
-        CxxPreprocessAndCompileStep.Operation.PREPROCESS,
-        Optional.of(preprocessorDelegate),
-        compilerDelegate,
-        output,
-        input,
-        inputType,
-        Optional.empty(),
-        compilerSanitizer,
-        assemblerSanitizer,
-        sandboxTree);
-  }
-
-  /**
    * @return a {@link CxxPreprocessAndCompile} step that preprocesses and compiles the given source.
    */
   public static CxxPreprocessAndCompile preprocessAndCompile(
@@ -185,14 +155,11 @@ public class CxxPreprocessAndCompile
       Optional<PrecompiledHeaderReference> precompiledHeaderRef,
       DebugPathSanitizer compilerSanitizer,
       DebugPathSanitizer assemblerSanitizer,
-      CxxPreprocessMode strategy,
       Optional<SymlinkTree> sandboxTree) {
     return new CxxPreprocessAndCompile(
         params,
         resolver,
-        (strategy == CxxPreprocessMode.PIPED
-            ? CxxPreprocessAndCompileStep.Operation.PIPED_PREPROCESS_AND_COMPILE
-            : CxxPreprocessAndCompileStep.Operation.COMPILE_MUNGE_DEBUGINFO),
+        CxxPreprocessAndCompileStep.Operation.COMPILE_MUNGE_DEBUGINFO,
         Optional.of(preprocessorDelegate),
         compilerDelegate,
         output,
@@ -305,26 +272,22 @@ public class CxxPreprocessAndCompile
 
   @Override
   public String getType() {
-    if (operation.isCompile() && operation.isPreprocess()) {
-      return "cxx_preprocess_compile";
-    } else if (operation.isPreprocess()) {
-      return "cxx_preprocess";
-    } else {
-      return "cxx_compile";
-    }
+    return "cxx_preprocess_compile";
   }
 
   @Override
   public ImmutableList<Step> getBuildSteps(
       BuildContext context,
       BuildableContext buildableContext) {
-    Path scratchDir =
-        BuildTargets.getScratchPath(getProjectFilesystem(), getBuildTarget(), "%s-tmp");
     buildableContext.recordArtifact(output);
     return ImmutableList.of(
         new MkdirStep(getProjectFilesystem(), output.getParent()),
-        new MakeCleanDirectoryStep(getProjectFilesystem(), scratchDir),
-        makeMainStep(scratchDir, compilerDelegate.isArgFileSupported()));
+        new MakeCleanDirectoryStep(getProjectFilesystem(), getScratchPath()),
+        makeMainStep(getScratchPath(), compilerDelegate.isArgFileSupported()));
+  }
+
+  private Path getScratchPath() {
+    return BuildTargets.getScratchPath(getProjectFilesystem(), getBuildTarget(), "%s-tmp");
   }
 
   @VisibleForTesting
@@ -333,30 +296,22 @@ public class CxxPreprocessAndCompile
   }
 
   // Used for compdb
-  public ImmutableList<String> getCommand(
-      Optional<CxxPreprocessAndCompile> externalPreprocessRule) {
+  public ImmutableList<String> getCommand() {
     if (operation == CxxPreprocessAndCompileStep.Operation.COMPILE_MUNGE_DEBUGINFO) {
-      return makeMainStep(getProjectFilesystem().getRootPath(), false).getCommand();
+      return makeMainStep(getScratchPath(), false).getCommand();
     }
 
-    CxxPreprocessAndCompile preprocessRule = externalPreprocessRule.orElse(this);
-    if (!preprocessRule.preprocessDelegate.isPresent()) {
-      throw new HumanReadableException(
-          "Neither %s nor %s handles preprocessing.",
-          externalPreprocessRule,
-          this);
-    }
-    PreprocessorDelegate effectivePreprocessorDelegate = preprocessRule.preprocessDelegate.get();
+    PreprocessorDelegate effectivePreprocessorDelegate = preprocessDelegate.get();
     ImmutableList.Builder<String> cmd = ImmutableList.builder();
     cmd.addAll(
         compilerDelegate.getCommand(
             effectivePreprocessorDelegate.getFlagsWithSearchPaths(/*pch*/ Optional.empty())));
     // use the input of the preprocessor, since the fact that this is going through preprocessor is
     // hidden to compdb.
-    cmd.add("-x", preprocessRule.inputType.getLanguage());
+    cmd.add("-x", inputType.getLanguage());
     cmd.add("-c");
     cmd.add("-o", output.toString());
-    cmd.add(getResolver().getAbsolutePath(preprocessRule.input).toString());
+    cmd.add(getResolver().getAbsolutePath(input).toString());
     return cmd.build();
   }
 
@@ -371,7 +326,7 @@ public class CxxPreprocessAndCompile
 
   @Override
   public boolean useDependencyFileRuleKeys() {
-    return compilerDelegate.isDependencyFileSupported() && operation.isPreprocess();
+    return compilerDelegate.isDependencyFileSupported();
   }
 
   @Override

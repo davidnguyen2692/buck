@@ -34,7 +34,7 @@ import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.keys.DefaultRuleKeyBuilderFactory;
+import com.facebook.buck.rules.keys.DefaultRuleKeyFactory;
 import com.facebook.buck.testutil.FakeFileHashCache;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.timing.Clock;
@@ -114,7 +114,7 @@ public class PrebuiltJarSymbolsFinderTest {
     final Path absolutePathToJar = tmp.getRoot().resolve(relativePathToJar);
 
     // Mock out calls to a SourcePathResolver so we can create a legitimate
-    // DefaultRuleKeyBuilderFactory.
+    // DefaultRuleKeyFactory.
     final SourcePathResolver pathResolver = createMock(SourcePathResolver.class);
     expect(pathResolver.getRule(anyObject(SourcePath.class)))
         .andReturn(Optional.empty())
@@ -153,8 +153,8 @@ public class PrebuiltJarSymbolsFinderTest {
           } catch (IOException e) {
             throw new RuntimeException(e);
           }
-          RuleKey ruleKey = new DefaultRuleKeyBuilderFactory(0, fileHashCache, pathResolver)
-              .newInstance(javaSymbolsRule).build();
+          RuleKey ruleKey = new DefaultRuleKeyFactory(0, fileHashCache, pathResolver)
+              .build(javaSymbolsRule);
           jarFile.delete();
 
           return ruleKey;
@@ -198,8 +198,8 @@ public class PrebuiltJarSymbolsFinderTest {
         new ProjectFilesystem(tmp.getRoot())
     );
 
-    RuleKey key1 = new DefaultRuleKeyBuilderFactory(0, fileHashCache, pathResolver).newInstance(
-        javaSymbolsRule1).build();
+    RuleKey key1 = new DefaultRuleKeyFactory(0, fileHashCache, pathResolver).build(
+        javaSymbolsRule1);
 
     JavaSymbolsRule javaSymbolsRule2 = new JavaSymbolsRule(
         BuildTargetFactory.newInstance("//foo:rule"),
@@ -208,8 +208,8 @@ public class PrebuiltJarSymbolsFinderTest {
         ObjectMappers.newDefaultInstance(),
         new ProjectFilesystem(tmp.getRoot())
     );
-    RuleKey key2 = new DefaultRuleKeyBuilderFactory(0, fileHashCache, pathResolver).newInstance(
-        javaSymbolsRule2).build();
+    RuleKey key2 = new DefaultRuleKeyFactory(0, fileHashCache, pathResolver).build(
+        javaSymbolsRule2);
 
     assertNotNull(key1);
     assertNotNull(key2);

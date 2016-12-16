@@ -31,15 +31,16 @@ import com.facebook.buck.shell.SymlinkFilesIntoDirectoryStep;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.util.HumanReadableException;
+import com.facebook.buck.util.MoreCollectors;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Supplier;
-import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.ImmutableSortedSet;
 
 import java.nio.file.Path;
+import java.util.Objects;
+import java.util.Optional;
 
 /**
  * Work out how to invoke the Rust compiler, rustc.
@@ -76,8 +77,10 @@ abstract class RustCompile extends AbstractBuildRule {
   private final Linker.LinkableDepType linkStyle;
   @AddToRuleKey
   private final String crate;
+  @AddToRuleKey
+  private final Optional<SourcePath> crateRoot;
 
-  private final ImmutableSortedSet<Path> nativePaths;
+  private final ImmutableSet<Path> nativePaths;
 
   private final Path scratchDir;
   private final Path output;
@@ -86,10 +89,11 @@ abstract class RustCompile extends AbstractBuildRule {
       BuildRuleParams params,
       SourcePathResolver resolver,
       String crate,
+      Optional<SourcePath> crateRoot,
       ImmutableSet<SourcePath> srcs,
       ImmutableList<String> flags,
       ImmutableSet<String> features,
-      ImmutableSortedSet<Path> nativePaths,
+      ImmutableSet<Path> nativePaths,
       Path output,
       Supplier<Tool> compiler,
       Supplier<Tool> linker,
@@ -104,6 +108,7 @@ abstract class RustCompile extends AbstractBuildRule {
         .build();
     this.features = features;
     this.crate = crate;
+    this.crateRoot = crateRoot;
     this.output = output;
     this.compiler = compiler;
     this.linker = linker;
@@ -131,6 +136,8 @@ abstract class RustCompile extends AbstractBuildRule {
     ImmutableMap.Builder<String, Path> externalCratesBuilder = ImmutableMap.builder();
     ImmutableSet.Builder<Path> externalDepsBuilder = ImmutableSet.builder();
 
+    buildableContext.recordArtifact(output);
+
     for (BuildRule buildRule : getDeps()) {
       if (buildRule instanceof RustLinkable) {
         RustLinkable linkable = (RustLinkable) buildRule;
@@ -146,17 +153,20 @@ abstract class RustCompile extends AbstractBuildRule {
     linkerArgs.addAll(linker.get().getCommandPrefix(getResolver()));
     linkerArgs.addAll(this.linkerArgs);
 
+    SourcePathResolver resolver = getResolver();
+
     return ImmutableList.of(
         new MakeCleanDirectoryStep(getProjectFilesystem(), scratchDir),
         new SymlinkFilesIntoDirectoryStep(
             getProjectFilesystem(),
             getProjectFilesystem().getRootPath(),
-            getResolver().deprecatedAllPaths(srcs),
+            srcs.stream().map(resolver::getRelativePath)
+                .collect(MoreCollectors.toImmutableList()),
             scratchDir),
         new MakeCleanDirectoryStep(getProjectFilesystem(), output.getParent()),
         new RustCompileStep(
             getProjectFilesystem().getRootPath(),
-            compiler.getEnvironment(getResolver()),
+            compiler.getEnvironment(),
             compiler.getCommandPrefix(getResolver()),
             linkerArgs.build(),
             flags,
@@ -173,20 +183,26 @@ abstract class RustCompile extends AbstractBuildRule {
    *
    * @return The source filename for the top-level module.
    */
-  protected abstract String getDefaultSource();
+  protected abstract ImmutableSet<String> getDefaultSources();
 
   @VisibleForTesting
   Path getCrateRoot() {
-    ImmutableList<Path> candidates = ImmutableList.copyOf(
-        FluentIterable.from(getResolver().deprecatedAllPaths(srcs))
-            .filter(
-                path -> path.endsWith(getDefaultSource()) ||
-                    path.endsWith(String.format("%s.rs", crate))));
+    SourcePathResolver resolver = getResolver();
+    Optional<Path> crateRoot = this.crateRoot.map(resolver::getRelativePath);
+    String crateName = String.format("%s.rs", getCrateName());
+    ImmutableList<Path> candidates = srcs.stream()
+        .map(resolver::getRelativePath)
+        .filter(Objects::nonNull)
+        .filter(p -> crateRoot.map(p::equals).orElse(false) ||
+                     p.endsWith(crateName) ||
+                     getDefaultSources().contains(p.getFileName().toString()))
+        .collect(MoreCollectors.toImmutableList());
+
     if (candidates.size() != 1) {
       throw new HumanReadableException(
-          "srcs of %s must contain either %s or %s.rs!",
+          "srcs of %s must contain either one from %s or %s.rs!",
           getBuildTarget().getFullyQualifiedName(),
-          getDefaultSource(),
+          getDefaultSources(),
           crate);
     }
     // We end up creating a symlink tree to ensure that the crate only uses the files that it

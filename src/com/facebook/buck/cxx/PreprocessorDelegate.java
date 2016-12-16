@@ -169,7 +169,7 @@ class PreprocessorDelegate implements RuleKeyAppendable {
   }
 
   public ImmutableMap<String, String> getEnvironment() {
-    return preprocessor.getEnvironment(resolver);
+    return preprocessor.getEnvironment();
   }
 
   public CxxToolFlags getFlagsWithSearchPaths(Optional<CxxPrecompiledHeader> pch) {
@@ -293,6 +293,10 @@ class PreprocessorDelegate implements RuleKeyAppendable {
           buildTarget,
           getMessage());
     }
+  }
+
+  public PreprocessorFlags getPreprocessorFlags() {
+    return preprocessorFlags;
   }
 
 }

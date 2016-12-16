@@ -57,9 +57,9 @@ public class CxxWriteArgsToFileStepTest {
   @Test
   public void cxxWriteArgsToFileCreatesDirectoriesIfNeeded()
       throws IOException, InterruptedException {
-    ProjectFilesystem projectFilesystem = new FakeProjectFilesystem();
+    ProjectFilesystem projectFilesystem = FakeProjectFilesystem.createRealTempFilesystem();
     Path fileListPath = projectFilesystem.getRootPath().resolve(
-        "/tmp/unexisting_parent_folder/filelist.txt");
+        "unexisting_parent_folder/filelist.txt");
 
     runTestForArgFilePathAndOutputPath(
         fileListPath,
@@ -67,6 +67,10 @@ public class CxxWriteArgsToFileStepTest {
         ImmutableList.of(new StringArg("-dummy"), new StringArg("foo")),
         ImmutableList.of("-dummy", "bar"),
         projectFilesystem.getRootPath());
+
+    // cleanup after test
+    Files.deleteIfExists(fileListPath);
+    Files.deleteIfExists(fileListPath.getParent());
   }
 
   private void runTestForArgFilePathAndOutputPath(

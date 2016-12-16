@@ -41,10 +41,10 @@ import com.facebook.buck.timing.DefaultClock;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.FakeProcessExecutor;
 import com.facebook.buck.util.ObjectMappers;
-import com.facebook.buck.util.TriState;
 import com.facebook.buck.util.cache.NullFileHashCache;
 import com.facebook.buck.util.environment.BuildEnvironmentDescription;
 import com.facebook.buck.util.environment.Platform;
+import com.facebook.buck.versions.VersionedTargetGraphCache;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.util.concurrent.MoreExecutors;
@@ -62,7 +62,7 @@ public class CommandRunnerParamsForTesting {
           .setOs("test")
           .setAvailableCores(1)
           .setSystemMemory(1024L)
-          .setBuckDirty(TriState.FALSE)
+          .setBuckDirty(Optional.of(false))
           .setBuckCommit("test")
           .setJavaVersion("test")
           .setJsonProtocolVersion(1)
@@ -117,6 +117,7 @@ public class CommandRunnerParamsForTesting {
                 ExecutorPool.PROJECT,
                 MoreExecutors.newDirectExecutorService()))
         .setBuildEnvironmentDescription(BUILD_ENVIRONMENT_DESCRIPTION)
+        .setVersionedTargetGraphCache(new VersionedTargetGraphCache())
         .setActionGraphCache(new ActionGraphCache(new BroadcastEventListener()))
         .setKnownBuildRuleTypesFactory(
             new KnownBuildRuleTypesFactory(new FakeProcessExecutor(), androidDirectoryResolver))

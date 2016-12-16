@@ -81,7 +81,7 @@ public class ApplePackageDescription implements
         getApplePackageConfig(
             params.getBuildTarget(),
             MacroArg.toMacroArgFunction(
-                AbstractGenruleDescription.MACRO_HANDLER,
+                AbstractGenruleDescription.PARSE_TIME_MACRO_HANDLER,
                 params.getBuildTarget(),
                 params.getCellRoots(),
                 resolver));
@@ -95,7 +95,8 @@ public class ApplePackageDescription implements
               .build()),
           sourcePathResolver,
           applePackageConfigAndPlatformInfo.get(),
-          new BuildTargetSourcePath(bundle.getBuildTarget()));
+          new BuildTargetSourcePath(bundle.getBuildTarget()),
+          bundle.isCacheable());
     } else {
       return new BuiltinApplePackage(
           params,
@@ -202,7 +203,7 @@ public class ApplePackageDescription implements
       if (packageConfig.isPresent()) {
         try {
           builder.addAll(
-            AbstractGenruleDescription.MACRO_HANDLER.extractParseTimeDeps(
+            AbstractGenruleDescription.PARSE_TIME_MACRO_HANDLER.extractParseTimeDeps(
                 target,
                 cellNames,
                 packageConfig.get().getCommand()));

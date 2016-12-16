@@ -16,6 +16,9 @@
 
 package com.facebook.buck.event;
 
+import com.facebook.buck.log.views.JsonViews;
+import com.fasterxml.jackson.annotation.JsonView;
+
 public abstract class WatchmanStatusEvent extends AbstractBuckEvent implements BroadcastEvent {
   private final String eventName;
 
@@ -38,15 +41,16 @@ public abstract class WatchmanStatusEvent extends AbstractBuckEvent implements B
     return new Overflow(reason);
   }
 
-  public static FileCreation fileCreation() {
-    return new FileCreation();
+  public static FileCreation fileCreation(String filename) {
+    return new FileCreation(filename);
   }
 
-  public static FileDeletion fileDeletion() {
-    return new FileDeletion();
+  public static FileDeletion fileDeletion(String filename) {
+    return new FileDeletion(filename);
   }
 
   public static class Overflow extends WatchmanStatusEvent {
+    @JsonView(JsonViews.MachineReadableLog.class)
     private String reason;
 
     public Overflow(String reason) {
@@ -60,14 +64,31 @@ public abstract class WatchmanStatusEvent extends AbstractBuckEvent implements B
   }
 
   public static class FileCreation extends WatchmanStatusEvent {
-    public FileCreation() {
+    @JsonView(JsonViews.MachineReadableLog.class)
+    private String filename;
+
+    public FileCreation(String filename) {
       super(EventKey.unique(), "WatchmanFileCreation");
+      this.filename = filename;
+    }
+
+    public String getFilename() {
+      return this.filename;
     }
   }
 
   public static class FileDeletion extends WatchmanStatusEvent {
-    public FileDeletion() {
+    @JsonView(JsonViews.MachineReadableLog.class)
+    private String filename;
+
+    public FileDeletion(String filename) {
       super(EventKey.unique(), "WatchmanFileDeletion");
+      this.filename = filename;
+    }
+
+    public String getFilename() {
+      return this.filename;
     }
   }
+
 }

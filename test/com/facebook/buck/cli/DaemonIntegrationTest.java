@@ -19,6 +19,8 @@ package com.facebook.buck.cli;
 import static com.facebook.buck.testutil.integration.ProjectWorkspace.ProcessResult;
 import static java.util.concurrent.Executors.callable;
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.hasItem;
+import static org.hamcrest.Matchers.not;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertThat;
@@ -515,7 +517,7 @@ public class DaemonIntegrationTest {
     workspace.runBuckdCommand("build", "app").assertSuccess();
 
     String fileName = "apps/myapp/BUCK";
-    Files.write(workspace.getPath(fileName), "Some Illegal Python".getBytes(Charsets.US_ASCII));
+    Files.write(workspace.getPath(fileName), "Some Illegal Python".getBytes(Charsets.UTF_8));
 
     ProcessResult result = workspace.runBuckdCommand("build", "app");
     assertThat(
@@ -537,13 +539,96 @@ public class DaemonIntegrationTest {
     whenAppBuckFileInvalidatedThenRebuildFails(WatchmanWatcher.CursorType.CLOCK_ID.toString());
   }
 
+  private void whenNativeBuckTargetInvalidatedThenRebuildFails(String cursorType)
+      throws IOException, InterruptedException {
+    final ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this, "file_watching", tmp);
+    workspace.setUp();
+    TestDataHelper.overrideBuckconfig(
+        workspace,
+        ImmutableMap.of("project", ImmutableMap.of("watchman_cursor", cursorType)));
+
+    ProcessResult result = workspace.runBuckdCommand("run", "//native/main:main");
+    result.assertSuccess();
+    assertThat(
+        "Output should contain 'my_string_123_my_string'",
+        result.getStdout(),
+        containsString("my_string_123_my_string"));
+
+    workspace.replaceFileContents(
+        "native/lib/BUCK",
+        "123",
+        "456");
+
+    result = workspace.runBuckdCommand("run", "//native/main:main");
+    result.assertSuccess();
+    assertThat(
+        "Output should contain 'my_string_456_my_string'",
+        result.getStdout(),
+        containsString("my_string_456_my_string"));
+  }
+
+  @Test
+  public void withNamedCursorNativeBuckTargetInvalidatedThenRebuildFails()
+      throws IOException, InterruptedException {
+    whenNativeBuckTargetInvalidatedThenRebuildFails(WatchmanWatcher.CursorType.NAMED.toString());
+  }
+
+  @Test
+  public void withClockIdCursorNativeBuckTargetInvalidatedThenRebuildFails()
+      throws IOException, InterruptedException {
+    whenNativeBuckTargetInvalidatedThenRebuildFails(WatchmanWatcher.CursorType.CLOCK_ID.toString());
+  }
+
+  private void whenNativeSourceInputInvalidatedThenRebuildFails(String cursorType)
+      throws IOException, InterruptedException {
+    final ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this, "file_watching", tmp);
+    workspace.setUp();
+    TestDataHelper.overrideBuckconfig(
+        workspace,
+        ImmutableMap.of("project", ImmutableMap.of("watchman_cursor", cursorType)));
+
+    ProcessResult result = workspace.runBuckdCommand("run", "//native/main:main");
+    result.assertSuccess();
+    assertThat(
+        "Output should contain 'my_string_123_my_string'",
+        result.getStdout(),
+        containsString("my_string_123_my_string"));
+
+    workspace.replaceFileContents(
+        "native/lib/lib.cpp",
+        "THE_STRING",
+        "\"my_string_456_my_string\"");
+
+    result = workspace.runBuckdCommand("run", "//native/main:main");
+    result.assertSuccess();
+    assertThat(
+        "Output should contain 'my_string_456_my_string'",
+        result.getStdout(),
+        containsString("my_string_456_my_string"));
+  }
+
+  @Test
+  public void withNamedCursorNativeSourceInputInvalidatedThenRebuildFails()
+      throws IOException, InterruptedException {
+    whenNativeSourceInputInvalidatedThenRebuildFails(WatchmanWatcher.CursorType.NAMED.toString());
+  }
+
+  @Test
+  public void withClockIdCursorNativeSourceInputInvalidatedThenRebuildFails()
+      throws IOException, InterruptedException {
+    whenNativeSourceInputInvalidatedThenRebuildFails(
+        WatchmanWatcher.CursorType.CLOCK_ID.toString());
+  }
+
   private void whenCrossCellSourceInvalidatedThenRebuildFails(String cursorType)
       throws IOException, InterruptedException {
     final ProjectWorkspace primary = TestDataHelper.createProjectWorkspaceForScenario(
-        this, "xplat_file_watching/primary", tmp.newFolder());
+        this, "crosscell_file_watching/primary", tmp.newFolder());
     primary.setUp();
     final ProjectWorkspace secondary = TestDataHelper.createProjectWorkspaceForScenario(
-        this, "xplat_file_watching/secondary", tmp.newFolder());
+        this, "crosscell_file_watching/secondary", tmp.newFolder());
     secondary.setUp();
     TestDataHelper.overrideBuckconfig(
         primary,
@@ -552,23 +637,40 @@ public class DaemonIntegrationTest {
                 "secondary",
                 secondary.getPath(".").normalize().toString()),
             "project", ImmutableMap.of(
+                "track_cell_agnostic_target", "true",
                 "watch_cells", "true",
                 "watchman_cursor", cursorType)));
     TestDataHelper.overrideBuckconfig(
         secondary,
-        ImmutableMap.of("project", ImmutableMap.of("watchman_cursor", cursorType)));
+        ImmutableMap.of(
+            "project", ImmutableMap.of(
+                "track_cell_agnostic_target", "true",
+                "watch_cells", "true",
+                "watchman_cursor", cursorType)));
 
     primary.runBuckdCommand("build", "//:cxxbinary").assertSuccess();
+    ProcessResult result = primary.runBuckdCommand("run", "//:cxxbinary");
+    result.assertSuccess();
 
     String fileName = "sum.cpp";
-    Files.write(secondary.getPath(fileName), "#error Failure".getBytes(Charsets.US_ASCII));
+    Files.write(secondary.getPath(fileName), "#error Failure".getBytes(Charsets.UTF_8));
 
-    ProcessResult result = primary.runBuckdCommand("build", "//:cxxbinary");
+    result = primary.runBuckdCommand("build", "//:cxxbinary");
     assertThat(
         "Failure should be due to compilation error.",
         result.getStderr(),
         containsString("#error Failure"));
     result.assertFailure();
+
+    // Make the file valid again, but change the output
+    Files.write(
+        secondary.getPath(fileName),
+        "#include \"sum.hpp\"\nint sum(int a, int b) {return a;}".getBytes(Charsets.UTF_8));
+
+    primary.runBuckdCommand("build", "//:cxxbinary").assertSuccess();
+    result = primary.runBuckdCommand("run", "//:cxxbinary");
+    result.assertFailure();
+
   }
 
   @Test
@@ -581,6 +683,61 @@ public class DaemonIntegrationTest {
   public void withClockIdCursorCrossCellSourceInvalidatedThenRebuildFails()
       throws IOException, InterruptedException {
     whenCrossCellSourceInvalidatedThenRebuildFails(WatchmanWatcher.CursorType.CLOCK_ID.toString());
+  }
+
+  private void whenCrossCellBuckFileInvalidatedThenRebuildFails(String cursorType)
+      throws IOException, InterruptedException {
+    final ProjectWorkspace primary = TestDataHelper.createProjectWorkspaceForScenario(
+        this, "crosscell_file_watching/primary", tmp.newFolder());
+    primary.setUp();
+    final ProjectWorkspace secondary = TestDataHelper.createProjectWorkspaceForScenario(
+        this, "crosscell_file_watching/secondary", tmp.newFolder());
+    secondary.setUp();
+    TestDataHelper.overrideBuckconfig(
+        primary,
+        ImmutableMap.of(
+            "repositories", ImmutableMap.of(
+                "secondary",
+                secondary.getPath(".").normalize().toString()),
+            "project", ImmutableMap.of(
+                "track_cell_agnostic_target", "true",
+                "watch_cells", "true",
+                "watchman_cursor", cursorType)));
+    TestDataHelper.overrideBuckconfig(
+        secondary,
+        ImmutableMap.of(
+            "project", ImmutableMap.of(
+                "track_cell_agnostic_target", "true",
+                "watch_cells", "true",
+                "watchman_cursor", cursorType)));
+
+    primary.runBuckdCommand("build", "//:cxxbinary").assertSuccess();
+
+    String fileName = "BUCK";
+    Files.write(secondary.getPath(fileName), "Some Invalid Python".getBytes(Charsets.UTF_8));
+
+    try {
+      primary.runBuckdCommand("build", "//:cxxbinary");
+      fail("Did not expect parsing to succeed");
+    } catch (HumanReadableException expected) {
+      assertThat(
+          "Failure should be due to syntax error.",
+          expected.getHumanReadableErrorMessage(),
+          containsString("Couldn't get dependency 'secondary//:cxxlib' of target '//:cxxbinary'"));
+    }
+  }
+
+  @Test
+  public void withNamedCursorCrossCellBuckFileInvalidatedThenRebuildFails()
+      throws IOException, InterruptedException {
+    whenCrossCellBuckFileInvalidatedThenRebuildFails(WatchmanWatcher.CursorType.NAMED.toString());
+  }
+
+  @Test
+  public void withClockIdCursorCrossCellBuckFileInvalidatedThenRebuildFails()
+      throws IOException, InterruptedException {
+    whenCrossCellBuckFileInvalidatedThenRebuildFails(
+        WatchmanWatcher.CursorType.CLOCK_ID.toString());
   }
 
   @Test
@@ -633,6 +790,7 @@ public class DaemonIntegrationTest {
     Path buildLogFile = workspace.getPath("buck-out/bin/build.log");
 
     assertTrue(Files.isRegularFile(buildLogFile));
+    assertThat(Files.readAllLines(buildLogFile), hasItem(containsString("BUILT_LOCALLY")));
     Files.delete(buildLogFile);
 
     ProcessResult rebuild =
@@ -641,6 +799,36 @@ public class DaemonIntegrationTest {
 
     buildLogFile = workspace.getPath("buck-out/bin/build.log");
     assertTrue(Files.isRegularFile(buildLogFile));
+    assertThat(Files.readAllLines(buildLogFile), not(hasItem(containsString("BUILT_LOCALLY"))));
+  }
+
+  @Test
+  public void whenNativeTargetBuiltTwiceCacheHits() throws IOException, InterruptedException {
+    final ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this, "crosscell_file_watching/primary", tmp);
+    workspace.setUp();
+
+    final ProjectWorkspace secondary = TestDataHelper.createProjectWorkspaceForScenario(
+        this, "crosscell_file_watching/secondary", tmp.newFolder());
+    secondary.setUp();
+    TestDataHelper.overrideBuckconfig(
+        workspace,
+        ImmutableMap.of(
+            "repositories", ImmutableMap.of(
+                "secondary",
+                secondary.getPath(".").normalize().toString())));
+
+    workspace.runBuckdCommand("build", "//:cxxbinary").assertSuccess();
+
+    Path buildLogFile = workspace.getPath("buck-out/bin/build.log");
+    assertTrue(Files.isRegularFile(buildLogFile));
+    assertThat(Files.readAllLines(buildLogFile), hasItem(containsString("BUILT_LOCALLY")));
+    Files.delete(buildLogFile);
+
+    workspace.runBuckdCommand("build", "//:cxxbinary").assertSuccess();
+    buildLogFile = workspace.getPath("buck-out/bin/build.log");
+    assertTrue(Files.isRegularFile(buildLogFile));
+    assertThat(Files.readAllLines(buildLogFile), not(hasItem(containsString("BUILT_LOCALLY"))));
   }
 
   @Test

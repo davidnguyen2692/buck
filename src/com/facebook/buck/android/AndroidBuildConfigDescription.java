@@ -17,10 +17,12 @@
 package com.facebook.buck.android;
 
 import com.facebook.buck.jvm.java.CalculateAbi;
+import com.facebook.buck.jvm.java.JavaLibraryRules;
 import com.facebook.buck.jvm.java.JavacOptions;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.ImmutableFlavor;
+import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.AbstractDescriptionArg;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
@@ -60,7 +62,18 @@ public class AndroidBuildConfigDescription
       TargetGraph targetGraph,
       BuildRuleParams params,
       BuildRuleResolver resolver,
-      A args) {
+      A args) throws NoSuchBuildTargetException {
+    if (params.getBuildTarget().getFlavors().contains(CalculateAbi.FLAVOR)) {
+      SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+      BuildTarget configTarget = params.getBuildTarget().withoutFlavors(CalculateAbi.FLAVOR);
+      resolver.requireRule(configTarget);
+      return CalculateAbi.of(
+          params.getBuildTarget(),
+          pathResolver,
+          params,
+          new BuildTargetSourcePath(configTarget));
+    }
+
     return createBuildRule(
         params,
         args.javaPackage,
@@ -86,7 +99,7 @@ public class AndroidBuildConfigDescription
       Optional<SourcePath> valuesFile,
       boolean useConstantExpressions,
       JavacOptions javacOptions,
-      BuildRuleResolver ruleResolver) {
+      BuildRuleResolver ruleResolver) throws NoSuchBuildTargetException {
     // Normally, the build target for an intermediate rule is a flavored version of the target for
     // the original rule. For example, if the build target for an android_build_config() were
     // //foo:bar, then the build target for the intermediate AndroidBuildConfig rule created by this
@@ -142,23 +155,13 @@ public class AndroidBuildConfigDescription
         /* declaredDeps */ Suppliers.ofInstance(
             ImmutableSortedSet.of(androidBuildConfig)),
         /* extraDeps */ Suppliers.ofInstance(ImmutableSortedSet.of()));
-    AndroidBuildConfigJavaLibrary library =
-        ruleResolver.addToIndex(
-            new AndroidBuildConfigJavaLibrary(
-                javaLibraryParams,
-                pathResolver,
-                javacOptions,
-                new BuildTargetSourcePath(abiJarTarget),
-                androidBuildConfig));
-
-    ruleResolver.addToIndex(
-        CalculateAbi.of(
-            abiJarTarget,
-            pathResolver,
-            params,
-            new BuildTargetSourcePath(library.getBuildTarget())));
-
-    return library;
+    return new AndroidBuildConfigJavaLibrary(
+        javaLibraryParams,
+        pathResolver,
+        javacOptions,
+        abiJarTarget,
+        JavaLibraryRules.getAbiInputs(ruleResolver, javaLibraryParams.getDeps()),
+        androidBuildConfig);
   }
 
   @SuppressFieldNotInitialized

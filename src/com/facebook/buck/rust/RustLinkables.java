@@ -17,22 +17,21 @@ package com.facebook.buck.rust;
 
 import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.cxx.Linker;
-import com.facebook.buck.cxx.NativeLinkable;
-import com.facebook.buck.cxx.NativeLinkableInput;
 import com.facebook.buck.cxx.NativeLinkables;
 import com.facebook.buck.graph.AbstractBreadthFirstTraversal;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
+import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.args.Arg;
+import com.facebook.buck.rules.args.HasSourcePath;
 import com.facebook.buck.util.MoreCollectors;
-import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 
 import java.nio.file.Path;
-import java.util.Comparator;
 import java.util.stream.Stream;
 
 
@@ -41,6 +40,10 @@ import java.util.stream.Stream;
  */
 public class RustLinkables {
   private RustLinkables() {
+  }
+
+  public static String ruleToCrateName(String rulename) {
+    return rulename.replace('-', '_');
   }
 
   static ImmutableSortedSet<Path> getDependencyPaths(BuildRule rule) {
@@ -62,50 +65,54 @@ public class RustLinkables {
     return builder.build();
   }
 
-  private static ImmutableList<NativeLinkableInput> getNativeLinkableInputs(
-      BuildRule top,
+  private static Stream<Arg> getNativeArgs(
+      Iterable<BuildRule> deps,
       Linker.LinkableDepType linkStyle,
-      CxxPlatform cxxPlatform) {
-    ImmutableList.Builder<NativeLinkableInput> builder = ImmutableList.builder();
-
-    new AbstractBreadthFirstTraversal<BuildRule>(top) {
-      @Override
-      public ImmutableSet<BuildRule> visit(BuildRule rule) {
-        if (rule instanceof RustLinkable) {
-          return rule.getDeps();
-        }
-
-        if (rule instanceof NativeLinkable) {
-          try {
-            NativeLinkableInput nli = NativeLinkables.getTransitiveNativeLinkableInput(
-                cxxPlatform,
-                ImmutableList.of(rule),
-                linkStyle,
-                x -> true);
-            builder.add(nli);
-          } catch (NoSuchBuildTargetException e) {
-            e.printStackTrace();
-          }
-        }
-
-        return ImmutableSet.of();
-      }
-    }.start();
-
-    return builder.build();
+      CxxPlatform cxxPlatform) throws NoSuchBuildTargetException {
+    return NativeLinkables.getTransitiveNativeLinkableInput(
+            cxxPlatform,
+            deps,
+            linkStyle,
+            RustLinkable.class::isInstance)
+        .getArgs()
+        .stream();
   }
 
-  static ImmutableSortedSet<Path> getNativePaths(
-      Stream<BuildRule> deps,
-      SourcePathResolver resolver,
+  static void accumNativeArgs(
+      Iterable<BuildRule> deps,
       Linker.LinkableDepType linkStyle,
-      CxxPlatform cxxPlatform) {
-    return deps
-        .flatMap(rule -> getNativeLinkableInputs(rule, linkStyle, cxxPlatform).stream())
-        .flatMap(nli -> nli.getArgs().stream())
-        .flatMap(arg -> arg.getDeps(resolver).stream())
-        .map(dep -> dep.getPathToOutput())
-        .collect(MoreCollectors.toImmutableSortedSet(Comparator.<Path>naturalOrder()));
+      CxxPlatform cxxPlatform,
+      ImmutableList.Builder<String> arglist) throws NoSuchBuildTargetException {
+    getNativeArgs(deps, linkStyle, cxxPlatform)
+        .forEach(arg -> arg.appendToCommandLine(arglist));
+  }
+
+  static Stream<Path> getNativePaths(
+      Iterable<BuildRule> deps,
+      Linker.LinkableDepType linkStyle,
+      CxxPlatform cxxPlatform) throws NoSuchBuildTargetException {
+    // This gets the dependency as a stream of Arg objects. These represent options
+    // to be passed to the linker, but we really just want the pathnames. We can identify
+    // those by checking for implementors of HasSourcePath. This has the effect of dropping
+    // the other options like --whole-archive which may cause linker errors if required.
+    return getNativeArgs(deps, linkStyle, cxxPlatform)
+        .filter(arg -> arg instanceof HasSourcePath)
+        .map(arg -> (HasSourcePath) arg)
+        .map(
+            arg -> {
+              SourcePath sourcePath = arg.getPath();
+              SourcePathResolver sourcePathResolver = arg.getPathResolver();
+              return sourcePathResolver.getAbsolutePath(sourcePath);
+            });
+  }
+
+  static ImmutableSet<Path> getNativeDirs(
+      Iterable<BuildRule> deps,
+      Linker.LinkableDepType linkStyle,
+      CxxPlatform cxxPlatform) throws NoSuchBuildTargetException {
+    return getNativePaths(deps, linkStyle, cxxPlatform)
+        .map(Path::getParent)
+        .collect(MoreCollectors.toImmutableSet());
   }
 
   static BuildRuleParams addNativeDependencies(
@@ -113,15 +120,28 @@ public class RustLinkables {
       SourcePathResolver resolver,
       CxxPlatform cxxPlatform,
       Linker.LinkableDepType linkStyle) {
-    return params.copyWithChanges(
-        params.getBuildTarget(),
-        () -> Stream.concat(
-            params.getDeps().stream()
-                .flatMap(rule -> getNativeLinkableInputs(rule, linkStyle, cxxPlatform).stream())
-                .flatMap(nli -> nli.getArgs().stream())
-                .flatMap(arg -> arg.getDeps(resolver).stream()),
-            params.getDeps().stream())
-            .collect(MoreCollectors.toImmutableSortedSet(Comparator.<BuildRule>naturalOrder())),
-        Suppliers.ofInstance(ImmutableSortedSet.of()));
+    return params.appendExtraDeps(
+        () -> {
+          try {
+            return getNativeArgs(params.getDeps(), linkStyle, cxxPlatform)
+                .flatMap(arg -> arg.getDeps(resolver).stream())
+                .collect(MoreCollectors.toImmutableList());
+          } catch (NoSuchBuildTargetException e) {
+            throw new RuntimeException(e);
+          }
+        });
+  }
+
+  public static ImmutableList<String> extendLinkerArgs(
+      ImmutableList<String> linkerArgs,
+      Iterable<BuildRule> deps,
+      Linker.LinkableDepType linkStyle,
+      CxxPlatform cxxPlatform) throws NoSuchBuildTargetException {
+    ImmutableList.Builder<String> builder = ImmutableList.builder();
+
+    builder.addAll(linkerArgs);
+    RustLinkables.accumNativeArgs(deps, linkStyle, cxxPlatform, builder);
+
+    return builder.build();
   }
 }

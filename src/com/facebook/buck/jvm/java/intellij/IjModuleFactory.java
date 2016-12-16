@@ -21,6 +21,7 @@ import com.facebook.buck.android.AndroidLibraryDescription;
 import com.facebook.buck.android.AndroidResourceDescription;
 import com.facebook.buck.android.RobolectricTestDescription;
 import com.facebook.buck.cxx.CxxLibraryDescription;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.jvm.groovy.GroovyLibraryDescription;
 import com.facebook.buck.jvm.groovy.GroovyTestDescription;
 import com.facebook.buck.jvm.java.JavaLibraryDescription;
@@ -29,14 +30,12 @@ import com.facebook.buck.jvm.java.JavacOptions;
 import com.facebook.buck.jvm.java.JvmLibraryArg;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.HasBuildTarget;
-import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.util.MoreCollectors;
 import com.google.common.base.Preconditions;
-import com.google.common.collect.FluentIterable;
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableMultimap;
@@ -61,16 +60,18 @@ public class IjModuleFactory {
   /**
    * These target types are mapped onto .iml module files.
    */
-  public static final ImmutableSet<BuildRuleType> SUPPORTED_MODULE_TYPES = ImmutableSet.of(
-      Description.getBuildRuleType(AndroidBinaryDescription.class),
-      Description.getBuildRuleType(AndroidLibraryDescription.class),
-      Description.getBuildRuleType(AndroidResourceDescription.class),
-      Description.getBuildRuleType(CxxLibraryDescription.class),
-      Description.getBuildRuleType(JavaLibraryDescription.class),
-      Description.getBuildRuleType(JavaTestDescription.class),
-      Description.getBuildRuleType(RobolectricTestDescription.class),
-      Description.getBuildRuleType(GroovyLibraryDescription.class),
-      Description.getBuildRuleType(GroovyTestDescription.class));
+  @SuppressWarnings("unchecked")
+  public static final ImmutableSet<Class<? extends Description<?>>>
+      SUPPORTED_MODULE_DESCRIPTION_CLASSES = ImmutableSet.of(
+          AndroidBinaryDescription.class,
+          AndroidLibraryDescription.class,
+          AndroidResourceDescription.class,
+          CxxLibraryDescription.class,
+          JavaLibraryDescription.class,
+          JavaTestDescription.class,
+          RobolectricTestDescription.class,
+          GroovyLibraryDescription.class,
+          GroovyTestDescription.class);
 
   /**
    * Provides the {@link IjModuleFactory} with {@link Path}s to various elements of the project.
@@ -156,6 +157,10 @@ public class IjModuleFactory {
     public IjModuleAndroidFacet.Builder getOrCreateAndroidFacetBuilder() {
       ensureAndroidFacetBuilder();
       return androidFacetBuilder.get();
+    }
+
+    public boolean isAndroidFacetBuilderPresent() {
+      return androidFacetBuilder.isPresent();
     }
 
     public Optional<IjModuleAndroidFacet> getAndroidFacet() {
@@ -285,14 +290,16 @@ public class IjModuleFactory {
    * @param <T> TargetNode type.
    */
   private interface IjModuleRule<T> {
-    BuildRuleType getType();
+    Class<? extends Description<?>> getDescriptionClass();
     void apply(TargetNode<T, ?> targetNode, ModuleBuildContext context);
   }
 
   private static final String SDK_TYPE_JAVA = "JavaSDK";
   private static final String SDK_TYPE_ANDROID = "Android SDK";
 
-  private final Map<BuildRuleType, IjModuleRule<?>> moduleRuleIndex = new HashMap<>();
+  private final ProjectFilesystem projectFilesystem;
+  private final Map<Class<? extends Description<?>>, IjModuleRule<?>> moduleRuleIndex =
+      new HashMap<>();
   private final IjModuleFactoryResolver moduleFactoryResolver;
   private final IjProjectConfig projectConfig;
   private final boolean excludeShadows;
@@ -302,9 +309,11 @@ public class IjModuleFactory {
    * @param moduleFactoryResolver see {@link IjModuleFactoryResolver}.
    */
   public IjModuleFactory(
+      ProjectFilesystem projectFilesystem,
       IjModuleFactoryResolver moduleFactoryResolver,
       IjProjectConfig projectConfig,
       boolean excludeShadows) {
+    this.projectFilesystem = projectFilesystem;
     this.excludeShadows = excludeShadows;
     this.projectConfig = projectConfig;
     this.autogenerateAndroidFacetSources = projectConfig.isAutogenerateAndroidFacetSourcesEnabled();
@@ -322,13 +331,14 @@ public class IjModuleFactory {
     this.moduleFactoryResolver = moduleFactoryResolver;
 
     Preconditions.checkState(
-        moduleRuleIndex.keySet().equals(SUPPORTED_MODULE_TYPES));
+        moduleRuleIndex.keySet().equals(SUPPORTED_MODULE_DESCRIPTION_CLASSES));
   }
 
   private void addToIndex(IjModuleRule<?> rule) {
-    Preconditions.checkArgument(!moduleRuleIndex.containsKey(rule.getType()));
-    Preconditions.checkArgument(SUPPORTED_MODULE_TYPES.contains(rule.getType()));
-    moduleRuleIndex.put(rule.getType(), rule);
+    Preconditions.checkArgument(!moduleRuleIndex.containsKey(rule.getDescriptionClass()));
+    Preconditions.checkArgument(SUPPORTED_MODULE_DESCRIPTION_CLASSES.contains(
+        rule.getDescriptionClass()));
+    moduleRuleIndex.put(rule.getDescriptionClass(), rule);
   }
 
   /**
@@ -352,7 +362,8 @@ public class IjModuleFactory {
     ModuleBuildContext context = new ModuleBuildContext(moduleBuildTargets);
 
     for (TargetNode<?, ?> targetNode : targetNodes) {
-      IjModuleRule<?> rule = Preconditions.checkNotNull(moduleRuleIndex.get(targetNode.getType()));
+      IjModuleRule<?> rule = Preconditions.checkNotNull(moduleRuleIndex.get(
+          targetNode.getDescription().getClass()));
       rule.apply((TargetNode) targetNode, context);
     }
 
@@ -360,7 +371,10 @@ public class IjModuleFactory {
     String sdkType;
     Optional<String> sdkName;
 
-    if (context.getAndroidFacet().isPresent()) {
+    if (context.isAndroidFacetBuilderPresent()) {
+      context.getOrCreateAndroidFacetBuilder().setGeneratedSourcePath(
+          createAndroidGenPath(moduleBasePath));
+
       sdkType = projectConfig.getAndroidModuleSdkType().orElse(SDK_TYPE_ANDROID);
       sdkName = projectConfig.getAndroidModuleSdkName();
     } else {
@@ -382,12 +396,18 @@ public class IjModuleFactory {
         .build();
   }
 
+  private Path createAndroidGenPath(Path moduleBasePath) {
+    return Paths
+        .get(Project.getAndroidGenDir(projectFilesystem))
+        .resolve(moduleBasePath)
+        .resolve("gen");
+  }
+
   private Optional<String> getSourceLevel(
       Iterable<TargetNode<?, ?>> targetNodes) {
     Optional<String> result = Optional.empty();
     for (TargetNode<?, ?> targetNode : targetNodes) {
-      BuildRuleType type = targetNode.getType();
-      if (!type.equals(Description.getBuildRuleType(JavaLibraryDescription.class))) {
+      if (!(targetNode.getDescription() instanceof JavaLibraryDescription)) {
         continue;
       }
 
@@ -416,25 +436,25 @@ public class IjModuleFactory {
    */
   private static ImmutableMultimap<Path, Path> getSourceFoldersToInputsIndex(
       ImmutableSet<Path> paths) {
-    return FluentIterable.from(paths)
-        .index(
-            input -> {
-              Path parent = input.getParent();
-              if (parent == null) {
-                return Paths.get("");
-              }
-              return parent;
-            });
+    Path defaultParent = Paths.get("");
+    return paths
+        .stream()
+        .collect(
+            ImmutableMultimap::<Path, Path>builder,
+            (builder, path) -> {
+              Path parent = path.getParent();
+              builder.put(parent == null ? defaultParent : parent, path);
+            },
+            (builder1, builder2) -> builder1.putAll(builder2.build()))
+        .build();
   }
 
   /**
    * @param paths paths to check
    * @return whether any of the paths pointed to something not in the source tree.
    */
-  private static boolean containsNonSourcePath(Iterable<SourcePath> paths) {
-    return FluentIterable.from(paths)
-        .anyMatch(
-            input -> !(input instanceof PathSourcePath));
+  private static boolean containsNonSourcePath(Collection<SourcePath> paths) {
+    return paths.stream().anyMatch(path -> !(path instanceof PathSourcePath));
   }
 
   /**
@@ -571,8 +591,8 @@ public class IjModuleFactory {
       implements IjModuleRule<AndroidBinaryDescription.Arg> {
 
     @Override
-    public BuildRuleType getType() {
-      return Description.getBuildRuleType(AndroidBinaryDescription.class);
+    public Class<? extends Description<?>> getDescriptionClass() {
+      return AndroidBinaryDescription.class;
     }
 
     @Override
@@ -594,8 +614,8 @@ public class IjModuleFactory {
       implements IjModuleRule<AndroidLibraryDescription.Arg> {
 
     @Override
-    public BuildRuleType getType() {
-      return Description.getBuildRuleType(AndroidLibraryDescription.class);
+    public Class<? extends Description<?>> getDescriptionClass() {
+      return AndroidLibraryDescription.class;
     }
 
     @Override
@@ -625,8 +645,8 @@ public class IjModuleFactory {
       implements IjModuleRule<AndroidResourceDescription.Arg> {
 
     @Override
-    public BuildRuleType getType() {
-      return Description.getBuildRuleType(AndroidResourceDescription.class);
+    public Class<? extends Description<?>> getDescriptionClass() {
+      return AndroidResourceDescription.class;
     }
 
     @Override
@@ -682,8 +702,8 @@ public class IjModuleFactory {
   private class CxxLibraryModuleRule implements IjModuleRule<CxxLibraryDescription.Arg> {
 
     @Override
-    public BuildRuleType getType() {
-      return Description.getBuildRuleType(CxxLibraryDescription.class);
+    public Class<? extends Description<?>> getDescriptionClass() {
+      return CxxLibraryDescription.class;
     }
 
     @Override
@@ -699,8 +719,8 @@ public class IjModuleFactory {
   private class JavaLibraryModuleRule implements IjModuleRule<JavaLibraryDescription.Arg> {
 
     @Override
-    public BuildRuleType getType() {
-      return Description.getBuildRuleType(JavaLibraryDescription.class);
+    public Class<? extends Description<?>> getDescriptionClass() {
+      return JavaLibraryDescription.class;
     }
 
     @Override
@@ -718,8 +738,8 @@ public class IjModuleFactory {
   private class GroovyLibraryModuleRule implements IjModuleRule<GroovyLibraryDescription.Arg> {
 
     @Override
-    public BuildRuleType getType() {
-      return Description.getBuildRuleType(GroovyLibraryDescription.class);
+    public Class<? extends Description<?>> getDescriptionClass() {
+      return GroovyLibraryDescription.class;
     }
 
     @Override
@@ -736,8 +756,8 @@ public class IjModuleFactory {
   private class GroovyTestModuleRule implements IjModuleRule<GroovyTestDescription.Arg> {
 
     @Override
-    public BuildRuleType getType() {
-      return Description.getBuildRuleType(GroovyTestDescription.class);
+    public Class<? extends Description<?>> getDescriptionClass() {
+      return GroovyTestDescription.class;
     }
 
     @Override
@@ -754,8 +774,8 @@ public class IjModuleFactory {
   private class JavaTestModuleRule implements IjModuleRule<JavaTestDescription.Arg> {
 
     @Override
-    public BuildRuleType getType() {
-      return Description.getBuildRuleType(JavaTestDescription.class);
+    public Class<? extends Description<?>> getDescriptionClass() {
+      return JavaTestDescription.class;
     }
 
     @Override
@@ -771,8 +791,8 @@ public class IjModuleFactory {
   private class RobolectricTestModuleRule extends JavaTestModuleRule {
 
     @Override
-    public BuildRuleType getType() {
-      return Description.getBuildRuleType(RobolectricTestDescription.class);
+    public Class<? extends Description<?>> getDescriptionClass() {
+      return RobolectricTestDescription.class;
     }
   }
 }

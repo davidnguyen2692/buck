@@ -26,8 +26,6 @@ import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.VersionStringComparator;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Iterables;
 import com.google.common.collect.Ordering;
 import com.google.common.collect.TreeMultimap;
 
@@ -89,12 +87,11 @@ public class AppleSdkDiscovery {
 
     ImmutableMap.Builder<AppleSdk, AppleSdkPaths> appleSdkPathsBuilder = ImmutableMap.builder();
 
-    Iterable<Path> platformPaths = extraDirs;
+    HashSet<Path> platformPaths = new HashSet<Path>(extraDirs);
     if (developerDir.isPresent()) {
       Path platformsDir = developerDir.get().resolve("Platforms");
       LOG.debug("Searching for Xcode platforms under %s", platformsDir);
-      platformPaths = Iterables.concat(
-        ImmutableSet.of(platformsDir), platformPaths);
+      platformPaths.add(platformsDir);
     }
 
     // We need to find the most recent SDK for each platform so we can
@@ -239,12 +236,38 @@ public class AppleSdkDiscovery {
         NSString platformName = (NSString) defaultProperties.objectForKey("PLATFORM_NAME");
         ApplePlatform applePlatform = ApplePlatform.of(platformName.toString());
         sdkBuilder.setName(name).setVersion(version).setApplePlatform(applePlatform);
-        sdkBuilder.addAllArchitectures(applePlatform.getArchitectures());
+        ImmutableList<String> architectures = validArchitecturesForPlatform(applePlatform, sdkDir);
+        sdkBuilder.addAllArchitectures(architectures);
         return true;
       }
     } catch (FileNotFoundException e) {
       LOG.error(e, "No SDKSettings.plist found under SDK path %s", sdkDir);
       return false;
     }
+  }
+
+  private static ImmutableList<String> validArchitecturesForPlatform(
+      ApplePlatform platform,
+      Path sdkDir) throws IOException {
+    ImmutableList<String> architectures = platform.getArchitectures();
+    try (DirectoryStream<Path> sdkFiles = Files.newDirectoryStream(sdkDir)) {
+      ImmutableList.Builder<String> architectureSubdirsBuilder = ImmutableList.builder();
+      for (Path path : sdkFiles) {
+        if (Files.isDirectory(path)) {
+          String directoryName = path.getFileName().toString();
+          // Default Apple SDKs contain fat binaries and have no architecture subdirectories,
+          // but custom SDKs might.
+          if (architectures.contains(directoryName)) {
+            architectureSubdirsBuilder.add(directoryName);
+          }
+        }
+      }
+
+      ImmutableList<String> architectureSubdirs = architectureSubdirsBuilder.build();
+      if (!architectureSubdirs.isEmpty()) {
+        architectures = architectureSubdirs;
+      }
+    }
+    return architectures;
   }
 }
