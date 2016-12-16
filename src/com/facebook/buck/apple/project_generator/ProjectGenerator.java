@@ -381,6 +381,7 @@ public class ProjectGenerator {
   
   public ProjectGenerator(
       TargetGraph targetGraph,
+      AppleDependenciesCache dependenciesCache,
       Set<BuildTarget> initialTargets,
       Cell cell,
       Path outputDirectory,
@@ -402,6 +403,7 @@ public class ProjectGenerator {
       SwiftBuckConfig swiftBuckConfig) {
           this(
               targetGraph,
+              dependenciesCache,
               initialTargets,
               cell,
               outputDirectory,
