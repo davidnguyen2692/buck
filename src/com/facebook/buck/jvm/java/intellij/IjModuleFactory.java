@@ -327,7 +327,7 @@ public class IjModuleFactory {
       boolean wantsPackagePrefix,
       ModuleBuildContext context) {
     addDepsAndFolder(
-        SourceFolder.FACTORY,
+        (IJFolderFactory)SourceFolder.FACTORY,
         DependencyType.PROD,
         targetNode,
         wantsPackagePrefix,
@@ -339,7 +339,7 @@ public class IjModuleFactory {
       boolean wantsPackagePrefix,
       ModuleBuildContext context) {
     addDepsAndFolder(
-        TestFolder.FACTORY,
+        (IJFolderFactory)TestFolder.FACTORY,
         DependencyType.TEST,
         targetNode,
         wantsPackagePrefix,
@@ -568,7 +568,7 @@ public class IjModuleFactory {
     @Override
     public void apply(TargetNode<CxxLibraryDescription.Arg, ?> target, ModuleBuildContext context) {
       addSourceFolders(
-          SourceFolder.FACTORY,
+          (IJFolderFactory)SourceFolder.FACTORY,
           getSourceFoldersToInputsIndex(target.getInputs()),
           false /* wantsPackagePrefix */,
           context);
