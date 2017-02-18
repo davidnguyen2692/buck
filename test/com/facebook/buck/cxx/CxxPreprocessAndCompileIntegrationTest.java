@@ -16,8 +16,11 @@
 
 package com.facebook.buck.cxx;
 
+import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.is;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assume.assumeThat;
 import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.cli.FakeBuckConfig;
@@ -31,6 +34,8 @@ import com.facebook.buck.testutil.integration.BuckBuildLog;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
+import com.facebook.buck.util.HumanReadableException;
+import com.facebook.buck.util.environment.Platform;
 import com.google.common.base.Charsets;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -79,7 +84,7 @@ public class CxxPreprocessAndCompileIntegrationTest {
         "  cxxppflags = -g\n" +
         "  cxxflags = -g\n" +
         "[build]\n" +
-        "  depfiles = disabled\n",
+        "  depfiles = enabled\n",
         ".buckconfig");
   }
 
@@ -613,26 +618,30 @@ public class CxxPreprocessAndCompileIntegrationTest {
 
   @Test
   public void errorVerifyHeaders() throws IOException {
-    ProjectWorkspace.ProcessResult result =
-        workspace.runBuckBuild(
-            "-c", "cxx.untracked_headers=error",
-            "-c", "cxx.untracked_headers_whitelist=/usr/include/stdc-predef\\.h",
-            "//:untracked_header");
-    result.assertFailure();
+    ProjectWorkspace.ProcessResult result = null;
+    HumanReadableException caughtException = null;
+    try {
+      result =
+          workspace.runBuckBuild(
+              "-c", "cxx.untracked_headers=error",
+              "-c", "cxx.untracked_headers_whitelist=/usr/include/stdc-predef\\.h",
+              "//:untracked_header");
+      result.assertFailure();
+    } catch (HumanReadableException e) {
+      caughtException = e;
+    }
     if (sandboxSource) {
       assertThat(
           result.getStderr(),
           Matchers.anyOf(
               // clang
-              Matchers.containsString(
-                  "'untracked_header.h' file not found"),
+              containsString("'untracked_header.h' file not found"),
               // gcc
-              Matchers.containsString(
-                  "untracked_header.h: No such file or directory")));
+              containsString("untracked_header.h: No such file or directory")));
     } else {
       assertThat(
-          result.getStderr(),
-          Matchers.containsString(
+          caughtException.getHumanReadableErrorMessage(),
+          containsString(
               "untracked_header.cpp: included an untracked header \"untracked_header.h\""));
     }
   }
@@ -664,4 +673,30 @@ public class CxxPreprocessAndCompileIntegrationTest {
     return cxxSourceRuleFactory.createCompileBuildTarget(source);
   }
 
+  @Test
+  public void errorVerifyHeadersWithPrefixHeader() throws Exception {
+    ProjectWorkspace.ProcessResult result =
+        workspace.runBuckBuild(
+            "-c", "cxx.untracked_headers=error",
+            "-c", "cxx.untracked_headers_whitelist=" +
+                "/usr/include/stdc-predef\\.h, untracked_header\\.h",
+            "//:untracked_header_with_prefix_header");
+    result.assertSuccess();
+  }
+
+  @Test
+  public void verifyAppleFrameworksHeaders() throws IOException {
+    assumeThat(Platform.detect(), is(Platform.MACOS));
+
+    ProjectWorkspace.ProcessResult result =
+        workspace.runBuckBuild(
+            "-c", "cxx.untracked_headers=error",
+            "-c", "cxx.default_platform=iphonesimulator-x86_64",
+            "//:with_xctest");
+    if (sandboxSource) {
+      result.assertFailure();
+    } else {
+      result.assertSuccess();
+    }
+  }
 }

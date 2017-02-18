@@ -32,6 +32,7 @@ import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.Hint;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.coercer.BuildConfigFields;
 import com.facebook.buck.util.OptionalCompat;
@@ -63,13 +64,13 @@ public class AndroidBuildConfigDescription
       BuildRuleParams params,
       BuildRuleResolver resolver,
       A args) throws NoSuchBuildTargetException {
-    if (params.getBuildTarget().getFlavors().contains(CalculateAbi.FLAVOR)) {
-      SourcePathResolver pathResolver = new SourcePathResolver(resolver);
-      BuildTarget configTarget = params.getBuildTarget().withoutFlavors(CalculateAbi.FLAVOR);
+    if (CalculateAbi.isAbiTarget(params.getBuildTarget())) {
+      SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+      BuildTarget configTarget = CalculateAbi.getLibraryTarget(params.getBuildTarget());
       resolver.requireRule(configTarget);
       return CalculateAbi.of(
           params.getBuildTarget(),
-          pathResolver,
+          ruleFinder,
           params,
           new BuildTargetSourcePath(configTarget));
     }
@@ -116,7 +117,8 @@ public class AndroidBuildConfigDescription
     //
     // This fixes the issue, but deviates from the common pattern where a build rule has at most
     // one flavored version of itself for a given flavor.
-    SourcePathResolver pathResolver = new SourcePathResolver(ruleResolver);
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(ruleResolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
     BuildTarget buildConfigBuildTarget;
     if (!params.getBuildTarget().isFlavored()) {
       // android_build_config() case.
@@ -136,18 +138,15 @@ public class AndroidBuildConfigDescription
         /* extraDeps */ Suppliers.ofInstance(
             ImmutableSortedSet.<BuildRule>naturalOrder()
                 .addAll(params.getExtraDeps().get())
-                .addAll(pathResolver.filterBuildRuleInputs(OptionalCompat.asSet(valuesFile)))
+                .addAll(ruleFinder.filterBuildRuleInputs(OptionalCompat.asSet(valuesFile)))
                 .build()));
     AndroidBuildConfig androidBuildConfig = new AndroidBuildConfig(
         buildConfigParams,
-        pathResolver,
         javaPackage,
         values,
         valuesFile,
         useConstantExpressions);
     ruleResolver.addToIndex(androidBuildConfig);
-
-    BuildTarget abiJarTarget = params.getBuildTarget().withAppendedFlavors(CalculateAbi.FLAVOR);
 
     // Create a second build rule to compile BuildConfig.java and expose it as a JavaLibrary.
     BuildRuleParams javaLibraryParams = params.copyWithChanges(
@@ -158,8 +157,8 @@ public class AndroidBuildConfigDescription
     return new AndroidBuildConfigJavaLibrary(
         javaLibraryParams,
         pathResolver,
+        ruleFinder,
         javacOptions,
-        abiJarTarget,
         JavaLibraryRules.getAbiInputs(ruleResolver, javaLibraryParams.getDeps()),
         androidBuildConfig);
   }

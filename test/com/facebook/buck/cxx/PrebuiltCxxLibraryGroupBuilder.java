@@ -18,17 +18,22 @@ package com.facebook.buck.cxx;
 
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.AbstractNodeBuilder;
+import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.SourcePath;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedSet;
+
+import java.util.Optional;
+import java.util.regex.Pattern;
 
 
 public class PrebuiltCxxLibraryGroupBuilder
     extends
     AbstractNodeBuilder<
         PrebuiltCxxLibraryGroupDescription.Args,
-        PrebuiltCxxLibraryGroupDescription> {
+        PrebuiltCxxLibraryGroupDescription,
+        BuildRule> {
 
   public PrebuiltCxxLibraryGroupBuilder(BuildTarget target) {
     super(PrebuiltCxxLibraryGroupDescription.of(), target);
@@ -80,8 +85,18 @@ public class PrebuiltCxxLibraryGroupBuilder
     return this;
   }
 
+  public PrebuiltCxxLibraryGroupBuilder setDeps(ImmutableSortedSet<BuildTarget> deps) {
+    arg.deps = deps;
+    return this;
+  }
+
   public PrebuiltCxxLibraryGroupBuilder setExportedDeps(ImmutableSortedSet<BuildTarget> deps) {
     arg.exportedDeps = deps;
+    return this;
+  }
+
+  public PrebuiltCxxLibraryGroupBuilder setSupportedPlatformsRegex(Pattern pattern) {
+    arg.supportedPlatformsRegex = Optional.of(pattern);
     return this;
   }
 

@@ -120,7 +120,7 @@ public class DirArtifactCache implements ArtifactCache {
       result = CacheResult.error(name, String.format("%s: %s", e.getClass(), e.getMessage()));
     }
 
-    LOG.debug(
+    LOG.verbose(
         "Artifact fetch(%s, %s) cache %s",
         ruleKey,
         output,
@@ -278,7 +278,9 @@ public class DirArtifactCache implements ArtifactCache {
 
     Path cacheDirInFs = filesystem.resolve(cacheDir);
     try {
-      newDirectoryCleaner().clean(cacheDirInFs);
+      synchronized (this) {
+        newDirectoryCleaner().clean(cacheDirInFs);
+      }
     } catch (IOException e) {
       LOG.error(e, "Failed to clean path [%s].", cacheDirInFs);
     }
@@ -345,5 +347,10 @@ public class DirArtifactCache implements ArtifactCache {
             .result();
       }
     };
+  }
+
+  @VisibleForTesting
+  Path getCacheDir() {
+    return cacheDir;
   }
 }

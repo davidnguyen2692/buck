@@ -20,6 +20,7 @@ import com.facebook.buck.cxx.CxxDescriptionEnhancer;
 import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.cxx.CxxSourceRuleFactory;
 import com.facebook.buck.cxx.CxxToolFlags;
+import com.facebook.buck.cxx.PathShortener;
 import com.facebook.buck.cxx.Preprocessor;
 import com.facebook.buck.cxx.PreprocessorFlags;
 import com.facebook.buck.model.BuildTarget;
@@ -31,10 +32,10 @@ import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.BuildableContext;
-import com.facebook.buck.rules.RuleKeyAppendable;
 import com.facebook.buck.rules.RuleKeyObjectSink;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.shell.ShellStep;
 import com.facebook.buck.step.ExecutionContext;
@@ -43,7 +44,6 @@ import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.util.MoreIterables;
 import com.facebook.buck.util.OptionalCompat;
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Functions;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -59,7 +59,7 @@ import java.util.TreeSet;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-public class HaskellCompileRule extends AbstractBuildRule implements RuleKeyAppendable {
+public class HaskellCompileRule extends AbstractBuildRule {
 
   @AddToRuleKey
   private final Tool compiler;
@@ -109,7 +109,6 @@ public class HaskellCompileRule extends AbstractBuildRule implements RuleKeyAppe
 
   private HaskellCompileRule(
       BuildRuleParams buildRuleParams,
-      SourcePathResolver resolver,
       Tool compiler,
       HaskellVersion haskellVersion,
       ImmutableList<String> flags,
@@ -123,7 +122,7 @@ public class HaskellCompileRule extends AbstractBuildRule implements RuleKeyAppe
       ImmutableSortedMap<String, HaskellPackage> packages,
       HaskellSources sources,
       Preprocessor preprocessor) {
-    super(buildRuleParams, resolver);
+    super(buildRuleParams);
     this.compiler = compiler;
     this.haskellVersion = haskellVersion;
     this.flags = flags;
@@ -142,7 +141,7 @@ public class HaskellCompileRule extends AbstractBuildRule implements RuleKeyAppe
   public static HaskellCompileRule from(
       BuildTarget target,
       BuildRuleParams baseParams,
-      final SourcePathResolver resolver,
+      SourcePathRuleFinder ruleFinder,
       final Tool compiler,
       HaskellVersion haskellVersion,
       ImmutableList<String> flags,
@@ -161,18 +160,17 @@ public class HaskellCompileRule extends AbstractBuildRule implements RuleKeyAppe
             target,
             Suppliers.memoize(
                 () -> ImmutableSortedSet.<BuildRule>naturalOrder()
-                    .addAll(compiler.getDeps(resolver))
-                    .addAll(ppFlags.getDeps(resolver))
-                    .addAll(resolver.filterBuildRuleInputs(includes))
-                    .addAll(sources.getDeps(resolver))
+                    .addAll(compiler.getDeps(ruleFinder))
+                    .addAll(ppFlags.getDeps(ruleFinder))
+                    .addAll(ruleFinder.filterBuildRuleInputs(includes))
+                    .addAll(sources.getDeps(ruleFinder))
                     .addAll(
                         Stream.of(exposedPackages, packages)
                             .flatMap(packageMap -> packageMap.values().stream())
-                            .flatMap(pkg -> pkg.getDeps(resolver))
+                            .flatMap(pkg -> pkg.getDeps(ruleFinder))
                             .iterator())
                     .build()),
             Suppliers.ofInstance(ImmutableSortedSet.of())),
-        resolver,
         compiler,
         haskellVersion,
         flags,
@@ -228,13 +226,13 @@ public class HaskellCompileRule extends AbstractBuildRule implements RuleKeyAppe
   /**
    * @return the arguments to pass to the compiler to build against package dependencies.
    */
-  private Iterable<String> getPackageArgs() {
+  private Iterable<String> getPackageArgs(SourcePathResolver resolver) {
     Set<String> packageDbs = new TreeSet<>();
     Set<String> hidden = new TreeSet<>();
     Set<String> exposed = new TreeSet<>();
 
     for (HaskellPackage haskellPackage : packages.values()) {
-      packageDbs.add(getResolver().getAbsolutePath(haskellPackage.getPackageDb()).toString());
+      packageDbs.add(resolver.getAbsolutePath(haskellPackage.getPackageDb()).toString());
       hidden.add(
           String.format(
               "%s-%s",
@@ -242,7 +240,7 @@ public class HaskellCompileRule extends AbstractBuildRule implements RuleKeyAppe
     }
 
     for (HaskellPackage haskellPackage : exposedPackages.values()) {
-      packageDbs.add(getResolver().getAbsolutePath(haskellPackage.getPackageDb()).toString());
+      packageDbs.add(resolver.getAbsolutePath(haskellPackage.getPackageDb()).toString());
       exposed.add(
           String.format(
               "%s-%s",
@@ -268,14 +266,14 @@ public class HaskellCompileRule extends AbstractBuildRule implements RuleKeyAppe
         .build();
   }
 
-  private Iterable<String> getPreprocessorFlags() {
+  private Iterable<String> getPreprocessorFlags(SourcePathResolver resolver) {
     CxxToolFlags cxxToolFlags =
         ppFlags.toToolFlags(
-            getResolver(),
-            Functions.identity(),
-            CxxDescriptionEnhancer.frameworkPathToSearchPath(cxxPlatform, getResolver()),
+            resolver,
+            PathShortener.identity(),
+            CxxDescriptionEnhancer.frameworkPathToSearchPath(cxxPlatform, resolver),
             preprocessor,
-            /*pch*/ Optional.empty());
+            /* pch */ Optional.empty());
     return MoreIterables.zipAndConcat(
         Iterables.cycle("-optP"),
         cxxToolFlags.getAllFlags());
@@ -303,9 +301,10 @@ public class HaskellCompileRule extends AbstractBuildRule implements RuleKeyAppe
           }
 
           @Override
-          protected ImmutableList<String> getShellCommandInternal(ExecutionContext context) {
+          protected ImmutableList<String> getShellCommandInternal(ExecutionContext execContext) {
+            SourcePathResolver resolver = context.getSourcePathResolver();
             return ImmutableList.<String>builder()
-                .addAll(compiler.getCommandPrefix(getResolver()))
+                .addAll(compiler.getCommandPrefix(resolver))
                 .addAll(flags)
                 .add("-no-link")
                 .addAll(
@@ -317,19 +316,19 @@ public class HaskellCompileRule extends AbstractBuildRule implements RuleKeyAppe
                         Iterables.cycle("-main-is"),
                         OptionalCompat.asSet(main)))
                 .addAll(getPackageNameArgs())
-                .addAll(getPreprocessorFlags())
+                .addAll(getPreprocessorFlags(context.getSourcePathResolver()))
                 .add("-odir", getProjectFilesystem().resolve(getObjectDir()).toString())
                 .add("-hidir", getProjectFilesystem().resolve(getInterfaceDir()).toString())
                 .add("-stubdir", getProjectFilesystem().resolve(getStubDir()).toString())
                 .add("-i" +
                     includes.stream()
-                        .map(getResolver()::getAbsolutePath)
+                        .map(resolver::getAbsolutePath)
                         .map(Object::toString)
                         .collect(Collectors.joining(":")))
-                .addAll(getPackageArgs())
+                .addAll(getPackageArgs(context.getSourcePathResolver()))
                 .addAll(
                     sources.getSourcePaths().stream()
-                        .map(getResolver()::getAbsolutePath)
+                        .map(resolver::getAbsolutePath)
                         .map(Object::toString)
                         .iterator())
                 .build();
@@ -345,9 +344,7 @@ public class HaskellCompileRule extends AbstractBuildRule implements RuleKeyAppe
 
   @Override
   public boolean isCacheable() {
-    // There's some non-detemrinism issues with GHC which currently prevent us from the caching
-    // this rule.
-    return false;
+    return haskellVersion.getMajorVersion() >= 8;
   }
 
   @Override

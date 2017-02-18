@@ -26,12 +26,13 @@ import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.HasRuntimeDeps;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 
-import java.nio.file.Path;
 import java.util.Optional;
+import java.util.stream.Stream;
 
 public class AndroidPrebuiltAar
     extends AndroidLibrary
@@ -44,6 +45,7 @@ public class AndroidPrebuiltAar
   public AndroidPrebuiltAar(
       BuildRuleParams androidLibraryParams,
       SourcePathResolver resolver,
+      SourcePathRuleFinder ruleFinder,
       SourcePath proguardConfig,
       SourcePath nativeLibsDirectory,
       PrebuiltJar prebuiltJar,
@@ -51,11 +53,11 @@ public class AndroidPrebuiltAar
       JavacOptions javacOptions,
       CompileToJarStepFactory compileStepFactory,
       Iterable<PrebuiltJar> exportedDeps,
-      BuildTarget abiJar,
       ImmutableSortedSet<SourcePath> abiInputs) {
     super(
         androidLibraryParams,
         resolver,
+        ruleFinder,
         /* srcs */ ImmutableSortedSet.of(),
         /* resources */ ImmutableSortedSet.of(),
         Optional.of(proguardConfig),
@@ -65,7 +67,6 @@ public class AndroidPrebuiltAar
             .addAll(exportedDeps)
             .build(),
         /* providedDeps */ ImmutableSortedSet.of(),
-        abiJar,
         abiInputs,
         /* additionalClasspathEntries */ ImmutableSet.of(),
         javacOptions,
@@ -120,16 +121,16 @@ public class AndroidPrebuiltAar
     return prebuiltJar;
   }
 
-  public Path getBinaryJar() {
-    return prebuiltJar.getPathToOutput();
+  public SourcePath getBinaryJar() {
+    return prebuiltJar.getSourcePathToOutput();
   }
 
   // This class is basically a wrapper around its android resource rule, since dependents will
   // use this interface to access the underlying R.java package, so make sure it's available when
   // a dependent is building against us.
   @Override
-  public ImmutableSortedSet<BuildRule> getRuntimeDeps() {
-    return ImmutableSortedSet.of(unzipAar);
+  public Stream<BuildTarget> getRuntimeDeps() {
+    return Stream.of(unzipAar.getBuildTarget());
   }
 
 }

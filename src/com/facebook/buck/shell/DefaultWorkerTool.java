@@ -16,6 +16,7 @@
 
 package com.facebook.buck.shell;
 
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BinaryBuildRule;
@@ -37,13 +38,13 @@ import com.facebook.buck.util.MoreCollectors;
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.hash.HashCode;
 
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Stream;
 
 public class DefaultWorkerTool extends NoopBuildRule implements
     HasRuntimeDeps, WorkerTool, InitializableFromDisk<DefaultWorkerTool.Data> {
@@ -115,8 +116,8 @@ public class DefaultWorkerTool extends NoopBuildRule implements
   }
 
   @Override
-  public ImmutableSortedSet<BuildRule> getRuntimeDeps() {
-    return getDeps();
+  public Stream<BuildTarget> getRuntimeDeps() {
+    return getDeps().stream().map(BuildRule::getBuildTarget);
   }
 
   @Override

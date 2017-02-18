@@ -25,12 +25,10 @@ import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.RmStep;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 
 import java.nio.file.Path;
@@ -73,10 +71,9 @@ public class AndroidManifest extends AbstractBuildRule {
 
   protected AndroidManifest(
       BuildRuleParams params,
-      SourcePathResolver resolver,
       SourcePath skeletonFile,
       Set<SourcePath> manifestFiles) {
-    super(params, resolver);
+    super(params);
     this.skeletonFile = skeletonFile;
     this.manifestFiles = ImmutableSortedSet.copyOf(manifestFiles);
     BuildTarget buildTarget = params.getBuildTarget();
@@ -92,12 +89,7 @@ public class AndroidManifest extends AbstractBuildRule {
     ImmutableList.Builder<Step> commands = ImmutableList.builder();
 
     // Clear out the old file, if it exists.
-    commands.add(
-        new RmStep(
-            getProjectFilesystem(),
-            pathToOutputFile,
-            /* shouldForceDeletion */ true,
-            /* shouldRecurse */ false));
+    commands.add(new RmStep(getProjectFilesystem(), pathToOutputFile));
 
     // Make sure the directory for the output file exists.
     commands.add(new MkdirStep(getProjectFilesystem(), pathToOutputFile.getParent()));
@@ -105,9 +97,9 @@ public class AndroidManifest extends AbstractBuildRule {
     commands.add(
         new GenerateManifestStep(
             getProjectFilesystem(),
-            getResolver().getAbsolutePath(skeletonFile),
-            ImmutableSet.copyOf(getResolver().getAllAbsolutePaths(manifestFiles)),
-            getPathToOutput()));
+            context.getSourcePathResolver().getAbsolutePath(skeletonFile),
+            context.getSourcePathResolver().getAllAbsolutePaths(manifestFiles),
+            context.getSourcePathResolver().getRelativePath(getSourcePathToOutput())));
 
     buildableContext.recordArtifact(pathToOutputFile);
     return commands.build();

@@ -12,6 +12,7 @@ import tempfile
 import textwrap
 import time
 import traceback
+import uuid
 
 from pynailgun import NailgunConnection, NailgunException
 from timing import monotonic_time_nanos
@@ -98,6 +99,7 @@ class BuckToolException(Exception):
 class BuckTool(object):
 
     def __init__(self, buck_project):
+        self._init_timestamp = int(round(time.time() * 1000))
         self._command_line = CommandLineArgs(sys.argv)
         self._buck_project = buck_project
         self._tmp_dir = self._platform_path(buck_project.tmp_dir)
@@ -115,6 +117,11 @@ class BuckTool(object):
     # Return an on-disk path to the given resource.  This may cause
     # implementations to unpack the resource at this point.
     def _get_resource(self, resource):
+        raise NotImplementedError()
+
+    # Return the path to the file used to determine if another buck process is using the same
+    # resources folder (used for cleanup coordination).
+    def _get_resource_lock_path(self):
         raise NotImplementedError()
 
     def _use_buckd(self):
@@ -171,12 +178,15 @@ class BuckTool(object):
                     while exit_code == 2:
                         with NailgunConnection('local:.buckd/sock',
                                                cwd=self._buck_project.root) as c:
+                            now = int(round(time.time() * 1000))
+                            env['BUCK_PYTHON_SPACE_INIT_TIME'] = str(now - self._init_timestamp)
                             exit_code = c.send_command(
                                 'com.facebook.buck.cli.Main',
                                 sys.argv[1:],
                                 env=env,
                                 cwd=self._buck_project.root)
                             if exit_code == 2:
+                                env['BUCK_BUILD_ID'] = str(uuid.uuid4())
                                 now = time.time()
                                 if now - last_diagnostic_time > DAEMON_BUSY_MESSAGE_SECONDS:
                                     print('Daemon is busy, waiting for it to become free...',
@@ -195,6 +205,8 @@ class BuckTool(object):
             command.append("com.facebook.buck.cli.Main")
             command.extend(sys.argv[1:])
 
+            now = int(round(time.time() * 1000))
+            env['BUCK_PYTHON_SPACE_INIT_TIME'] = str(now - self._init_timestamp)
             if True:
                 with Tracing('buck', args={'command': command}):
                     buck_exit_code = subprocess.call(command,
@@ -203,6 +215,40 @@ class BuckTool(object):
                                                      executable=which("java"))
             return buck_exit_code
 
+
+    def _truncate_logs_pretty(self, logs):
+        NUMBER_OF_LINES_BEFORE = 100
+        NUMBER_OF_LINES_AFTER = 100
+        if len(logs) <= NUMBER_OF_LINES_BEFORE + NUMBER_OF_LINES_AFTER:
+            return logs
+        new_logs = logs[:NUMBER_OF_LINES_BEFORE]
+        new_logs.append('...<truncated>...')
+        new_logs.extend(logs[-NUMBER_OF_LINES_AFTER:])
+        return new_logs
+
+    def _generate_log_entry(self, exit_code, message, logs_array):
+        import socket
+        import getpass
+        traits = {
+            "severity": "SEVERE",
+            "logger": "com.facebook.buck.python.buck_tool.py",
+            "buckGitCommit": self._get_buck_version_uid(),
+            "os": platform.system(),
+            "osVersion": platform.release(),
+            "user": getpass.getuser(),
+            "hostname": socket.gethostname(),
+            "isSuperConsoleEnabled": "false",
+            "isDaemon": "false",
+        }
+        entry = {
+          "logs": logs_array,
+          "traits": traits,
+          "message": message,
+          "category": message,
+          "time": int(time.time()),
+          "logger": "com.facebook.buck.python.buck_tool.py",
+        }
+        return entry
 
     def launch_buckd(self, buck_version_uid=None):
         with Tracing('BuckTool.launch_buckd'):
@@ -378,6 +424,11 @@ class BuckTool(object):
                 "-Dbuck.buckd_dir={0}".format(self._buck_project.buckd_dir),
                 "-Dorg.eclipse.jetty.util.log.class=org.eclipse.jetty.util.log.JavaUtilLog",
             ]
+
+            resource_lock_path = self._get_resource_lock_path()
+            if resource_lock_path is not None:
+                java_args.append("-Dbuck.resource_lock_path={0}".format(resource_lock_path))
+
             for resource in EXPORTED_RESOURCES:
                 if self._has_resource(resource):
                     java_args.append(

@@ -27,6 +27,7 @@ import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
+import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.shell.ShellStep;
 import com.facebook.buck.step.ExecutionContext;
@@ -85,14 +86,13 @@ public class GwtBinary extends AbstractBuildRule {
   @AddToRuleKey
   private final ImmutableList<String> experimentalArgs;
   // Deliberately not added to rule key
-  private final ImmutableSortedSet<Path> gwtModuleJars;
+  private final ImmutableSortedSet<SourcePath> gwtModuleJars;
 
   /**
    * @param modules The GWT modules to build with the GWT compiler.
    */
   GwtBinary(
       BuildRuleParams buildRuleParams,
-      SourcePathResolver resolver,
       ImmutableSortedSet<String> modules,
       JavaRuntimeLauncher javaRuntimeLauncher,
       List<String> vmArgs,
@@ -102,8 +102,8 @@ public class GwtBinary extends AbstractBuildRule {
       int localWorkers,
       boolean strict,
       List<String> experimentalArgs,
-      ImmutableSortedSet<Path> gwtModuleJars) {
-    super(buildRuleParams, resolver);
+      ImmutableSortedSet<SourcePath> gwtModuleJars) {
+    super(buildRuleParams);
     BuildTarget buildTarget = buildRuleParams.getBuildTarget();
     this.outputFile = BuildTargets.getGenPath(
         buildRuleParams.getProjectFilesystem(),
@@ -141,7 +141,8 @@ public class GwtBinary extends AbstractBuildRule {
     ImmutableList.Builder<Step> steps = ImmutableList.builder();
 
     // Create a clean directory where the .zip file will be written.
-    Path workingDirectory = getPathToOutput().getParent();
+    Path workingDirectory =
+        context.getSourcePathResolver().getRelativePath(getSourcePathToOutput()).getParent();
     ProjectFilesystem projectFilesystem = getProjectFilesystem();
     steps.add(new MakeCleanDirectoryStep(projectFilesystem, workingDirectory));
 
@@ -156,7 +157,7 @@ public class GwtBinary extends AbstractBuildRule {
       }
 
       @Override
-      protected ImmutableList<String> getShellCommandInternal(ExecutionContext context) {
+      protected ImmutableList<String> getShellCommandInternal(ExecutionContext executionContext) {
         ImmutableList.Builder<String> javaArgsBuilder = ImmutableList.builder();
         javaArgsBuilder.add(javaRuntimeLauncher.getCommand());
         javaArgsBuilder.add("-Dgwt.normalizeTimestamps=true");
@@ -164,10 +165,11 @@ public class GwtBinary extends AbstractBuildRule {
         javaArgsBuilder.add(
             "-classpath", Joiner.on(File.pathSeparator).join(
                 Iterables.transform(
-                    getClasspathEntries(),
+                    getClasspathEntries(context.getSourcePathResolver()),
                     getProjectFilesystem()::resolve)),
             GWT_COMPILER_CLASS,
-            "-war", getProjectFilesystem().resolve(getPathToOutput()).toString(),
+            "-war",
+                context.getSourcePathResolver().getAbsolutePath(getSourcePathToOutput()).toString(),
             "-style", style.name(),
             "-optimize", String.valueOf(optimize),
             "-localWorkers", String.valueOf(localWorkers),
@@ -187,7 +189,8 @@ public class GwtBinary extends AbstractBuildRule {
     };
     steps.add(javaStep);
 
-    buildableContext.recordArtifact(getPathToOutput());
+    buildableContext.recordArtifact(
+        context.getSourcePathResolver().getRelativePath(getSourcePathToOutput()));
 
     return steps.build();
   }
@@ -205,17 +208,17 @@ public class GwtBinary extends AbstractBuildRule {
    * specified by {@link #modules}.
    */
   @VisibleForTesting
-  Iterable<Path> getClasspathEntries() {
+  Iterable<Path> getClasspathEntries(SourcePathResolver pathResolver) {
     ImmutableSet.Builder<Path> classpathEntries = ImmutableSet.builder();
-    classpathEntries.addAll(gwtModuleJars);
+    classpathEntries.addAll(pathResolver.getAllAbsolutePaths(gwtModuleJars));
     for (BuildRule dep : getDeclaredDeps()) {
       if (!(dep instanceof JavaLibrary)) {
         continue;
       }
 
       JavaLibrary javaLibrary = (JavaLibrary) dep;
-      for (Path path : javaLibrary.getOutputClasspaths()) {
-        classpathEntries.add(path);
+      for (SourcePath path : javaLibrary.getOutputClasspaths()) {
+        classpathEntries.add(pathResolver.getAbsolutePath(path));
       }
     }
     return classpathEntries.build();

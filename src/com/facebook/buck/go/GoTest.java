@@ -16,6 +16,7 @@
 
 package com.facebook.buck.go;
 
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BinaryBuildRule;
@@ -28,6 +29,7 @@ import com.facebook.buck.rules.Label;
 import com.facebook.buck.rules.NoopBuildRule;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TestRule;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.step.ExecutionContext;
@@ -60,6 +62,7 @@ import java.util.Optional;
 import java.util.concurrent.Callable;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Stream;
 
 @SuppressWarnings("PMD.TestClassWithoutTestCases")
 public class GoTest extends NoopBuildRule implements TestRule, HasRuntimeDeps,
@@ -71,6 +74,7 @@ public class GoTest extends NoopBuildRule implements TestRule, HasRuntimeDeps,
   // Extra time to wait for the process to exit on top of the test timeout
   private static final int PROCESS_TIMEOUT_EXTRA_MS = 5000;
 
+  private final SourcePathRuleFinder ruleFinder;
   private final GoBinary testMain;
 
   private final ImmutableSet<Label> labels;
@@ -83,6 +87,7 @@ public class GoTest extends NoopBuildRule implements TestRule, HasRuntimeDeps,
 
   public GoTest(
       BuildRuleParams buildRuleParams,
+      SourcePathRuleFinder ruleFinder,
       SourcePathResolver resolver,
       GoBinary testMain,
       ImmutableSet<Label> labels,
@@ -91,6 +96,7 @@ public class GoTest extends NoopBuildRule implements TestRule, HasRuntimeDeps,
       boolean runTestsSeparately,
       ImmutableSortedSet<SourcePath> resources) {
     super(buildRuleParams, resolver);
+    this.ruleFinder = ruleFinder;
     this.testMain = testMain;
     this.labels = labels;
     this.contacts = contacts;
@@ -108,13 +114,14 @@ public class GoTest extends NoopBuildRule implements TestRule, HasRuntimeDeps,
   public ImmutableList<Step> runTests(
       ExecutionContext executionContext,
       TestRunningOptions options,
+      SourcePathResolver pathResolver,
       TestReportingCallback testReportingCallback) {
     Optional<Long> processTimeoutMs = testRuleTimeoutMs.isPresent() ?
         Optional.of(testRuleTimeoutMs.get() + PROCESS_TIMEOUT_EXTRA_MS) :
         Optional.empty();
 
     ImmutableList.Builder<String> args = ImmutableList.builder();
-    args.addAll(testMain.getExecutableCommand().getCommandPrefix(getResolver()));
+    args.addAll(testMain.getExecutableCommand().getCommandPrefix(pathResolver));
     args.add("-test.v");
     if (testRuleTimeoutMs.isPresent()) {
       args.add("-test.timeout", testRuleTimeoutMs.get() + "ms");
@@ -129,9 +136,10 @@ public class GoTest extends NoopBuildRule implements TestRule, HasRuntimeDeps,
             ImmutableMap.copyOf(
                 FluentIterable.from(resources)
                 .transform(input -> Maps.immutableEntry(
-                    getProjectFilesystem().getRootPath().getFileSystem().getPath(
-                        getResolver().getSourcePathName(getBuildTarget(), input)),
-                    getResolver().getAbsolutePath(input))))),
+                    getProjectFilesystem().getPath(pathResolver.getSourcePathName(
+                        getBuildTarget(),
+                        input)),
+                    pathResolver.getAbsolutePath(input))))),
         new GoTestStep(
             getProjectFilesystem(),
             getPathToTestWorkingDirectory(),
@@ -171,7 +179,7 @@ public class GoTest extends NoopBuildRule implements TestRule, HasRuntimeDeps,
           try {
             timeTaken = Float.parseFloat(matcher.group("duration"));
           } catch (NumberFormatException ex) {
-            Throwables.propagate(ex);
+            Throwables.throwIfUnchecked(ex);
           }
 
           summariesBuilder.add(new TestResultSummary(
@@ -267,22 +275,25 @@ public class GoTest extends NoopBuildRule implements TestRule, HasRuntimeDeps,
   }
 
   @Override
-  public ImmutableSortedSet<BuildRule> getRuntimeDeps() {
-    return ImmutableSortedSet.<BuildRule>naturalOrder()
-        .add(testMain)
-        .addAll(getResolver().filterBuildRuleInputs(resources))
-        .build();
+  public Stream<BuildTarget> getRuntimeDeps() {
+    return Stream.concat(
+        Stream.of((testMain.getBuildTarget())),
+        resources.stream()
+            .map(ruleFinder::filterBuildRuleInputs)
+            .flatMap(ImmutableSet::stream)
+            .map(BuildRule::getBuildTarget));
   }
 
   @Override
   public ExternalTestRunnerTestSpec getExternalTestRunnerSpec(
       ExecutionContext executionContext,
-      TestRunningOptions testRunningOptions) {
+      TestRunningOptions testRunningOptions,
+      SourcePathResolver pathResolver) {
     return ExternalTestRunnerTestSpec.builder()
         .setTarget(getBuildTarget())
         .setType("go")
         .putAllEnv(testMain.getExecutableCommand().getEnvironment())
-        .addAllCommand(testMain.getExecutableCommand().getCommandPrefix(getResolver()))
+        .addAllCommand(testMain.getExecutableCommand().getCommandPrefix(pathResolver))
         .addAllLabels(getLabels())
         .addAllContacts(getContacts())
         .build();

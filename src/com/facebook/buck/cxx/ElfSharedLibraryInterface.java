@@ -18,7 +18,7 @@ package com.facebook.buck.cxx;
 
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.rules.AbstractBuildRuleWithResolver;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
@@ -26,6 +26,7 @@ import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.keys.SupportsInputBasedRuleKey;
 import com.facebook.buck.step.Step;
@@ -41,13 +42,20 @@ import java.nio.file.Path;
  * Build a shared library interface from an ELF shared library.
  */
 class ElfSharedLibraryInterface
-    extends AbstractBuildRule
+    extends AbstractBuildRuleWithResolver
     implements SupportsInputBasedRuleKey {
 
   // We only care about sections relevant to dynamic linking.
   private static final ImmutableSet<String> SECTIONS =
-      ImmutableSet.of(".dynamic", ".dynsym", ".dynstr");
+      ImmutableSet.of(
+          ".dynamic",
+          ".dynsym",
+          ".dynstr",
+          ".gnu.version",
+          ".gnu.version_d",
+          ".gnu.version_r");
 
+  private final SourcePathResolver pathResolver;
   @AddToRuleKey
   private final Tool objcopy;
 
@@ -60,6 +68,7 @@ class ElfSharedLibraryInterface
       Tool objcopy,
       SourcePath input) {
     super(buildRuleParams, resolver);
+    this.pathResolver = resolver;
     this.objcopy = objcopy;
     this.input = input;
   }
@@ -68,6 +77,7 @@ class ElfSharedLibraryInterface
       BuildTarget target,
       BuildRuleParams baseParams,
       SourcePathResolver resolver,
+      SourcePathRuleFinder ruleFinder,
       Tool objcopy,
       SourcePath input) {
     return new ElfSharedLibraryInterface(
@@ -75,8 +85,8 @@ class ElfSharedLibraryInterface
             target,
             Suppliers.ofInstance(
                 ImmutableSortedSet.<BuildRule>naturalOrder()
-                    .addAll(objcopy.getDeps(resolver))
-                    .addAll(resolver.filterBuildRuleInputs(input))
+                    .addAll(objcopy.getDeps(ruleFinder))
+                    .addAll(ruleFinder.filterBuildRuleInputs(input))
                     .build()),
             Suppliers.ofInstance(ImmutableSortedSet.of())),
         resolver,
@@ -89,7 +99,7 @@ class ElfSharedLibraryInterface
   }
 
   private String getSharedAbiLibraryName() {
-    return getResolver().getRelativePath(input).getFileName().toString();
+    return pathResolver.getRelativePath(input).getFileName().toString();
   }
 
   @Override
@@ -102,12 +112,21 @@ class ElfSharedLibraryInterface
         new MakeCleanDirectoryStep(getProjectFilesystem(), getOutputDir()),
         ElfExtractSectionsStep.of(
             getProjectFilesystem(),
-            objcopy.getCommandPrefix(getResolver()),
-            getResolver().getAbsolutePath(input),
+            objcopy.getCommandPrefix(context.getSourcePathResolver()),
+            context.getSourcePathResolver().getAbsolutePath(input),
             output,
             SECTIONS),
         ElfClearProgramHeadersStep.of(getProjectFilesystem(), output),
-        ElfSymbolTableScrubberStep.of(getProjectFilesystem(), output, ".dynsym"),
+        ElfSymbolTableScrubberStep.of(
+            getProjectFilesystem(),
+            output,
+            /* section */ ".dynsym",
+            /* allowMissing */ false),
+        ElfSymbolTableScrubberStep.of(
+            getProjectFilesystem(),
+            output,
+            /* section */ ".symtab",
+            /* allowMissing */ true),
         ElfDynamicSectionScrubberStep.of(getProjectFilesystem(), output));
   }
 

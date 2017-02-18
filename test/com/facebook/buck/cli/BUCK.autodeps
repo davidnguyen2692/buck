@@ -19,6 +19,7 @@
       "//src/com/facebook/buck/apple:rules",
       "//src/com/facebook/buck/apple/project_generator:project_generator",
       "//src/com/facebook/buck/artifact_cache:artifact_cache",
+      "//src/com/facebook/buck/artifact_cache:config",
       "//src/com/facebook/buck/cli:cli",
       "//src/com/facebook/buck/cli:config",
       "//src/com/facebook/buck/command:command",
@@ -53,6 +54,7 @@
       "//src/com/facebook/buck/rules:rules",
       "//src/com/facebook/buck/rules:types",
       "//src/com/facebook/buck/rules/coercer:coercer",
+      "//src/com/facebook/buck/shell:rules",
       "//src/com/facebook/buck/step:step",
       "//src/com/facebook/buck/test:test",
       "//src/com/facebook/buck/test/result/type:type",
@@ -87,6 +89,7 @@
       "//test/com/facebook/buck/testutil/integration:util",
       "//test/com/facebook/buck/timing:testutil",
       "//test/com/facebook/buck/util:testutil",
+      "//test/com/facebook/buck/versions:testutil",
       "//third-party/java/args4j:args4j",
       "//third-party/java/easymock:easymock",
       "//third-party/java/guava:guava",
@@ -114,6 +117,7 @@
   "testutil" : {
     "deps" : [
       "//src/com/facebook/buck/android:rules",
+      "//src/com/facebook/buck/artifact_cache:config",
       "//src/com/facebook/buck/config:config",
       "//src/com/facebook/buck/event/listener:BroadcastEventListener",
       "//src/com/facebook/buck/parser:config",

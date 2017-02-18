@@ -26,7 +26,6 @@ import com.facebook.buck.util.Console;
 import com.facebook.buck.util.DefaultProcessExecutor;
 import com.facebook.buck.util.Escaper;
 import com.facebook.buck.util.LineProcessorRunnable;
-import com.facebook.buck.util.ManagedRunnable;
 import com.facebook.buck.util.MoreThrowables;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.ProcessExecutorParams;
@@ -47,8 +46,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.logging.Level;
 
-import javax.annotation.Nullable;
-
 /**
  * A step that preprocesses and/or compiles C/C++ sources in a single step.
  */
@@ -67,7 +64,6 @@ public class CxxPreprocessAndCompileStep implements Step {
   private final HeaderPathNormalizer headerPathNormalizer;
   private final DebugPathSanitizer compilerSanitizer;
   private final DebugPathSanitizer assemblerSanitizer;
-  private final HeaderVerification headerVerification;
   private final Compiler compiler;
 
   /**
@@ -75,7 +71,6 @@ public class CxxPreprocessAndCompileStep implements Step {
    */
   private final Path scratchDir;
   private final boolean useArgfile;
-  private final Optional<CxxPrecompiledHeader> pch;
 
   private static final FileLastModifiedDateContentsScrubber FILE_LAST_MODIFIED_DATE_SCRUBBER =
       new FileLastModifiedDateContentsScrubber();
@@ -89,20 +84,14 @@ public class CxxPreprocessAndCompileStep implements Step {
       CxxSource.Type inputType,
       Optional<ToolCommand> preprocessorCommand,
       Optional<ToolCommand> compilerCommand,
-      Optional<CxxPrecompiledHeader> pch,
       HeaderPathNormalizer headerPathNormalizer,
       DebugPathSanitizer compilerSanitizer,
       DebugPathSanitizer assemblerSanitizer,
-      HeaderVerification headerVerification,
       Path scratchDir,
       boolean useArgfile,
       Compiler compiler) {
     Preconditions.checkState(operation.isPreprocess() == preprocessorCommand.isPresent());
     Preconditions.checkState(operation.isCompile() == compilerCommand.isPresent());
-
-    Preconditions.checkArgument(
-        (operation == Operation.GENERATE_PCH) == (pch.isPresent()),
-        "need a PCH instance if generating a pch file for it");
 
     this.filesystem = filesystem;
     this.operation = operation;
@@ -112,11 +101,9 @@ public class CxxPreprocessAndCompileStep implements Step {
     this.inputType = inputType;
     this.preprocessorCommand = preprocessorCommand;
     this.compilerCommand = compilerCommand;
-    this.pch = pch;
     this.headerPathNormalizer = headerPathNormalizer;
     this.compilerSanitizer = compilerSanitizer;
     this.assemblerSanitizer = assemblerSanitizer;
-    this.headerVerification = headerVerification;
     this.scratchDir = scratchDir;
     this.useArgfile = useArgfile;
     this.compiler = compiler;
@@ -162,10 +149,6 @@ public class CxxPreprocessAndCompileStep implements Step {
         .setEnvironment(env);
   }
 
-  private Path getDepTemp() {
-    return filesystem.resolve(scratchDir).resolve("dep.tmp");
-  }
-
   private ImmutableList<String> getDepFileArgs(Path depFile) {
     return compiler.outputDependenciesArgs(depFile.toString());
   }
@@ -179,17 +162,6 @@ public class CxxPreprocessAndCompileStep implements Step {
   }
 
   @VisibleForTesting
-  ImmutableList<String> makePreprocessArguments(boolean allowColorsInDiagnostics) {
-    return ImmutableList.<String>builder()
-        .addAll(preprocessorCommand.get().getArguments(allowColorsInDiagnostics))
-        .addAll(getLanguageArgs(inputType.getLanguage()))
-        .add("-E")
-        .addAll(getDepFileArgs(getDepTemp()))
-        .add(input.toString())
-        .build();
-  }
-
-  @VisibleForTesting
   ImmutableList<String> makeCompileArguments(
       String inputFileName,
       String inputLanguage,
@@ -200,10 +172,7 @@ public class CxxPreprocessAndCompileStep implements Step {
         .addAll(getLanguageArgs(inputLanguage))
         .addAll(getSanitizer().getCompilationFlags())
         .add("-c")
-        .addAll(
-            preprocessable ?
-                getDepFileArgs(getDepTemp()) :
-                ImmutableList.of())
+        .addAll(preprocessable ? getDepFileArgs(depFile) : ImmutableList.of())
         .add(inputFileName)
         .addAll(compiler.outputArgs(output.toString()))
         .build();
@@ -215,85 +184,10 @@ public class CxxPreprocessAndCompileStep implements Step {
         // Using x-header language type directs the compiler to generate a PCH file.
         .addAll(getLanguageArgs(inputType.getPrecompiledHeaderLanguage().get()))
         // PCH file generation can also output dep files.
-        .addAll(getDepFileArgs(getDepTemp()))
+        .addAll(getDepFileArgs(depFile))
         .add(input.toString())
         .add("-o", output.toString())
         .build();
-  }
-
-  private void safeCloseProcessor(@Nullable ManagedRunnable processor) {
-    if (processor != null) {
-      try {
-        processor.waitFor();
-        processor.close();
-      } catch (Exception ex) {
-        LOG.warn(ex, "error closing processor");
-      }
-    }
-  }
-
-  private int executePreprocessPCH(ExecutionContext context, Path output)
-      throws IOException, InterruptedException {
-    Preconditions.checkState(preprocessorCommand.isPresent());
-
-    ImmutableList.Builder<String> commandBuilder =
-        ImmutableList.<String>builder()
-            .addAll(preprocessorCommand.get().getCommandPrefix())
-            .addAll(makePreprocessArguments(context.getAnsi().isAnsiTerminal()))
-            ;
-
-    commandBuilder.add("-Wp,-dI");
-    commandBuilder.add("-o").add(output.toString());
-
-    ByteArrayOutputStream preprocessError = new ByteArrayOutputStream();
-    ProcessExecutorParams preprocessParams = makeSubprocessBuilder(
-            context,
-            preprocessorCommand.get().getEnvironment())
-        .setCommand(commandBuilder.build())
-        .build();
-
-    ProcessExecutor.LaunchedProcess preprocess = null;
-    LineProcessorRunnable errorProcessorPreprocess = null;
-
-    CxxErrorTransformerFactory errorStreamTransformerFactory =
-        createErrorTransformerFactory(context);
-
-    ProcessExecutor executor = new DefaultProcessExecutor(Console.createNullConsole());
-    try {
-
-      preprocess = executor.launchProcess(preprocessParams);
-      errorProcessorPreprocess = errorStreamTransformerFactory.createTransformerThread(
-          context,
-          preprocess.getErrorStream(),
-          preprocessError);
-      errorProcessorPreprocess.start();
-
-      int preprocessStatus = executor.waitForLaunchedProcess(preprocess).getExitCode();
-      safeCloseProcessor(errorProcessorPreprocess);
-
-      String preprocessErr = new String(preprocessError.toByteArray());
-      if (!preprocessErr.isEmpty()) {
-        context.getBuckEventBus().post(
-            createConsoleEvent(
-                context,
-                preprocessorCommand.get().supportsColorsInDiagnostics(),
-                preprocessStatus == 0 ? Level.WARNING : Level.SEVERE,
-                preprocessErr));
-      }
-
-      if (preprocessStatus != 0) {
-        LOG.warn("error %d %s(preprocess) %s: %s", preprocessStatus,
-            operation.toString().toLowerCase(), input, preprocessErr);
-      }
-      return preprocessStatus;
-
-    } finally {
-      if (preprocess != null) {
-        executor.destroyLaunchedProcess(preprocess);
-        executor.waitForLaunchedProcess(preprocess);
-      }
-      safeCloseProcessor(errorProcessorPreprocess);
-    }
   }
 
   private int executeCompilation(ExecutionContext context) throws Exception {
@@ -338,7 +232,7 @@ public class CxxPreprocessAndCompileStep implements Step {
     try {
       try (LineProcessorRunnable errorProcessor =
                createErrorTransformerFactory(context)
-                   .createTransformerThread(context, process.getErrorStream(), error)) {
+                   .createTransformerThread(context, compiler.getErrorStream(process), error)) {
         errorProcessor.start();
         errorProcessor.waitFor();
       } catch (Throwable thrown) {
@@ -380,9 +274,8 @@ public class CxxPreprocessAndCompileStep implements Step {
 
   private CxxErrorTransformerFactory createErrorTransformerFactory(ExecutionContext context) {
     return new CxxErrorTransformerFactory(
-        context.shouldReportAbsolutePaths() ?
-            Optional.of(filesystem::resolve) :
-            Optional.empty(),
+        filesystem,
+        context.shouldReportAbsolutePaths(),
         headerPathNormalizer);
   }
 
@@ -392,35 +285,6 @@ public class CxxPreprocessAndCompileStep implements Step {
       LOG.debug("%s %s -> %s", operation.toString().toLowerCase(), input, output);
 
       int exitCode = executeCompilation(context);
-
-      if (exitCode == 0 && compiler.isDependencyFileSupported()) {
-        exitCode =
-            Depfiles.parseAndWriteBuckCompatibleDepfile(
-                context,
-                filesystem,
-                headerPathNormalizer,
-                headerVerification,
-                getDepTemp(),
-                depFile,
-                input,
-                output);
-      }
-
-      if (exitCode == 0 && operation == Operation.GENERATE_PCH && pch.get().pchIlogEnabled) {
-        try {
-          final Path outputDir = output.getParent();
-          final String filenameBase = outputDir.relativize(output).toString();
-          final Path iiPath = filesystem.resolve(scratchDir).resolve(filenameBase + ".ii");
-          final Path iLogPath = filesystem.resolve(outputDir).resolve(filenameBase + ".ilog");
-          exitCode = executePreprocessPCH(context, iiPath);
-          if (exitCode == 0) {
-            IncludeLog.parseAndWriteBuckCompatibleIncludeLogfile(context, iiPath, iLogPath);
-          }
-        } catch (IOException e) {
-          context.logError(e, "error while building precompiled header's include log");
-          return StepExecutionResult.ERROR;
-        }
-      }
 
       // If the compilation completed successfully and we didn't effect debug-info normalization
       // through #line directive modification, perform the in-place update of the compilation per
@@ -466,7 +330,7 @@ public class CxxPreprocessAndCompileStep implements Step {
   public ImmutableList<String> getCommandPrefix() {
     switch (operation) {
       case COMPILE:
-      case COMPILE_MUNGE_DEBUGINFO:
+      case PREPROCESS_AND_COMPILE:
         return compilerCommand.get().getCommandPrefix();
       case GENERATE_PCH:
         return preprocessorCommand.get().getCommandPrefix();
@@ -479,7 +343,7 @@ public class CxxPreprocessAndCompileStep implements Step {
   public ImmutableList<String> getArguments(boolean allowColorsInDiagnostics) {
     switch (operation) {
       case COMPILE:
-      case COMPILE_MUNGE_DEBUGINFO:
+      case PREPROCESS_AND_COMPILE:
         return makeCompileArguments(
             input.toString(),
             inputType.getLanguage(),
@@ -514,18 +378,18 @@ public class CxxPreprocessAndCompileStep implements Step {
 
   private boolean shouldSanitizeOutputBinary() {
     return inputType.isAssembly() ||
-        (operation == Operation.COMPILE_MUNGE_DEBUGINFO && compiler.shouldSanitizeOutputBinary());
+        (operation == Operation.PREPROCESS_AND_COMPILE && compiler.shouldSanitizeOutputBinary());
   }
 
   public enum Operation {
     /**
-     * Run the compiler on post-preprocessed source files.
+     * Run only the compiler on source files.
      */
     COMPILE,
     /**
      * Run the preprocessor and compiler on source files.
      */
-    COMPILE_MUNGE_DEBUGINFO,
+    PREPROCESS_AND_COMPILE,
     GENERATE_PCH,
     ;
 
@@ -534,7 +398,7 @@ public class CxxPreprocessAndCompileStep implements Step {
      */
     public boolean isPreprocess() {
       switch (this) {
-        case COMPILE_MUNGE_DEBUGINFO:
+        case PREPROCESS_AND_COMPILE:
         case GENERATE_PCH:
           return true;
         case COMPILE:
@@ -549,7 +413,7 @@ public class CxxPreprocessAndCompileStep implements Step {
     public boolean isCompile() {
       switch (this) {
         case COMPILE:
-        case COMPILE_MUNGE_DEBUGINFO:
+        case PREPROCESS_AND_COMPILE:
           return true;
         case GENERATE_PCH:
           return false;

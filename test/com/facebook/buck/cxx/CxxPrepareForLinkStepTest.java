@@ -23,6 +23,7 @@ import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.FileListableLinkerInputArg;
@@ -52,8 +53,8 @@ public class CxxPrepareForLinkStepTest {
     BuildRuleResolver buildRuleResolver = new BuildRuleResolver(
         TargetGraph.EMPTY,
         new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver pathResolver = new SourcePathResolver(
-        buildRuleResolver);
+    SourcePathResolver pathResolver =
+        new SourcePathResolver(new SourcePathRuleFinder(buildRuleResolver));
 
     // Setup some dummy values for inputs to the CxxLinkStep
     ImmutableList<Arg> dummyArgs = ImmutableList.of(
@@ -69,7 +70,8 @@ public class CxxPrepareForLinkStepTest {
         dummyPath,
         dummyArgs,
         CxxPlatformUtils.DEFAULT_PLATFORM.getLd().resolve(buildRuleResolver),
-        dummyPath);
+        dummyPath,
+        pathResolver);
 
     ImmutableList<Step> containingSteps = ImmutableList.copyOf(
         cxxPrepareForLinkStepSupportFileList.iterator());
@@ -87,7 +89,8 @@ public class CxxPrepareForLinkStepTest {
         dummyPath,
         dummyArgs,
         CxxPlatformUtils.DEFAULT_PLATFORM.getLd().resolve(buildRuleResolver),
-        dummyPath);
+        dummyPath,
+        pathResolver);
 
     containingSteps = ImmutableList.copyOf(
         cxxPrepareForLinkStepNoSupportFileList.iterator());
@@ -141,8 +144,8 @@ public class CxxPrepareForLinkStepTest {
     BuildRuleResolver buildRuleResolver = new BuildRuleResolver(
         TargetGraph.EMPTY,
         new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver pathResolver = new SourcePathResolver(
-        buildRuleResolver);
+    SourcePathResolver pathResolver =
+        new SourcePathResolver(new SourcePathRuleFinder(buildRuleResolver));
 
     // Setup some dummy values for inputs to the CxxLinkStep
     ImmutableList<Arg> args = ImmutableList.of(
@@ -167,7 +170,8 @@ public class CxxPrepareForLinkStepTest {
         output,
         args,
         CxxPlatformUtils.DEFAULT_PLATFORM.getLd().resolve(buildRuleResolver),
-        currentCellPath);
+        currentCellPath,
+        pathResolver);
 
     step.execute(context);
 

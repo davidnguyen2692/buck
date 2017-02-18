@@ -18,6 +18,7 @@ package com.facebook.buck.rules;
 
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.io.MorePaths;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.keys.SupportsInputBasedRuleKey;
 import com.facebook.buck.step.AbstractExecutionStep;
 import com.facebook.buck.step.ExecutionContext;
@@ -25,13 +26,13 @@ import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.SymlinkTreeStep;
-import com.facebook.buck.util.MoreMaps;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.HashMultiset;
 import com.google.common.collect.ImmutableBiMap;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Multiset;
@@ -42,40 +43,31 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.logging.Level;
+import java.util.stream.Stream;
 
 public class SymlinkTree
     extends AbstractBuildRule
-    implements SupportsInputBasedRuleKey, RuleKeyAppendable {
+    implements HasRuntimeDeps, SupportsInputBasedRuleKey {
 
   private final Path root;
   private final ImmutableSortedMap<Path, SourcePath> links;
+  private final SourcePathRuleFinder ruleFinder;
 
   public SymlinkTree(
       BuildRuleParams params,
-      SourcePathResolver resolver,
       Path root,
-      final ImmutableMap<Path, SourcePath> links) {
-    super(params, resolver);
+      final ImmutableMap<Path, SourcePath> links,
+      SourcePathRuleFinder ruleFinder) {
+    super(params);
+    this.ruleFinder = ruleFinder;
 
     Preconditions.checkState(
-        root.isAbsolute(),
-        "Expected symlink tree root to be absolute: %s",
+        !root.isAbsolute(),
+        "Expected symlink tree root to be relative: %s",
         root);
 
     this.root = root;
     this.links = ImmutableSortedMap.copyOf(links);
-  }
-
-  public static SymlinkTree from(
-      BuildRuleParams params,
-      SourcePathResolver resolver,
-      Path root,
-      ImmutableMap<String, SourcePath> links) {
-    return new SymlinkTree(
-        params,
-        resolver,
-        root,
-        MoreMaps.transformKeys(links, MorePaths.toPathFn(root.getFileSystem())));
   }
 
   @Override
@@ -146,9 +138,12 @@ public class SymlinkTree
       BuildContext context,
       BuildableContext buildableContext) {
     return ImmutableList.of(
-        getVerifiyStep(),
+        getVerifyStep(),
         new MakeCleanDirectoryStep(getProjectFilesystem(), root),
-        new SymlinkTreeStep(getProjectFilesystem(), root, getResolver().getMappedPaths(links)));
+        new SymlinkTreeStep(
+            getProjectFilesystem(),
+            root,
+            context.getSourcePathResolver().getMappedPaths(links)));
   }
 
   // Put the link map into the rule key, as if it changes at all, we need to
@@ -164,15 +159,13 @@ public class SymlinkTree
     return linksForRuleKeyBuilder.build();
   }
 
-  // Since we produce a directory tree of symlinks, rather than a single file, return
-  // null here.
   @Override
   public Path getPathToOutput() {
     return root;
   }
 
   @VisibleForTesting
-  protected Step getVerifiyStep() {
+  protected Step getVerifyStep() {
     return new AbstractExecutionStep("verify_symlink_tree") {
         @Override
         public StepExecutionResult execute(ExecutionContext context) throws IOException {
@@ -204,11 +197,19 @@ public class SymlinkTree
     return false;
   }
 
-  public Path getRoot() {
-    return root;
+  @Override
+  public Stream<BuildTarget> getRuntimeDeps() {
+    return links.values().stream()
+        .map(ruleFinder::filterBuildRuleInputs)
+        .flatMap(ImmutableSet::stream)
+        .map(BuildRule::getBuildTarget);
   }
 
-  public ImmutableMap<Path, SourcePath> getLinks() {
+  public Path getRoot() {
+    return getProjectFilesystem().resolve(root);
+  }
+
+  public ImmutableSortedMap<Path, SourcePath> getLinks() {
     return links;
   }
 

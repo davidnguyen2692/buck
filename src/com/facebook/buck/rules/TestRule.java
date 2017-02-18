@@ -16,7 +16,6 @@
 
 package com.facebook.buck.rules;
 
-import com.facebook.buck.model.HasBuildTarget;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.test.TestCaseSummary;
@@ -34,7 +33,7 @@ import java.util.concurrent.Callable;
 /**
  * A {@link BuildRule} that is designed to run tests.
  */
-public interface TestRule extends HasBuildTarget, BuildRule {
+public interface TestRule extends BuildRule {
 
   /**
    * Callbacks to invoke during the test run to report information
@@ -92,11 +91,13 @@ public interface TestRule extends HasBuildTarget, BuildRule {
    *
    * @param executionContext Provides context for creating {@link Step}s.
    * @param options The runtime testing options.
+   * @param pathResolver A SourcePathResolver from the build.
    * @return the commands required to run the tests
    */
   ImmutableList<Step> runTests(
       ExecutionContext executionContext,
       TestRunningOptions options,
+      SourcePathResolver pathResolver,
       TestReportingCallback testReportingCallback);
 
   Callable<TestResults> interpretTestResults(

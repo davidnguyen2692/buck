@@ -23,7 +23,6 @@ import com.facebook.buck.graph.TopologicalSort;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.Flavor;
-import com.facebook.buck.model.HasBuildTarget;
 import com.facebook.buck.model.ImmutableFlavor;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRuleParams;
@@ -31,6 +30,7 @@ import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.args.StringArg;
@@ -164,7 +164,7 @@ public class Omnibus {
         ImmutableMap<BuildTarget, NativeLinkable> deps =
             Maps.uniqueIndex(
                 getDeps(nativeLinkable, cxxPlatform),
-                HasBuildTarget::getBuildTarget);
+                NativeLinkable::getBuildTarget);
         nativeLinkables.putAll(deps);
         if (nativeLinkable.getPreferredLinkage(cxxPlatform) == NativeLinkable.Linkage.SHARED) {
           excluded.add(target);
@@ -181,7 +181,7 @@ public class Omnibus {
         ImmutableMap<BuildTarget, NativeLinkable> deps =
             Maps.uniqueIndex(
                 getDeps(nativeLinkable, cxxPlatform),
-                HasBuildTarget::getBuildTarget);
+                NativeLinkable::getBuildTarget);
         nativeLinkables.putAll(deps);
         excluded.add(target);
         return deps.keySet();
@@ -200,7 +200,7 @@ public class Omnibus {
         for (BuildTarget dep :
             Iterables.transform(
                 getDeps(target, roots, nativeLinkables, cxxPlatform),
-                HasBuildTarget::getBuildTarget)) {
+                NativeLinkable::getBuildTarget)) {
           if (excluded.contains(dep)) {
             deps.add(dep);
           } else {
@@ -236,7 +236,7 @@ public class Omnibus {
   private static SourcePath createDummyOmnibus(
       BuildRuleParams params,
       BuildRuleResolver ruleResolver,
-      SourcePathResolver pathResolver,
+      SourcePathRuleFinder ruleFinder,
       CxxBuckConfig cxxBuckConfig,
       CxxPlatform cxxPlatform,
       ImmutableList<? extends Arg> extraLdflags) {
@@ -249,7 +249,7 @@ public class Omnibus {
             cxxPlatform,
             params,
             ruleResolver,
-            pathResolver,
+            ruleFinder,
             dummyOmnibusTarget,
             BuildTargets.getGenPath(params.getProjectFilesystem(), dummyOmnibusTarget, "%s")
                 .resolve(omnibusSoname),
@@ -264,6 +264,7 @@ public class Omnibus {
       BuildRuleParams params,
       BuildRuleResolver ruleResolver,
       SourcePathResolver pathResolver,
+      SourcePathRuleFinder ruleFinder,
       CxxBuckConfig cxxBuckConfig,
       CxxPlatform cxxPlatform,
       ImmutableList<? extends Arg> extraLdflags,
@@ -359,7 +360,7 @@ public class Omnibus {
                 cxxPlatform,
                 params,
                 ruleResolver,
-                pathResolver,
+                ruleFinder,
                 rootTarget,
                 output.orElse(BuildTargets.getGenPath(
                     params.getProjectFilesystem(),
@@ -383,7 +384,7 @@ public class Omnibus {
                 cxxPlatform,
                 params,
                 ruleResolver,
-                pathResolver,
+                ruleFinder,
                 rootTarget,
                 output.orElse(BuildTargets.getGenPath(
                     params.getProjectFilesystem(),
@@ -415,6 +416,7 @@ public class Omnibus {
       BuildRuleParams params,
       BuildRuleResolver ruleResolver,
       SourcePathResolver pathResolver,
+      SourcePathRuleFinder ruleFinder,
       CxxBuckConfig cxxBuckConfig,
       CxxPlatform cxxPlatform,
       ImmutableList<? extends Arg> extraLdflags,
@@ -426,6 +428,7 @@ public class Omnibus {
         params,
         ruleResolver,
         pathResolver,
+        ruleFinder,
         cxxBuckConfig,
         cxxPlatform,
         extraLdflags,
@@ -440,6 +443,7 @@ public class Omnibus {
       BuildRuleParams params,
       BuildRuleResolver ruleResolver,
       SourcePathResolver pathResolver,
+      SourcePathRuleFinder ruleFinder,
       CxxBuckConfig cxxBuckConfig,
       CxxPlatform cxxPlatform,
       ImmutableList<? extends Arg> extraLdflags,
@@ -451,6 +455,7 @@ public class Omnibus {
         params,
         ruleResolver,
         pathResolver,
+        ruleFinder,
         cxxBuckConfig,
         cxxPlatform,
         extraLdflags,
@@ -465,6 +470,7 @@ public class Omnibus {
       BuildRuleParams params,
       BuildRuleResolver ruleResolver,
       SourcePathResolver pathResolver,
+      SourcePathRuleFinder ruleFinder,
       CxxPlatform cxxPlatform,
       Iterable<? extends SourcePath> linkerInputs) {
     SourcePath undefinedSymbolsFile =
@@ -472,7 +478,7 @@ public class Omnibus {
             .createUndefinedSymbolsFile(
                 params,
                 ruleResolver,
-                pathResolver,
+                ruleFinder,
                 params.getBuildTarget().withAppendedFlavors(
                     ImmutableFlavor.of("omnibus-undefined-symbols-file")),
                 linkerInputs);
@@ -481,6 +487,7 @@ public class Omnibus {
             params,
             ruleResolver,
             pathResolver,
+            ruleFinder,
             params.getBuildTarget().withAppendedFlavors(
                 ImmutableFlavor.of("omnibus-undefined-symbols-args")),
             ImmutableList.of(undefinedSymbolsFile));
@@ -491,6 +498,7 @@ public class Omnibus {
       BuildRuleParams params,
       BuildRuleResolver ruleResolver,
       SourcePathResolver pathResolver,
+      SourcePathRuleFinder ruleFinder,
       CxxBuckConfig cxxBuckConfig,
       CxxPlatform cxxPlatform,
       ImmutableList<? extends Arg> extraLdflags,
@@ -521,6 +529,7 @@ public class Omnibus {
             params,
             ruleResolver,
             pathResolver,
+            ruleFinder,
             cxxPlatform,
             undefinedSymbolsOnlyRoots));
 
@@ -580,7 +589,7 @@ public class Omnibus {
             cxxPlatform,
             params,
             ruleResolver,
-            pathResolver,
+            ruleFinder,
             omnibusTarget,
             BuildTargets.getGenPath(params.getProjectFilesystem(), omnibusTarget, "%s")
                 .resolve(omnibusSoname),
@@ -606,6 +615,7 @@ public class Omnibus {
       BuildRuleParams params,
       BuildRuleResolver ruleResolver,
       SourcePathResolver pathResolver,
+      SourcePathRuleFinder ruleFinder,
       CxxBuckConfig cxxBuckConfig,
       CxxPlatform cxxPlatform,
       ImmutableList<? extends Arg> extraLdflags,
@@ -624,7 +634,7 @@ public class Omnibus {
         createDummyOmnibus(
             params,
             ruleResolver,
-            pathResolver,
+            ruleFinder,
             cxxBuckConfig,
             cxxPlatform,
             extraLdflags);
@@ -640,6 +650,7 @@ public class Omnibus {
             params,
             ruleResolver,
             pathResolver,
+            ruleFinder,
             cxxBuckConfig,
             cxxPlatform,
             extraLdflags,
@@ -652,6 +663,7 @@ public class Omnibus {
                 params,
                 ruleResolver,
                 pathResolver,
+                ruleFinder,
                 cxxBuckConfig,
                 cxxPlatform,
                 extraLdflags,
@@ -670,6 +682,7 @@ public class Omnibus {
               params,
               ruleResolver,
               pathResolver,
+              ruleFinder,
               cxxBuckConfig,
               cxxPlatform,
               extraLdflags,
@@ -687,6 +700,7 @@ public class Omnibus {
                 params,
                 ruleResolver,
                 pathResolver,
+                ruleFinder,
                 cxxBuckConfig,
                 cxxPlatform,
                 extraLdflags,

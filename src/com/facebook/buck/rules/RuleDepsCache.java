@@ -17,6 +17,7 @@
 package com.facebook.buck.rules;
 
 import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.util.MoreCollectors;
 import com.google.common.base.Throwables;
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
@@ -33,10 +34,12 @@ import java.util.concurrent.ExecutionException;
  */
 public class RuleDepsCache {
   private final ListeningExecutorService service;
+  private final BuildRuleResolver resolver;
   private final Cache<BuildTarget, ListenableFuture<ImmutableSortedSet<BuildRule>>> cache;
 
-  public RuleDepsCache(ListeningExecutorService service) {
+  public RuleDepsCache(ListeningExecutorService service, BuildRuleResolver resolver) {
     this.service = service;
+    this.resolver = resolver;
     this.cache = CacheBuilder.newBuilder().build();
   }
 
@@ -48,13 +51,16 @@ public class RuleDepsCache {
             ImmutableSortedSet.Builder<BuildRule> deps = ImmutableSortedSet.naturalOrder();
             deps.addAll(rule.getDeps());
             if (rule instanceof HasRuntimeDeps) {
-              deps.addAll(((HasRuntimeDeps) rule).getRuntimeDeps());
+              deps.addAll(
+                  resolver.getAllRules(((HasRuntimeDeps) rule).getRuntimeDeps()
+                      .collect(MoreCollectors.toImmutableSet())));
             }
             return deps.build();
           }));
     } catch (ExecutionException e) {
       // service.submit doesn't throw any checked exceptions, so this should be fine.
-      throw Throwables.propagate(e.getCause());
+      Throwables.throwIfUnchecked(e.getCause());
+      throw new RuntimeException(e.getCause());
     }
   }
 }

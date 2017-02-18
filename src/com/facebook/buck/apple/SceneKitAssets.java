@@ -25,11 +25,10 @@ import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.shell.ShellStep;
-import com.facebook.buck.step.Step;
 import com.facebook.buck.step.ExecutionContext;
+import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.CopyStep;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.google.common.collect.ImmutableList;
@@ -60,10 +59,9 @@ public class SceneKitAssets extends AbstractBuildRule {
 
   SceneKitAssets(
       BuildRuleParams params,
-      final SourcePathResolver resolver,
       AppleCxxPlatform appleCxxPlatform,
       ImmutableSet<SourcePath> sceneKitAssetsPaths) {
-    super(params, resolver);
+    super(params);
     this.sceneKitAssetsPaths = sceneKitAssetsPaths;
     String outputDirString =
         BuildTargets.getGenPath(getProjectFilesystem(), params.getBuildTarget(), "%s")
@@ -80,15 +78,17 @@ public class SceneKitAssets extends AbstractBuildRule {
     ImmutableList.Builder<Step> stepsBuilder = ImmutableList.builder();
     stepsBuilder.add(new MakeCleanDirectoryStep(getProjectFilesystem(), outputDir));
     for (SourcePath inputPath : sceneKitAssetsPaths) {
-      final Path absoluteInputPath = getResolver().getAbsolutePath(inputPath);
+      final Path absoluteInputPath = context.getSourcePathResolver().getAbsolutePath(inputPath);
 
       if (copySceneKitAssets.isPresent()) {
         stepsBuilder.add(
             new ShellStep(getProjectFilesystem().getRootPath()) {
               @Override
-              protected ImmutableList<String> getShellCommandInternal(ExecutionContext context) {
+              protected ImmutableList<String> getShellCommandInternal(
+                  ExecutionContext executionContext) {
                 ImmutableList.Builder<String> commandBuilder = ImmutableList.builder();
-                commandBuilder.addAll(copySceneKitAssets.get().getCommandPrefix(getResolver()));
+                commandBuilder.addAll(
+                    copySceneKitAssets.get().getCommandPrefix(context.getSourcePathResolver()));
                 commandBuilder.add(
                     absoluteInputPath.toString(),
                     "-o",
@@ -121,7 +121,8 @@ public class SceneKitAssets extends AbstractBuildRule {
                 CopyStep.DirectoryMode.CONTENTS_ONLY));
       }
     }
-    buildableContext.recordArtifact(getPathToOutput());
+    buildableContext.recordArtifact(
+        context.getSourcePathResolver().getRelativePath(getSourcePathToOutput()));
     return stepsBuilder.build();
   }
 

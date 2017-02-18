@@ -26,12 +26,12 @@ import static org.junit.Assume.assumeTrue;
 import com.facebook.buck.artifact_cache.ArtifactCacheConnectEvent;
 import com.facebook.buck.artifact_cache.CacheResult;
 import com.facebook.buck.artifact_cache.HttpArtifactCacheEvent;
-import com.facebook.buck.event.CommandEvent;
 import com.facebook.buck.artifact_cache.HttpArtifactCacheEventFetchData;
 import com.facebook.buck.event.ArtifactCompressionEvent;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventBusFactory;
 import com.facebook.buck.event.ChromeTraceEvent;
+import com.facebook.buck.event.CommandEvent;
 import com.facebook.buck.event.CompilerPluginDurationEvent;
 import com.facebook.buck.event.PerfEventId;
 import com.facebook.buck.event.SimplePerfEvent;
@@ -52,6 +52,7 @@ import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.step.StepEvent;
 import com.facebook.buck.timing.Clock;
@@ -179,11 +180,11 @@ public class ChromeTraceBuildListenerTest {
 
     FakeBuildRule rule = new FakeBuildRule(
         target,
-        new SourcePathResolver(
+        new SourcePathResolver(new SourcePathRuleFinder(
             new BuildRuleResolver(
                 TargetGraph.EMPTY,
                 new DefaultTargetNodeToBuildRuleTransformer())
-        ),
+        )),
         ImmutableSortedSet.of());
     RuleKey ruleKey = new RuleKey("abc123");
     String stepShortName = "fakeStep";
@@ -291,8 +292,6 @@ public class ChromeTraceBuildListenerTest {
             BuildRuleStatus.SUCCESS,
             CacheResult.miss(),
             Optional.of(BuildRuleSuccessType.BUILT_LOCALLY),
-            Optional.empty(),
-            Optional.empty(),
             Optional.empty(),
             Optional.empty()));
 

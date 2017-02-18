@@ -24,7 +24,6 @@ import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.FlavorDomain;
 import com.facebook.buck.model.Flavored;
-import com.facebook.buck.model.HasBuildTarget;
 import com.facebook.buck.model.ImmutableFlavor;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRule;
@@ -36,6 +35,7 @@ import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.util.HumanReadableException;
@@ -159,7 +159,7 @@ public class ThriftLibraryDescription
       ImmutableSortedSet<ThriftLibrary> deps,
       ImmutableMap<String, ImmutableSortedSet<String>> generatedSources) {
 
-    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
     Tool compiler = thriftBuckConfig.getCompiler(compilerType, resolver);
 
     // Build up the include roots to find thrift file deps and also the build rules that
@@ -198,9 +198,9 @@ public class ThriftLibraryDescription
                   target,
                   Suppliers.ofInstance(
                       ImmutableSortedSet.<BuildRule>naturalOrder()
-                          .addAll(compiler.getDeps(pathResolver))
+                          .addAll(compiler.getDeps(ruleFinder))
                           .addAll(
-                              new SourcePathResolver(resolver).filterBuildRuleInputs(
+                              ruleFinder.filterBuildRuleInputs(
                                   ImmutableList.<SourcePath>builder()
                                       .add(source)
                                       .addAll(includes.values())
@@ -208,7 +208,6 @@ public class ThriftLibraryDescription
                           .addAll(includeTreeRules)
                           .build()),
                   Suppliers.ofInstance(ImmutableSortedSet.of())),
-              pathResolver,
               compiler,
               flags,
               outputDir,
@@ -259,7 +258,7 @@ public class ThriftLibraryDescription
     // Extract the thrift language we're using from our build target.
     Optional<Map.Entry<Flavor, ThriftLanguageSpecificEnhancer>> enhancerFlavor =
         enhancers.getFlavorAndValue(target);
-    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
     ImmutableMap<String, SourcePath> namedSources =
         pathResolver.getSourcePathNames(target, "srcs", args.srcs.keySet());
 
@@ -283,9 +282,7 @@ public class ThriftLibraryDescription
       ImmutableMap<Path, SourcePath> includes = includesBuilder.build();
 
       // Create the symlink tree build rule and add it to the resolver.
-      Path includeRoot =
-          params.getProjectFilesystem()
-              .resolve(getIncludeRoot(target, params.getProjectFilesystem()));
+      Path includeRoot = getIncludeRoot(target, params.getProjectFilesystem());
       BuildTarget symlinkTreeTarget = createThriftIncludeSymlinkTreeTarget(target);
       HeaderSymlinkTree symlinkTree =
         new HeaderSymlinkTree(
@@ -293,9 +290,9 @@ public class ThriftLibraryDescription
                 symlinkTreeTarget,
                 Suppliers.ofInstance(ImmutableSortedSet.of()),
                 Suppliers.ofInstance(ImmutableSortedSet.of())),
-            pathResolver,
             includeRoot,
-            includes);
+            includes,
+            new SourcePathRuleFinder(resolver));
       resolver.addToIndex(symlinkTree);
 
       // Create a dummy rule that dependents can use to grab the information they need
@@ -332,7 +329,7 @@ public class ThriftLibraryDescription
                 target,
                 ImmutableList.of(enhancers),
                 FluentIterable.from(thriftDeps)
-                    .transform(HasBuildTarget::getBuildTarget)),
+                    .transform(BuildRule::getBuildTarget)),
             implicitDeps));
 
     // Form the set of generated sources, so that compiler rules know what output paths to record.

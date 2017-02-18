@@ -100,7 +100,7 @@ abstract class AbstractParserConfig implements ConfigView<BuckConfig> {
   public Iterable<String> getDefaultIncludes() {
     ImmutableMap<String, String> entries =
         getDelegate().getEntriesForSection(BUILDFILE_SECTION_NAME);
-    String includes = Strings.nullToEmpty(entries.get("includes"));
+    String includes = Strings.nullToEmpty(entries.get(INCLUDES_PROPERTY_NAME));
     return Splitter.on(' ').trimResults().omitEmptyStrings().split(includes);
   }
 
@@ -165,14 +165,14 @@ abstract class AbstractParserConfig implements ConfigView<BuckConfig> {
 
   @Value.Lazy
   public boolean getWatchCells() {
-    return getDelegate().getBooleanValue("project", "watch_cells", false);
+    return getDelegate().getBooleanValue("project", "watch_cells", true);
   }
 
   @Value.Lazy
   public WatchmanWatcher.CursorType getWatchmanCursor() {
     return getDelegate()
       .getEnum("project", "watchman_cursor", WatchmanWatcher.CursorType.class)
-      .orElse(WatchmanWatcher.CursorType.NAMED);
+      .orElse(WatchmanWatcher.CursorType.CLOCK_ID);
   }
 
   @Value.Lazy
@@ -182,7 +182,7 @@ abstract class AbstractParserConfig implements ConfigView<BuckConfig> {
 
   @Value.Lazy
   public boolean getTrackCellAgnosticTarget() {
-    return getDelegate().getBooleanValue("project", "track_cell_agnostic_target", false);
+    return getDelegate().getBooleanValue("project", "track_cell_agnostic_target", true);
   }
 
   @Value.Lazy
@@ -204,11 +204,6 @@ abstract class AbstractParserConfig implements ConfigView<BuckConfig> {
         "project",
         "default_flavors_mode",
         ApplyDefaultFlavorsMode.class).orElse(ApplyDefaultFlavorsMode.ENABLED);
-  }
-
-  @Value.Lazy
-  public boolean getEnableBuildFileSandboxing() {
-    return getDelegate().getBooleanValue("project", "enable_build_file_sandboxing", false);
   }
 
   @Value.Lazy

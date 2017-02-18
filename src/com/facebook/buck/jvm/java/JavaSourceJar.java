@@ -27,7 +27,6 @@ import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.CopyStep;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
@@ -44,7 +43,8 @@ import java.util.Optional;
 import java.util.Set;
 
 
-public class JavaSourceJar extends AbstractBuildRule implements HasMavenCoordinates, HasSources {
+public class JavaSourceJar extends AbstractBuildRule
+    implements HasMavenCoordinates, HasSources {
 
   @AddToRuleKey
   private final ImmutableSortedSet<SourcePath> sources;
@@ -54,10 +54,9 @@ public class JavaSourceJar extends AbstractBuildRule implements HasMavenCoordina
 
   public JavaSourceJar(
       BuildRuleParams params,
-      SourcePathResolver resolver,
       ImmutableSortedSet<SourcePath> sources,
       Optional<String> mavenCoords) {
-    super(params, resolver);
+    super(params);
     this.sources = sources;
     BuildTarget target = params.getBuildTarget();
     this.output =
@@ -77,7 +76,7 @@ public class JavaSourceJar extends AbstractBuildRule implements HasMavenCoordina
     ImmutableList.Builder<Step> steps = ImmutableList.builder();
 
     steps.add(new MkdirStep(getProjectFilesystem(), output.getParent()));
-    steps.add(new RmStep(getProjectFilesystem(), output, /* force deletion */ true));
+    steps.add(new RmStep(getProjectFilesystem(), output));
     steps.add(new MakeCleanDirectoryStep(getProjectFilesystem(), temp));
 
     Set<Path> seenPackages = Sets.newHashSet();
@@ -85,7 +84,7 @@ public class JavaSourceJar extends AbstractBuildRule implements HasMavenCoordina
     // We only want to consider raw source files, since the java package finder doesn't have the
     // smarts to read the "package" line from a source file.
 
-    for (Path source : getResolver().filterInputsToCompareToOutput(sources)) {
+    for (Path source : context.getSourcePathResolver().filterInputsToCompareToOutput(sources)) {
       Path packageFolder = packageFinder.findJavaPackageFolder(source);
       Path packageDir = temp.resolve(packageFolder);
       if (seenPackages.add(packageDir)) {

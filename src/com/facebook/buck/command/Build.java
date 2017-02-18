@@ -28,7 +28,6 @@ import com.facebook.buck.jvm.core.JavaPackageFinder;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildId;
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.HasBuildTarget;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.ActionGraph;
 import com.facebook.buck.rules.BuildContext;
@@ -39,6 +38,8 @@ import com.facebook.buck.rules.BuildResult;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.Cell;
+import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.shell.WorkerProcessPool;
 import com.facebook.buck.step.AdbOptions;
 import com.facebook.buck.step.ExecutionContext;
@@ -72,6 +73,7 @@ import org.immutables.value.Value;
 
 import java.io.Closeable;
 import java.io.IOException;
+import java.nio.channels.ClosedByInterruptException;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -219,13 +221,14 @@ public class Build implements Closeable {
    */
   @SuppressWarnings("PMD.EmptyCatchBlock")
   public BuildExecutionResult executeBuild(
-      Iterable<? extends HasBuildTarget> targetish,
+      Iterable<? extends BuildTarget> targetish,
       boolean isKeepGoing)
       throws IOException, ExecutionException, InterruptedException {
     BuildId buildId = executionContext.getBuildId();
     BuildEngineBuildContext buildContext = BuildEngineBuildContext.builder()
         .setBuildContext(BuildContext.builder()
             .setActionGraph(actionGraph)
+            .setSourcePathResolver(new SourcePathResolver(new SourcePathRuleFinder(ruleResolver)))
             .setJavaPackageFinder(javaPackageFinder)
             .setEventBus(executionContext.getBuckEventBus())
             .setAndroidPlatformTargetSupplier(executionContext.getAndroidPlatformTargetSupplier())
@@ -243,7 +246,6 @@ public class Build implements Closeable {
     // there could be disconnected subgraphs in the DependencyGraph that we do not want to build.
     ImmutableSet<BuildTarget> targetsToBuild =
         StreamSupport.stream(targetish.spliterator(), false)
-            .map(HasBuildTarget::getBuildTarget)
             .collect(MoreCollectors.toImmutableSet());
 
     // It is important to use this logic to determine the set of rules to build rather than
@@ -251,13 +253,13 @@ public class Build implements Closeable {
     // there could be disconnected subgraphs in the DependencyGraph that we do not want to build.
     ImmutableList<BuildRule> rulesToBuild = ImmutableList.copyOf(
         targetsToBuild.stream()
-            .map(hasBuildTarget -> {
+            .map(buildTarget -> {
               try {
-                return getRuleResolver().requireRule(hasBuildTarget.getBuildTarget());
+                return getRuleResolver().requireRule(buildTarget);
               } catch (NoSuchBuildTargetException e) {
                 throw new HumanReadableException(
                     "No build rule found for target %s",
-                    hasBuildTarget.getBuildTarget());
+                    buildTarget);
               }
             })
             .collect(MoreCollectors.toImmutableSet()));
@@ -289,13 +291,18 @@ public class Build implements Closeable {
           }
         }
       }
-    } catch (InterruptedException e) {
-      try {
-        buildFuture.cancel(true);
-      } catch (CancellationException ignored) {
-        // Rethrow original InterruptedException instead.
+    } catch (ExecutionException | InterruptedException | RuntimeException e) {
+      Throwable t = Throwables.getRootCause(e);
+      if (e instanceof InterruptedException ||
+          t instanceof InterruptedException ||
+          t instanceof ClosedByInterruptException) {
+        try {
+          buildFuture.cancel(true);
+        } catch (CancellationException ignored) {
+          // Rethrow original InterruptedException instead.
+        }
+        Thread.currentThread().interrupt();
       }
-      Thread.currentThread().interrupt();
       throw e;
     }
 
@@ -323,7 +330,7 @@ public class Build implements Closeable {
   }
 
   public int executeAndPrintFailuresToEventBus(
-      Iterable<? extends HasBuildTarget> targetsish,
+      Iterable<BuildTarget> targetsish,
       boolean isKeepGoing,
       BuckEventBus eventBus,
       Console console,
@@ -334,12 +341,16 @@ public class Build implements Closeable {
       try {
         BuildExecutionResult buildExecutionResult = executeBuild(targetsish, isKeepGoing);
 
-        BuildReport buildReport = new BuildReport(buildExecutionResult);
+        SourcePathResolver pathResolver =
+            new SourcePathResolver(new SourcePathRuleFinder(ruleResolver));
+        BuildReport buildReport = new BuildReport(buildExecutionResult, pathResolver);
 
         if (isKeepGoing) {
           String buildReportText = buildReport.generateForConsole(console);
-          // Remove trailing newline from build report.
-          buildReportText = buildReportText.substring(0, buildReportText.length() - 1);
+          buildReportText = buildReportText.isEmpty() ?
+              "Failure report is empty." :
+              // Remove trailing newline from build report.
+              buildReportText.substring(0, buildReportText.length() - 1);
           eventBus.post(ConsoleEvent.info(buildReportText));
           exitCode = buildExecutionResult.getFailures().isEmpty() ? 0 : 1;
           if (exitCode != 0) {
@@ -361,19 +372,20 @@ public class Build implements Closeable {
             exitCode = 1;
           }
         }
-      } catch (ExecutionException e) {
+      } catch (ExecutionException | RuntimeException e) {
         // This is likely a checked exception that was caught while building a build rule.
         Throwable cause = e.getCause();
-        Throwables.propagateIfInstanceOf(cause, IOException.class);
-        Throwables.propagateIfInstanceOf(cause, StepFailedException.class);
-        Throwables.propagateIfInstanceOf(cause, InterruptedException.class);
-        Throwables.propagateIfInstanceOf(cause, HumanReadableException.class);
+        Throwables.throwIfInstanceOf(cause, IOException.class);
+        Throwables.throwIfInstanceOf(cause, StepFailedException.class);
+        Throwables.throwIfInstanceOf(cause, InterruptedException.class);
+        Throwables.throwIfInstanceOf(cause, ClosedByInterruptException.class);
+        Throwables.throwIfInstanceOf(cause, HumanReadableException.class);
         if (cause instanceof ExceptionWithHumanReadableMessage) {
           throw new HumanReadableException((ExceptionWithHumanReadableMessage) cause);
         }
 
         LOG.debug(e, "Got an exception during the build.");
-        throw Throwables.propagate(e);
+        throw new RuntimeException(e);
       }
     } catch (IOException e) {
       LOG.debug(e, "Got an exception during the build.");

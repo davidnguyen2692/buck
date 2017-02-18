@@ -86,6 +86,13 @@ public class CxxBuckConfig {
   }
 
   /**
+   * @return the environment in which {@link BuckConfig} was created.
+   */
+  public ImmutableMap<String, String> getEnvironment() {
+    return delegate.getEnvironment();
+  }
+
+  /**
    * @return the {@link BuildTarget} which represents the gtest library.
    */
   public BuildTarget getGtestDep() {
@@ -241,7 +248,8 @@ public class CxxBuckConfig {
         .setMode(
             delegate.getEnum(cxxSection, "untracked_headers", HeaderVerification.Mode.class).orElse(
                 HeaderVerification.Mode.IGNORE))
-        .addAllWhitelist(delegate.getListWithoutComments(cxxSection, "untracked_headers_whitelist"))
+        .addAllWhitelist(
+            delegate.getListWithoutComments(cxxSection, "untracked_headers_whitelist"))
         .build();
   }
 
@@ -264,10 +272,6 @@ public class CxxBuckConfig {
     return delegate.getBooleanValue(cxxSection, "pch_enabled", true);
   }
 
-  public boolean isPchIlogEnabled() {
-    return delegate.getBooleanValue(cxxSection, "pch_ilog_enabled", false);
-  }
-
   public boolean sandboxSources() {
     return delegate.getBooleanValue(cxxSection, "sandbox_sources", false);
   }
@@ -288,6 +292,17 @@ public class CxxBuckConfig {
 
   public int getDebugPathSanitizerLimit() {
     return delegate.getInteger(cxxSection, "debug_path_sanitizer_limit").orElse(250);
+  }
+
+  public Optional<ToolProvider> getToolProvider(String name) {
+    return delegate.getToolProvider(cxxSection, name);
+  }
+
+  /**
+   * @return whether to enabled shared library interfaces.
+   */
+  public boolean shouldUseSharedLibraryInterfaces() {
+    return delegate.getBooleanValue(cxxSection, "shared_library_interfaces", false);
   }
 
   @Value.Immutable

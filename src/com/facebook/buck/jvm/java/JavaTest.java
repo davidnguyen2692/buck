@@ -21,10 +21,12 @@ import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildId;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
+import com.facebook.buck.model.Either;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.ImmutableFlavor;
-import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.rules.AbstractBuildRuleWithResolver;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
@@ -36,6 +38,7 @@ import com.facebook.buck.rules.ExternalTestRunnerTestSpec;
 import com.facebook.buck.rules.HasPostBuildSteps;
 import com.facebook.buck.rules.HasRuntimeDeps;
 import com.facebook.buck.rules.Label;
+import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TestRule;
 import com.facebook.buck.step.AbstractExecutionStep;
@@ -77,6 +80,7 @@ import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.logging.Level;
+import java.util.stream.Stream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
@@ -84,7 +88,7 @@ import javax.annotation.Nullable;
 
 @SuppressWarnings("PMD.TestClassWithoutTestCases")
 public class JavaTest
-    extends AbstractBuildRule
+    extends AbstractBuildRuleWithResolver
     implements TestRule, HasClasspathEntries, HasRuntimeDeps, HasPostBuildSteps,
         ExternalTestRunnerRule, ExportDependencies {
 
@@ -100,7 +104,7 @@ public class JavaTest
 
   private final JavaLibrary compiledTestsLibrary;
 
-  private final ImmutableSet<Path> additionalClasspathEntries;
+  private final ImmutableSet<Either<SourcePath, Path>> additionalClasspathEntries;
   @AddToRuleKey
   private final JavaRuntimeLauncher javaRuntimeLauncher;
 
@@ -150,7 +154,7 @@ public class JavaTest
       BuildRuleParams params,
       SourcePathResolver resolver,
       JavaLibrary compiledTestsLibrary,
-      ImmutableSet<Path> additionalClasspathEntries,
+      ImmutableSet<Either<SourcePath, Path>> additionalClasspathEntries,
       Set<Label> labels,
       Set<String> contacts,
       TestType testType,
@@ -166,6 +170,16 @@ public class JavaTest
       Optional<Level> stdErrLogLevel) {
     super(params, resolver);
     this.compiledTestsLibrary = compiledTestsLibrary;
+
+    for (Either<SourcePath, Path> path : additionalClasspathEntries) {
+      if (path.isRight()) {
+        Preconditions.checkState(
+            path.getRight().isAbsolute(),
+            "Additional classpath entries must be absolute but got %s",
+            path.getRight());
+      }
+    }
+
     this.additionalClasspathEntries = additionalClasspathEntries;
     this.javaRuntimeLauncher = javaRuntimeLauncher;
     this.vmArgs = ImmutableList.copyOf(vmArgs);
@@ -206,6 +220,7 @@ public class JavaTest
 
   private JUnitStep getJUnitStep(
       ExecutionContext executionContext,
+      SourcePathResolver pathResolver,
       TestRunningOptions options,
       Optional<Path> outDir,
       Optional<Path> robolectricLogPath,
@@ -216,6 +231,7 @@ public class JavaTest
 
     ImmutableList<String> properVmArgs = amendVmArgs(
         this.vmArgs,
+        pathResolver,
         executionContext.getTargetDevice());
 
     BuckEventBus buckEventBus = executionContext.getBuckEventBus();
@@ -266,12 +282,13 @@ public class JavaTest
   public ImmutableList<Step> runTests(
       ExecutionContext executionContext,
       TestRunningOptions options,
+      SourcePathResolver pathResolver,
       TestReportingCallback testReportingCallback) {
 
     // If no classes were generated, then this is probably a java_test() that declares a number of
     // other java_test() rules as deps, functioning as a test suite. In this case, simply return an
     // empty list of commands.
-    Set<String> testClassNames = getClassNamesForSources();
+    Set<String> testClassNames = getClassNamesForSources(pathResolver);
     LOG.debug("Testing these classes: %s", testClassNames.toString());
     if (testClassNames.isEmpty()) {
       return ImmutableList.of();
@@ -286,6 +303,7 @@ public class JavaTest
         junitsBuilder.add(
           getJUnitStep(
               executionContext,
+              pathResolver,
               options,
               Optional.of(pathToTestOutput),
               Optional.of(pathToTestLogs),
@@ -297,6 +315,7 @@ public class JavaTest
       junits = ImmutableList.of(
           getJUnitStep(
             executionContext,
+            pathResolver,
             options,
             Optional.of(pathToTestOutput),
             Optional.of(pathToTestLogs),
@@ -323,13 +342,13 @@ public class JavaTest
     return reorderedClassNames;
   }
 
-  @VisibleForTesting
   ImmutableList<String> amendVmArgs(
       ImmutableList<String> existingVmArgs,
+      SourcePathResolver pathResolver,
       Optional<TargetDevice> targetDevice) {
     ImmutableList.Builder<String> vmArgs = ImmutableList.builder();
     vmArgs.addAll(existingVmArgs);
-    onAmendVmArgs(vmArgs, targetDevice);
+    onAmendVmArgs(vmArgs, pathResolver, targetDevice);
     return vmArgs.build();
   }
 
@@ -337,8 +356,10 @@ public class JavaTest
    * Override this method if you need to amend vm args. Subclasses are required
    * to call super.onAmendVmArgs(...).
    */
-  protected void onAmendVmArgs(ImmutableList.Builder<String> vmArgsBuilder,
-                               Optional<TargetDevice> targetDevice) {
+  protected void onAmendVmArgs(
+      ImmutableList.Builder<String> vmArgsBuilder,
+      @SuppressWarnings("unused") SourcePathResolver pathResolver,
+      Optional<TargetDevice> targetDevice) {
     if (!targetDevice.isPresent()) {
       return;
     }
@@ -358,7 +379,7 @@ public class JavaTest
   public boolean hasTestResultFiles() {
     // It is possible that this rule was not responsible for running any tests because all tests
     // were run by its deps. In this case, return an empty TestResults.
-    Set<String> testClassNames = getClassNamesForSources();
+    Set<String> testClassNames = getClassNamesForSources(getResolver());
     if (testClassNames.isEmpty()) {
       return true;
     }
@@ -414,7 +435,7 @@ public class JavaTest
     return () -> {
       // It is possible that this rule was not responsible for running any tests because all tests
       // were run by its deps. In this case, return an empty TestResults.
-      Set<String> testClassNames = getClassNamesForSources();
+      Set<String> testClassNames = getClassNamesForSources(getResolver());
       if (testClassNames.isEmpty()) {
         return TestResults.of(
             getBuildTarget(),
@@ -470,9 +491,9 @@ public class JavaTest
     };
   }
 
-  private Set<String> getClassNamesForSources() {
+  private Set<String> getClassNamesForSources(SourcePathResolver pathResolver) {
     if (compiledClassFileFinder == null) {
-      compiledClassFileFinder = new CompiledClassFileFinder(this);
+      compiledClassFileFinder = new CompiledClassFileFinder(this, pathResolver);
     }
     return compiledClassFileFinder.getClassNamesForSources();
   }
@@ -491,7 +512,7 @@ public class JavaTest
   }
 
   @Override
-  public ImmutableSet<Path> getTransitiveClasspaths() {
+  public ImmutableSet<SourcePath> getTransitiveClasspaths() {
     return compiledTestsLibrary.getTransitiveClasspaths();
   }
 
@@ -501,12 +522,12 @@ public class JavaTest
   }
 
   @Override
-  public ImmutableSet<Path> getImmediateClasspaths() {
+  public ImmutableSet<SourcePath> getImmediateClasspaths() {
     return compiledTestsLibrary.getImmediateClasspaths();
   }
 
   @Override
-  public ImmutableSet<Path> getOutputClasspaths() {
+  public ImmutableSet<SourcePath> getOutputClasspaths() {
     return compiledTestsLibrary.getOutputClasspaths();
   }
 
@@ -520,7 +541,7 @@ public class JavaTest
 
     private final Set<String> classNamesForSources;
 
-    CompiledClassFileFinder(JavaTest rule) {
+    CompiledClassFileFinder(JavaTest rule, SourcePathResolver pathResolver) {
       Path outputPath;
       Path relativeOutputPath = rule.getPathToOutput();
       if (relativeOutputPath != null) {
@@ -531,7 +552,8 @@ public class JavaTest
       classNamesForSources = getClassNamesForSources(
           rule.compiledTestsLibrary.getJavaSrcs(),
           outputPath,
-          rule.getProjectFilesystem());
+          rule.getProjectFilesystem(),
+          pathResolver);
     }
 
     public Set<String> getClassNamesForSources() {
@@ -556,19 +578,20 @@ public class JavaTest
      * @param jarFilePath jar where the generated .class files were written
      */
     @VisibleForTesting
-    static ImmutableSet<String>  getClassNamesForSources(
-        Set<Path> sources,
+    static ImmutableSet<String> getClassNamesForSources(
+        Set<SourcePath> sources,
         @Nullable Path jarFilePath,
-        ProjectFilesystem projectFilesystem) {
+        ProjectFilesystem projectFilesystem,
+        SourcePathResolver resolver) {
       if (jarFilePath == null) {
         return ImmutableSet.of();
       }
 
       final Set<String> sourceClassNames = Sets.newHashSetWithExpectedSize(sources.size());
-      for (Path path : sources) {
+      for (SourcePath path : sources) {
         // We support multiple languages in this rule - the file extension doesn't matter so long
         // as the language supports filename == classname.
-        sourceClassNames.add(MorePaths.getNameWithoutExtension(path));
+        sourceClassNames.add(MorePaths.getNameWithoutExtension(resolver.getRelativePath(path)));
       }
 
       final ImmutableSet.Builder<String> testClassNames = ImmutableSet.builder();
@@ -622,19 +645,19 @@ public class JavaTest
   }
 
   @Override
-  public ImmutableSortedSet<BuildRule> getRuntimeDeps() {
-    return ImmutableSortedSet.<BuildRule>naturalOrder()
-        // By the end of the build, all the transitive Java library dependencies *must* be available
-        // on disk, so signal this requirement via the {@link HasRuntimeDeps} interface.
-        .addAll(
+  public Stream<BuildTarget> getRuntimeDeps() {
+    return Stream
+        .concat(
+            // By the end of the build, all the transitive Java library dependencies *must* be
+            // available on disk, so signal this requirement via the {@link HasRuntimeDeps}
+            // interface.
             compiledTestsLibrary.getTransitiveClasspathDeps().stream()
-                .filter(rule -> !this.equals(rule))
-                .iterator())
-        // It's possible that the user added some tool as a dependency, so make sure we promote
-        // this rules first-order deps to runtime deps, so that these potential tools are available
-        // when this test runs.
-        .addAll(compiledTestsLibrary.getDeps())
-        .build();
+                .filter(rule -> !this.equals(rule)),
+            // It's possible that the user added some tool as a dependency, so make sure we promote
+            // this rules first-order deps to runtime deps, so that these potential tools are
+            // available when this test runs.
+            compiledTestsLibrary.getDeps().stream())
+        .map(BuildRule::getBuildTarget);
   }
 
   @Override
@@ -645,14 +668,16 @@ public class JavaTest
   @Override
   public ExternalTestRunnerTestSpec getExternalTestRunnerSpec(
       ExecutionContext executionContext,
-      TestRunningOptions options) {
+      TestRunningOptions options,
+      SourcePathResolver pathResolver) {
     JUnitStep jUnitStep =
         getJUnitStep(
             executionContext,
+            pathResolver,
             options,
             Optional.empty(),
             Optional.empty(),
-            getClassNamesForSources()
+            getClassNamesForSources(pathResolver)
             );
     return ExternalTestRunnerTestSpec.builder()
         .setTarget(getBuildTarget())
@@ -665,7 +690,7 @@ public class JavaTest
   }
 
   @Override
-  public ImmutableList<Step> getPostBuildSteps() {
+  public ImmutableList<Step> getPostBuildSteps(BuildContext buildContext) {
     return ImmutableList.<Step>builder()
         .add(new MkdirStep(getProjectFilesystem(), getClassPathFile().getParent()))
         .add(
@@ -673,8 +698,14 @@ public class JavaTest
               @Override
               public StepExecutionResult execute(ExecutionContext context) throws IOException {
                 ImmutableSet<Path> classpathEntries = ImmutableSet.<Path>builder()
-                    .addAll(compiledTestsLibrary.getTransitiveClasspaths())
-                    .addAll(additionalClasspathEntries)
+                    .addAll(compiledTestsLibrary.getTransitiveClasspaths().stream()
+                        .map(buildContext.getSourcePathResolver()::getAbsolutePath)
+                        .collect(MoreCollectors.toImmutableSet()))
+                    .addAll(additionalClasspathEntries.stream()
+                        .map(e -> e.isLeft() ?
+                            buildContext.getSourcePathResolver().getAbsolutePath(e.getLeft())
+                            : e.getRight())
+                        .collect(MoreCollectors.toImmutableSet()))
                     .addAll(getBootClasspathEntries(context))
                     .build();
                 getProjectFilesystem().writeLinesToPath(

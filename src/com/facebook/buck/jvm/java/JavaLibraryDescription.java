@@ -33,7 +33,7 @@ import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.Hint;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePaths;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.versions.VersionPropagator;
@@ -83,7 +83,7 @@ public class JavaLibraryDescription implements
       BuildRuleParams params,
       BuildRuleResolver resolver,
       A args) throws NoSuchBuildTargetException {
-    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
     BuildTarget target = params.getBuildTarget();
 
     // We know that the flavour we're being asked to create is valid, since the check is done when
@@ -112,7 +112,7 @@ public class JavaLibraryDescription implements
       // Might as well add them as deps. *sigh*
       ImmutableSortedSet.Builder<BuildRule> deps = ImmutableSortedSet.naturalOrder();
       // Sourcepath deps
-      deps.addAll(pathResolver.filterBuildRuleInputs(sources));
+      deps.addAll(ruleFinder.filterBuildRuleInputs(sources));
       // Classpath deps
       deps.add(baseLibrary);
       deps.addAll(
@@ -126,19 +126,18 @@ public class JavaLibraryDescription implements
 
       return new Javadoc(
           emptyParams,
-          pathResolver,
           args.mavenCoords,
           args.mavenPomTemplate,
           summary.getMavenDeps(),
           sources);
     }
 
-    if (flavors.contains(CalculateAbi.FLAVOR)) {
-      BuildTarget libraryTarget = target.withoutFlavors(CalculateAbi.FLAVOR);
+    if (CalculateAbi.isAbiTarget(target)) {
+      BuildTarget libraryTarget = CalculateAbi.getLibraryTarget(target);
       resolver.requireRule(libraryTarget);
       return CalculateAbi.of(
           params.getBuildTarget(),
-          pathResolver,
+          ruleFinder,
           params,
           new BuildTargetSourcePath(libraryTarget));
     }
@@ -161,13 +160,11 @@ public class JavaLibraryDescription implements
       if (!flavors.contains(JavaLibrary.MAVEN_JAR)) {
         return new JavaSourceJar(
             params,
-            pathResolver,
             args.srcs,
             args.mavenCoords);
       } else {
         return MavenUberJar.SourceJar.create(
             Preconditions.checkNotNull(paramsWithMavenFlavor),
-            pathResolver,
             args.srcs,
             args.mavenCoords,
             args.mavenPomTemplate);
@@ -178,10 +175,10 @@ public class JavaLibraryDescription implements
         defaultOptions,
         params,
         resolver,
-        pathResolver,
+        ruleFinder,
         args);
 
-    BuildTarget abiJarTarget = params.getBuildTarget().withAppendedFlavors(CalculateAbi.FLAVOR);
+    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
 
     ImmutableSortedSet<BuildRule> exportedDeps = resolver.getAllRules(args.exportedDeps);
     BuildRuleParams javaLibraryParams =
@@ -192,24 +189,23 @@ public class JavaLibraryDescription implements
                         params.getDeclaredDeps().get(),
                         exportedDeps,
                         resolver.getAllRules(args.providedDeps))),
-                pathResolver.filterBuildRuleInputs(
-                    javacOptions.getInputs(pathResolver))));
+                ruleFinder.filterBuildRuleInputs(
+                    javacOptions.getInputs(ruleFinder))));
     DefaultJavaLibrary defaultJavaLibrary =
         new DefaultJavaLibrary(
             javaLibraryParams,
             pathResolver,
+            ruleFinder,
             args.srcs,
             validateResources(
                 pathResolver,
                 params.getProjectFilesystem(),
                 args.resources),
             javacOptions.getGeneratedSourceFolderName(),
-            args.proguardConfig.map(
-                SourcePaths.toSourcePath(params.getProjectFilesystem())::apply),
+            args.proguardConfig,
             args.postprocessClassesCommands,
             exportedDeps,
             resolver.getAllRules(args.providedDeps),
-            abiJarTarget,
             JavaLibraryRules.getAbiInputs(resolver, javaLibraryParams.getDeps()),
             javacOptions.trackClassUsage(),
             /* additionalClasspathEntries */ ImmutableSet.of(),
@@ -223,10 +219,10 @@ public class JavaLibraryDescription implements
   if (!flavors.contains(JavaLibrary.MAVEN_JAR)) {
       return defaultJavaLibrary;
     } else {
+      resolver.addToIndex(defaultJavaLibrary);
       return MavenUberJar.create(
           defaultJavaLibrary,
           Preconditions.checkNotNull(paramsWithMavenFlavor),
-          pathResolver,
           args.mavenCoords,
           args.mavenPomTemplate);
     }
@@ -237,7 +233,7 @@ public class JavaLibraryDescription implements
     public ImmutableSortedSet<SourcePath> srcs = ImmutableSortedSet.of();
     public ImmutableSortedSet<SourcePath> resources = ImmutableSortedSet.of();
 
-    public Optional<Path> proguardConfig;
+    public Optional<SourcePath> proguardConfig;
     public ImmutableList<String> postprocessClassesCommands = ImmutableList.of();
 
     @Hint(isInput = false)

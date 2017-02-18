@@ -26,9 +26,10 @@ import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.HasRuntimeDeps;
-import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.coercer.FrameworkPath;
+import com.facebook.buck.rules.keys.SupportsInputBasedRuleKey;
 import com.facebook.buck.step.Step;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -37,15 +38,18 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 
 import java.nio.file.Path;
+import java.util.stream.Stream;
 
 import javax.annotation.Nullable;
 
 public class CxxBinary
     extends AbstractBuildRule
-    implements BinaryBuildRule, NativeTestable, HasRuntimeDeps, ProvidesLinkedBinaryDeps {
+    implements BinaryBuildRule, NativeTestable, HasRuntimeDeps, ProvidesLinkedBinaryDeps,
+               SupportsInputBasedRuleKey {
 
   private final BuildRuleParams params;
   private final BuildRuleResolver ruleResolver;
+  private final SourcePathRuleFinder ruleFinder;
   private final BuildRule linkRule;
   private final Tool executable;
   private final ImmutableSortedSet<BuildTarget> tests;
@@ -55,15 +59,16 @@ public class CxxBinary
   public CxxBinary(
       BuildRuleParams params,
       BuildRuleResolver ruleResolver,
-      SourcePathResolver resolver,
+      SourcePathRuleFinder ruleFinder,
       BuildRule linkRule,
       Tool executable,
       Iterable<FrameworkPath> frameworks,
       Iterable<BuildTarget> tests,
       BuildTarget platformlessTarget) {
-    super(params, resolver);
+    super(params);
     this.params = params;
     this.ruleResolver = ruleResolver;
+    this.ruleFinder = ruleFinder;
     this.linkRule = linkRule;
     this.executable = executable;
     this.tests = ImmutableSortedSet.copyOf(tests);
@@ -153,11 +158,9 @@ public class CxxBinary
   // This rule just delegates to the output of the `CxxLink` rule and so needs that available at
   // runtime.  Model this via `HasRuntimeDeps`.
   @Override
-  public ImmutableSortedSet<BuildRule> getRuntimeDeps() {
-    return ImmutableSortedSet.<BuildRule>naturalOrder()
-        .addAll(getDeclaredDeps())
-        .addAll(executable.getDeps(getResolver()))
-        .build();
+  public Stream<BuildTarget> getRuntimeDeps() {
+    return Stream.concat(getDeclaredDeps().stream(), executable.getDeps(ruleFinder).stream())
+        .map(BuildRule::getBuildTarget);
   }
 
 }

@@ -18,11 +18,13 @@ package com.facebook.buck.versions;
 
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
+import com.facebook.buck.model.HasTests;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.AbstractNodeBuilder;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.Hint;
 import com.facebook.buck.rules.TargetGraph;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedMap;
@@ -32,11 +34,12 @@ import java.util.AbstractMap;
 import java.util.Map;
 import java.util.Optional;
 
-class VersionPropagatorBuilder
+public class VersionPropagatorBuilder
     extends
     AbstractNodeBuilder<
         VersionPropagatorBuilder.Arg,
-        VersionPropagatorBuilder.VersionPropagatorDescription> {
+        VersionPropagatorBuilder.VersionPropagatorDescription,
+        BuildRule> {
 
   public VersionPropagatorBuilder(BuildTarget target) {
     super(
@@ -80,10 +83,25 @@ class VersionPropagatorBuilder
             Optional.of(constraint)));
   }
 
-  public static class Arg {
+  public VersionPropagatorBuilder setTests(ImmutableSortedSet<BuildTarget> tests) {
+    arg.tests = tests;
+    return this;
+  }
+
+  public static class Arg implements HasTests {
+
     public ImmutableSortedSet<BuildTarget> deps = ImmutableSortedSet.of();
     public ImmutableSortedMap<BuildTarget, Optional<Constraint>> versionedDeps =
         ImmutableSortedMap.of();
+
+    @Hint(isDep = false)
+    public ImmutableSortedSet<BuildTarget> tests = ImmutableSortedSet.of();
+
+    @Override
+    public ImmutableSortedSet<BuildTarget> getTests() {
+      return tests;
+    }
+
   }
 
   public static class VersionPropagatorDescription implements VersionPropagator<Arg> {

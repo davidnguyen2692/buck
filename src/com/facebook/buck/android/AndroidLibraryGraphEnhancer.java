@@ -27,7 +27,7 @@ import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildTargetSourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.util.DependencyMode;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Suppliers;
@@ -78,7 +78,7 @@ public class AndroidLibraryGraphEnhancer {
   public Optional<DummyRDotJava> getBuildableForAndroidResources(
       BuildRuleResolver ruleResolver,
       boolean createBuildableIfEmptyDeps) {
-    Preconditions.checkState(!dummyRDotJavaBuildTarget.getFlavors().contains(CalculateAbi.FLAVOR));
+    Preconditions.checkState(!CalculateAbi.isAbiTarget(dummyRDotJavaBuildTarget));
     Optional<BuildRule> previouslyCreated = ruleResolver.getRuleOptional(dummyRDotJavaBuildTarget);
     if (previouslyCreated.isPresent()) {
       return previouslyCreated.map(input -> (DummyRDotJava) input);
@@ -108,24 +108,20 @@ public class AndroidLibraryGraphEnhancer {
       return Optional.empty();
     }
 
-    SourcePathResolver pathResolver = new SourcePathResolver(ruleResolver);
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(ruleResolver);
 
     BuildRuleParams dummyRDotJavaParams = originalBuildRuleParams.copyWithChanges(
         dummyRDotJavaBuildTarget,
         // Add dependencies from `SourcePaths` in `JavacOptions`.
         Suppliers.ofInstance(
             ImmutableSortedSet.copyOf(
-                pathResolver.filterBuildRuleInputs(javacOptions.getInputs(pathResolver)))),
+                ruleFinder.filterBuildRuleInputs(javacOptions.getInputs(ruleFinder)))),
         /* extraDeps */ Suppliers.ofInstance(ImmutableSortedSet.of()));
-
-    BuildTarget abiJarTarget =
-        dummyRDotJavaParams.getBuildTarget().withAppendedFlavors(CalculateAbi.FLAVOR);
 
     DummyRDotJava dummyRDotJava = new DummyRDotJava(
         dummyRDotJavaParams,
-        pathResolver,
+        ruleFinder,
         androidResourceDeps,
-        abiJarTarget,
         javacOptions,
         forceFinalResourceIds,
         resourceUnionPackage,
@@ -137,13 +133,13 @@ public class AndroidLibraryGraphEnhancer {
 
   public CalculateAbi getBuildableForAndroidResourcesAbi(
       BuildRuleResolver resolver,
-      SourcePathResolver pathResolver) throws NoSuchBuildTargetException {
-    Preconditions.checkState(dummyRDotJavaBuildTarget.getFlavors().contains(CalculateAbi.FLAVOR));
-    BuildTarget resourcesTarget = dummyRDotJavaBuildTarget.withoutFlavors(CalculateAbi.FLAVOR);
+      SourcePathRuleFinder ruleFinder) throws NoSuchBuildTargetException {
+    Preconditions.checkState(CalculateAbi.isAbiTarget(dummyRDotJavaBuildTarget));
+    BuildTarget resourcesTarget = CalculateAbi.getLibraryTarget(dummyRDotJavaBuildTarget);
     resolver.requireRule(resourcesTarget);
     return CalculateAbi.of(
         dummyRDotJavaBuildTarget,
-        pathResolver,
+        ruleFinder,
         originalBuildRuleParams,
         new BuildTargetSourcePath(resourcesTarget));
   }

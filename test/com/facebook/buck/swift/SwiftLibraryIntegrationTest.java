@@ -33,6 +33,7 @@ import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
@@ -56,22 +57,23 @@ public class SwiftLibraryIntegrationTest {
   public void headersOfDependentTargetsAreIncluded() throws Exception {
     BuildRuleResolver resolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
 
     // The output path used by the buildable for the link tree.
     BuildTarget symlinkTarget = BuildTargetFactory.newInstance("//:symlink");
     ProjectFilesystem projectFilesystem = new FakeProjectFilesystem(tmpDir.getRoot());
-    Path symlinkTreeRoot = projectFilesystem.resolve(
-        BuildTargets.getGenPath(projectFilesystem, symlinkTarget, "%s/symlink-tree-root"));
+    Path symlinkTreeRoot =
+        BuildTargets.getGenPath(projectFilesystem, symlinkTarget, "%s/symlink-tree-root");
 
     // Setup the map representing the link tree.
     ImmutableMap<Path, SourcePath> links = ImmutableMap.of();
 
     BuildRule symlinkTreeBuildRule = new HeaderSymlinkTreeWithHeaderMap(
         new FakeBuildRuleParamsBuilder(symlinkTarget).build(),
-        pathResolver,
         symlinkTreeRoot,
-        links);
+        links,
+        ruleFinder);
     resolver.addToIndex(symlinkTreeBuildRule);
 
     BuildTarget libTarget = BuildTargetFactory.newInstance("//:lib");
@@ -104,11 +106,12 @@ public class SwiftLibraryIntegrationTest {
     args.libraries = ImmutableSortedSet.of();
     args.enableObjcInterop = Optional.empty();
     args.supportedPlatformsRegex = Optional.empty();
+    args.bridgingHeader = Optional.empty();
 
     SwiftCompile buildRule = (SwiftCompile) FakeAppleRuleDescriptions.SWIFT_LIBRARY_DESCRIPTION
         .createBuildRule(TargetGraph.EMPTY, params, resolver, args);
 
-    ImmutableList<String> swiftIncludeArgs = buildRule.getSwiftIncludeArgs();
+    ImmutableList<String> swiftIncludeArgs = buildRule.getSwiftIncludeArgs(pathResolver);
 
     assertThat(swiftIncludeArgs.size(), Matchers.equalTo(1));
     assertThat(swiftIncludeArgs.get(0), Matchers.startsWith("-I"));

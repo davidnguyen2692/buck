@@ -112,7 +112,8 @@ public class Config {
               "config", macroReplacer,
               "exe", getMacroPreserver("exe"),
               "location", getMacroPreserver("location")),
-          input);
+          input,
+          true);
     } catch (MacroException e) {
       throw new HumanReadableException(e, e.getMessage());
     }
@@ -504,6 +505,13 @@ public class Config {
     return listBuilder.build();
   }
 
+  public Config overrideWith(Config other) {
+    RawConfig.Builder builder = RawConfig.builder();
+    builder.putAll(this.rawConfig);
+    builder.putAll(other.rawConfig);
+    return new Config(builder.build());
+  }
+
   /**
    * Decodes hexadecimal digits from a string.
    * @param string the string to decode the digits from
@@ -553,6 +561,10 @@ public class Config {
       result = (result << 4) | c;
     }
     return result;
+  }
+
+  public RawConfig getRawConfig() {
+    return rawConfig;
   }
 
 }

@@ -32,7 +32,7 @@ import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.HasOutputName;
 import com.facebook.buck.model.Pair;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
-import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.rules.AbstractBuildRuleWithResolver;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
@@ -64,11 +64,14 @@ import java.util.Optional;
 import java.util.regex.Pattern;
 
 public class PrebuiltAppleFramework
-    extends AbstractBuildRule
+    extends AbstractBuildRuleWithResolver
     implements CxxPreprocessorDep, NativeLinkable, HasOutputName {
 
   @AddToRuleKey(stringify = true)
   private final Path out;
+
+  @AddToRuleKey
+  private final NativeLinkable.Linkage preferredLinkage;
 
   private final BuildRuleResolver ruleResolver;
   private final SourcePath frameworkPath;
@@ -89,6 +92,7 @@ public class PrebuiltAppleFramework
       BuildRuleResolver ruleResolver,
       SourcePathResolver pathResolver,
       SourcePath frameworkPath,
+      Linkage preferredLinkage,
       ImmutableSet<FrameworkPath> frameworks,
       Optional<Pattern> supportedPlatformsRegex,
       Function<? super CxxPlatform, ImmutableList<String>> exportedLinkerFlags) {
@@ -96,6 +100,7 @@ public class PrebuiltAppleFramework
     this.frameworkPath = frameworkPath;
     this.ruleResolver = ruleResolver;
     this.exportedLinkerFlags = exportedLinkerFlags;
+    this.preferredLinkage = preferredLinkage;
     this.frameworks = frameworks;
     this.supportedPlatformsRegex = supportedPlatformsRegex;
 
@@ -119,11 +124,11 @@ public class PrebuiltAppleFramework
     // unpacked on another machine, it is an ordinary file in both scenarios.
     ImmutableList.Builder<Step> builder = ImmutableList.builder();
     builder.add(new MkdirStep(getProjectFilesystem(), out.getParent()));
-    builder.add(new RmStep(getProjectFilesystem(), out, /* force */ true, /* recurse */ true));
+    builder.add(new RmStep(getProjectFilesystem(), out, RmStep.Mode.RECURSIVE));
     builder.add(
         CopyStep.forDirectory(
             getProjectFilesystem(),
-            getResolver().getAbsolutePath(frameworkPath),
+            context.getSourcePathResolver().getAbsolutePath(frameworkPath),
             out,
             CopyStep.DirectoryMode.CONTENTS_ONLY));
 
@@ -219,9 +224,9 @@ public class PrebuiltAppleFramework
     ImmutableSet.Builder<FrameworkPath> frameworkPaths = ImmutableSet.builder();
     frameworkPaths.addAll(Preconditions.checkNotNull(frameworks));
 
+    frameworkPaths.add(
+        FrameworkPath.ofSourcePath(new BuildTargetSourcePath(this.getBuildTarget())));
     if (type == Linker.LinkableDepType.SHARED) {
-      frameworkPaths.add(
-          FrameworkPath.ofSourcePath(new BuildTargetSourcePath(this.getBuildTarget())));
       linkerArgsBuilder.addAll(StringArg.from(
           "-rpath",
           "@loader_path/Frameworks",
@@ -253,7 +258,7 @@ public class PrebuiltAppleFramework
 
   @Override
   public NativeLinkable.Linkage getPreferredLinkage(CxxPlatform cxxPlatform) {
-    return Linkage.SHARED;
+    return this.preferredLinkage;
   }
 
   @Override

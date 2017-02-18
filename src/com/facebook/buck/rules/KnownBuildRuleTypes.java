@@ -69,6 +69,7 @@ import com.facebook.buck.cxx.CxxGenruleDescription;
 import com.facebook.buck.cxx.CxxLibraryDescription;
 import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.cxx.CxxPlatforms;
+import com.facebook.buck.cxx.CxxPrecompiledHeaderDescription;
 import com.facebook.buck.cxx.CxxTestDescription;
 import com.facebook.buck.cxx.DefaultCxxPlatforms;
 import com.facebook.buck.cxx.InferBuckConfig;
@@ -101,6 +102,7 @@ import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.js.AndroidReactNativeLibraryDescription;
 import com.facebook.buck.js.IosReactNativeLibraryDescription;
+import com.facebook.buck.js.JsFileDescription;
 import com.facebook.buck.js.ReactNativeBuckConfig;
 import com.facebook.buck.jvm.groovy.GroovyBuckConfig;
 import com.facebook.buck.jvm.groovy.GroovyLibraryDescription;
@@ -109,6 +111,7 @@ import com.facebook.buck.jvm.java.JavaBinaryDescription;
 import com.facebook.buck.jvm.java.JavaBuckConfig;
 import com.facebook.buck.jvm.java.JavaLibraryDescription;
 import com.facebook.buck.jvm.java.JavaOptions;
+import com.facebook.buck.jvm.java.JavaAnnotationProcessorDescription;
 import com.facebook.buck.jvm.java.JavaTestDescription;
 import com.facebook.buck.jvm.java.JavacOptions;
 import com.facebook.buck.jvm.java.KeystoreDescription;
@@ -443,6 +446,7 @@ public class KnownBuildRuleTypes {
 
       cxxOverridePlatformsMap.put(flavor, CxxPlatforms.copyPlatformWithFlavorAndConfig(
           cxxOverridePlatformsMap.get(flavor),
+          platform,
           new CxxBuckConfig(config, flavor),
           flavor));
     }
@@ -727,7 +731,9 @@ public class KnownBuildRuleTypes {
     builder.register(new JavaBinaryDescription(
         defaultJavaOptions,
         defaultJavacOptions,
-        defaultCxxPlatform));
+        defaultCxxPlatform,
+        javaConfig));
+    builder.register(new JavaAnnotationProcessorDescription());
     builder.register(new JavaLibraryDescription(defaultJavacOptions));
     builder.register(
         new JavaTestDescription(
@@ -735,9 +741,9 @@ public class KnownBuildRuleTypes {
             defaultJavacOptions,
             defaultTestRuleTimeoutMs,
             defaultCxxPlatform));
+    builder.register(new JsFileDescription());
     builder.register(new KeystoreDescription());
-    builder.register(
-        new KotlinLibraryDescription(kotlinBuckConfig));
+    builder.register(new KotlinLibraryDescription(kotlinBuckConfig, defaultJavacOptions));
     builder.register(
         new KotlinTestDescription(
             kotlinBuckConfig,
@@ -758,6 +764,7 @@ public class KnownBuildRuleTypes {
     builder.register(new OcamlLibraryDescription(ocamlBuckConfig));
     builder.register(new PrebuiltCxxLibraryDescription(cxxBuckConfig, cxxPlatforms));
     builder.register(PrebuiltCxxLibraryGroupDescription.of());
+    builder.register(new CxxPrecompiledHeaderDescription());
     builder.register(new PrebuiltDotnetLibraryDescription());
     builder.register(new PrebuiltJarDescription());
     builder.register(new PrebuiltNativeLibraryDescription());
@@ -781,10 +788,10 @@ public class KnownBuildRuleTypes {
             defaultJavacOptions,
             defaultTestRuleTimeoutMs,
             defaultCxxPlatform));
-    builder.register(new RustBinaryDescription(rustBuckConfig, defaultCxxPlatform));
-    builder.register(new RustLibraryDescription(rustBuckConfig, defaultCxxPlatform));
-    builder.register(new RustTestDescription(rustBuckConfig, defaultCxxPlatform));
-    builder.register(new PrebuiltRustLibraryDescription(rustBuckConfig, defaultCxxPlatform));
+    builder.register(new RustBinaryDescription(rustBuckConfig, cxxPlatforms, defaultCxxPlatform));
+    builder.register(new RustLibraryDescription(rustBuckConfig, cxxPlatforms, defaultCxxPlatform));
+    builder.register(new RustTestDescription(rustBuckConfig, cxxPlatforms, defaultCxxPlatform));
+    builder.register(new PrebuiltRustLibraryDescription());
     builder.register(new ScalaLibraryDescription(scalaConfig));
     builder.register(new ScalaTestDescription(
         scalaConfig,

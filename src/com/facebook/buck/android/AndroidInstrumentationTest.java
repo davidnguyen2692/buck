@@ -18,17 +18,16 @@ package com.facebook.buck.android;
 
 import com.android.ddmlib.IDevice;
 import com.facebook.buck.jvm.java.JavaRuntimeLauncher;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
-import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.ExternalTestRunnerRule;
 import com.facebook.buck.rules.ExternalTestRunnerTestSpec;
 import com.facebook.buck.rules.HasRuntimeDeps;
-import com.facebook.buck.rules.InstallableApk;
 import com.facebook.buck.rules.Label;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
@@ -45,19 +44,19 @@ import com.facebook.buck.test.result.type.ResultType;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.PackagedResource;
-import com.google.common.base.Preconditions;
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.ImmutableSortedSet;
 
 import java.io.File;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.Optional;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Callable;
+import java.util.stream.Stream;
 
 @SuppressWarnings("PMD.TestClassWithoutTestCases")
 public class AndroidInstrumentationTest extends AbstractBuildRule
@@ -80,19 +79,18 @@ public class AndroidInstrumentationTest extends AbstractBuildRule
 
   private final ImmutableSet<String> contacts;
 
-  private final InstallableApk apk;
+  private final HasInstallableApk apk;
 
   private final Optional<Long> testRuleTimeoutMs;
 
   protected AndroidInstrumentationTest(
       BuildRuleParams params,
-      SourcePathResolver resolver,
-      InstallableApk apk,
+      HasInstallableApk apk,
       Set<Label> labels,
       Set<String> contacts,
       JavaRuntimeLauncher javaRuntimeLauncher,
       Optional<Long> testRuleTimeoutMs) {
-    super(params, resolver);
+    super(params);
     this.apk = apk;
     this.javaRuntimeLauncher = javaRuntimeLauncher;
     this.labels = ImmutableSet.copyOf(labels);
@@ -119,6 +117,7 @@ public class AndroidInstrumentationTest extends AbstractBuildRule
   public ImmutableList<Step> runTests(
       ExecutionContext executionContext,
       TestRunningOptions options,
+      SourcePathResolver pathResolver,
       TestReportingCallback testReportingCallback) {
     Preconditions.checkArgument(executionContext.getAdbOptions().isPresent());
 
@@ -131,10 +130,11 @@ public class AndroidInstrumentationTest extends AbstractBuildRule
 
     Path pathToTestOutput = getPathToTestOutputDirectory();
     steps.add(new MakeCleanDirectoryStep(getProjectFilesystem(), pathToTestOutput));
-    steps.add(new ApkInstallStep(apk));
+    steps.add(new ApkInstallStep(pathResolver, apk));
     if (apk instanceof AndroidInstrumentationApk) {
       steps.add(new ApkInstallStep(
-              ((AndroidInstrumentationApk) apk).getApkUnderTest()));
+          pathResolver,
+          ((AndroidInstrumentationApk) apk).getApkUnderTest()));
     }
 
     AdbHelper adb = AdbHelper.get(executionContext, true);
@@ -147,6 +147,7 @@ public class AndroidInstrumentationTest extends AbstractBuildRule
 
     steps.add(
         getInstrumentationStep(
+            pathResolver,
             executionContext.getPathToAdbExecutable(),
             Optional.of(getProjectFilesystem().resolve(pathToTestOutput)),
             Optional.of(device.getSerialNumber()),
@@ -177,30 +178,22 @@ public class AndroidInstrumentationTest extends AbstractBuildRule
   }
 
   private InstrumentationStep getInstrumentationStep(
+      SourcePathResolver pathResolver,
       String pathToAdbExecutable,
       Optional<Path> directoryForTestResults,
       Optional<String> deviceSerial,
       Optional<Path> instrumentationApkPath,
       Optional<String> classFilterArg,
       Optional<Path> apkUnderTestPath) {
-    String packageName = AdbHelper.tryToExtractPackageNameFromManifest(apk);
-    String testRunner = AdbHelper.tryToExtractInstrumentationTestRunnerFromManifest(apk);
+    String packageName =
+        AdbHelper.tryToExtractPackageNameFromManifest(pathResolver, apk.getApkInfo());
+    String testRunner =
+        AdbHelper.tryToExtractInstrumentationTestRunnerFromManifest(pathResolver, apk.getApkInfo());
 
-    String ddmlib = new PathSourcePath(
-        this.getProjectFilesystem(),
-        AndroidInstrumentationTest.class + "/ddmlib.jar",
-        new PackagedResource(
-            this.getProjectFilesystem(),
-            AndroidInstrumentationTest.class,
-            "ddmlib.jar")).getRelativePath().toString();
-
-    String kxml2 = new PathSourcePath(
-        this.getProjectFilesystem(),
-        AndroidInstrumentationTest.class + "/kxml2.jar",
-        new PackagedResource(
-            this.getProjectFilesystem(),
-            AndroidInstrumentationTest.class,
-            "kxml2.jar")).getRelativePath().toString();
+    String ddmlib = getPathForResourceJar("ddmlib.jar");
+    String kxml2 = getPathForResourceJar("kxml2.jar");
+    String guava = getPathForResourceJar("guava.jar");
+    String toolsCommon = getPathForResourceJar("android-tools-common.jar");
 
     AndroidInstrumentationTestJVMArgs jvmArgs = AndroidInstrumentationTestJVMArgs.builder()
         .setApkUnderTestPath(apkUnderTestPath)
@@ -214,10 +207,22 @@ public class AndroidInstrumentationTest extends AbstractBuildRule
         .setDdmlibJarPath(ddmlib)
         .setTestFilter(classFilterArg)
         .setKxmlJarPath(kxml2)
+        .setGuavaJarPath(guava)
+        .setAndroidToolsCommonJarPath(toolsCommon)
         .build();
 
     return new InstrumentationStep(
         getProjectFilesystem(), javaRuntimeLauncher, jvmArgs, testRuleTimeoutMs);
+  }
+
+  private String getPathForResourceJar(String jarName) {
+    return new PathSourcePath(
+          this.getProjectFilesystem(),
+          AndroidInstrumentationTest.class + "/" + jarName,
+          new PackagedResource(
+              this.getProjectFilesystem(),
+              AndroidInstrumentationTest.class,
+              jarName)).getRelativePath().toString();
   }
 
   @Override
@@ -301,16 +306,21 @@ public class AndroidInstrumentationTest extends AbstractBuildRule
 
   @Override
   public ExternalTestRunnerTestSpec getExternalTestRunnerSpec(
-      ExecutionContext executionContext, TestRunningOptions testRunningOptions) {
+      ExecutionContext executionContext,
+      TestRunningOptions testRunningOptions,
+      SourcePathResolver pathResolver) {
     Optional<Path> apkUnderTestPath = Optional.empty();
     if (apk instanceof AndroidInstrumentationApk) {
-      apkUnderTestPath = Optional.of(toPath(((AndroidInstrumentationApk) apk).getApkUnderTest()));
+      apkUnderTestPath = Optional.of(
+          pathResolver.getAbsolutePath(
+              ((AndroidInstrumentationApk) apk).getApkUnderTest().getApkInfo().getApkPath()));
     }
     InstrumentationStep step = getInstrumentationStep(
+        pathResolver,
         executionContext.getPathToAdbExecutable(),
         Optional.empty(),
         Optional.empty(),
-        Optional.of(toPath(apk)),
+        Optional.of(pathResolver.getAbsolutePath(apk.getApkInfo().getApkPath())),
         Optional.empty(),
         apkUnderTestPath);
 
@@ -323,18 +333,13 @@ public class AndroidInstrumentationTest extends AbstractBuildRule
         .build();
   }
 
-  private static Path toPath(InstallableApk apk) {
-    return apk.getProjectFilesystem().resolve(
-        apk.getApkPath());
-  }
-
   @Override
-  public ImmutableSortedSet<BuildRule> getRuntimeDeps() {
-    ImmutableSortedSet.Builder<BuildRule> builder = ImmutableSortedSet.naturalOrder();
-    builder.add(apk);
+  public Stream<BuildTarget> getRuntimeDeps() {
+    Stream.Builder<BuildTarget> builder = Stream.builder();
+    builder.add(apk.getBuildTarget());
 
     if (apk instanceof ApkGenrule) {
-      builder.add(((ApkGenrule) apk).getInstallableApk());
+      builder.add(((ApkGenrule) apk).getInstallableApk().getBuildTarget());
     }
 
     return builder.build();

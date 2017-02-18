@@ -47,7 +47,6 @@ import com.facebook.buck.util.concurrent.ResourceAllocationFairness;
 import com.facebook.buck.util.concurrent.ResourceAmounts;
 import com.facebook.buck.util.concurrent.ResourceAmountsEstimator;
 import com.facebook.buck.util.environment.Architecture;
-import com.facebook.buck.util.environment.EnvironmentFilter;
 import com.facebook.buck.util.environment.Platform;
 import com.facebook.buck.util.network.hostname.HostnameFetching;
 import com.google.common.annotations.VisibleForTesting;
@@ -57,6 +56,7 @@ import com.google.common.base.Predicates;
 import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSetMultimap;
 import com.google.common.collect.LinkedHashMultimap;
@@ -100,7 +100,8 @@ public class BuckConfig implements ConfigPathGetter {
   private static final ImmutableMap<String, ImmutableSet<String>> IGNORE_FIELDS_FOR_DAEMON_RESTART =
       ImmutableMap.of(
           "build", ImmutableSet.of("threads", "load_limit"),
-          "cache", ImmutableSet.of("dir", "dir_mode", "http_mode", "http_url", "mode"),
+          "cache", ImmutableSet.of(
+              "dir", "dir_mode", "http_mode", "http_url", "mode", "slb_server_pool"),
           "client", ImmutableSet.of("id"),
           "project", ImmutableSet.of("ide_prompt", "xcode_focus_disable_build_with_buck")
   );
@@ -118,7 +119,6 @@ public class BuckConfig implements ConfigPathGetter {
   private final Platform platform;
 
   private final ImmutableMap<String, String> environment;
-  private final ImmutableMap<String, String> filteredEnvironment;
 
   private final ConfigViewCache<BuckConfig> viewCache = new ConfigViewCache<>(this);
 
@@ -141,8 +141,6 @@ public class BuckConfig implements ConfigPathGetter {
 
     this.platform = platform;
     this.environment = environment;
-    this.filteredEnvironment = ImmutableMap.copyOf(
-        Maps.filterKeys(environment, EnvironmentFilter.NOT_IGNORED_ENV_PREDICATE));
   }
 
   /**
@@ -443,8 +441,8 @@ public class BuckConfig implements ConfigPathGetter {
     return ImmutableMap.copyOf(basePathToAlias);
   }
 
-  public ImmutableSet<String> getAliases() {
-    return this.aliasToBuildTargetMap.keySet();
+  public ImmutableMultimap<String, BuildTarget> getAliases() {
+    return this.aliasToBuildTargetMap;
   }
 
   public long getDefaultTestTimeoutMillis() {
@@ -679,10 +677,6 @@ public class BuckConfig implements ConfigPathGetter {
     return environment;
   }
 
-  public ImmutableMap<String, String> getFilteredEnvironment() {
-    return filteredEnvironment;
-  }
-
   public String[] getEnv(String propertyName, String separator) {
     String value = getEnvironment().get(propertyName);
     if (value == null) {
@@ -693,8 +687,8 @@ public class BuckConfig implements ConfigPathGetter {
   /**
    * @return the local cache directory
    */
-  public String getLocalCacheDirectory() {
-    return getValue("cache", "dir").orElse(BuckConstant.getDefaultCacheDir());
+  public String getLocalCacheDirectory(String dirCacheName) {
+    return getValue(dirCacheName, "dir").orElse(BuckConstant.getDefaultCacheDir());
   }
 
   public int getKeySeed() {
@@ -855,11 +849,11 @@ public class BuckConfig implements ConfigPathGetter {
    * for those times where we're using (eg) JimFs for our testing.
    */
   private Path getPathFromVfs(String path, String... extra) {
-    return projectFilesystem.getRootPath().getFileSystem().getPath(path, extra);
+    return projectFilesystem.getPath(path, extra);
   }
 
   private Path getPathFromVfs(Path path) {
-    return projectFilesystem.getRootPath().getFileSystem().getPath(path.toString());
+    return projectFilesystem.getPath(path.toString());
   }
 
   private Path convertPathWithError(String pathString, boolean isCellRootRelative, String error) {
@@ -1053,6 +1047,10 @@ public class BuckConfig implements ConfigPathGetter {
    */
   public boolean getTargetsVersions() {
     return getBooleanValue("targets", "versions", false);
+  }
+
+  public Config getConfig() {
+    return config;
   }
 
 }

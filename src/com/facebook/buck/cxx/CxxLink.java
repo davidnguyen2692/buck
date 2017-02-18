@@ -25,11 +25,11 @@ import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.OverrideScheduleRule;
 import com.facebook.buck.rules.RuleScheduleInfo;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.keys.SupportsInputBasedRuleKey;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.FileScrubberStep;
+import com.facebook.buck.step.fs.LogContentsOfFileStep;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.RmStep;
@@ -40,6 +40,7 @@ import com.google.common.collect.ImmutableSet;
 
 import java.nio.file.Path;
 import java.util.Optional;
+import java.util.logging.Level;
 
 public class CxxLink
     extends AbstractBuildRule
@@ -56,13 +57,12 @@ public class CxxLink
 
   public CxxLink(
       BuildRuleParams params,
-      SourcePathResolver resolver,
       Linker linker,
       Path output,
       ImmutableList<Arg> args,
       Optional<RuleScheduleInfo> ruleScheduleInfo,
       boolean cacheable) {
-    super(params, resolver);
+    super(params);
     this.linker = linker;
     this.output = output;
     this.args = args;
@@ -107,8 +107,8 @@ public class CxxLink
     return ImmutableList.of(
         new MkdirStep(getProjectFilesystem(), output.getParent()),
         new MakeCleanDirectoryStep(getProjectFilesystem(), scratchDir),
-        new RmStep(getProjectFilesystem(), argFilePath, true),
-        new RmStep(getProjectFilesystem(), fileListPath, true),
+        new RmStep(getProjectFilesystem(), argFilePath),
+        new RmStep(getProjectFilesystem(), fileListPath),
         CxxPrepareForLinkStep.create(
             argFilePath,
             fileListPath,
@@ -116,20 +116,23 @@ public class CxxLink
             output,
             args,
             linker,
-            getBuildTarget().getCellPath()),
+            getBuildTarget().getCellPath(),
+            context.getSourcePathResolver()),
         new CxxLinkStep(
             getProjectFilesystem().getRootPath(),
             linker.getEnvironment(),
-            linker.getCommandPrefix(getResolver()),
+            linker.getCommandPrefix(context.getSourcePathResolver()),
             argFilePath,
             getProjectFilesystem().getRootPath().resolve(scratchDir)),
         new FileScrubberStep(
             getProjectFilesystem(),
             output,
             linker.getScrubbers(cellRoots.build())),
-        new RmStep(getProjectFilesystem(), argFilePath, true),
-        new RmStep(getProjectFilesystem(), fileListPath, true),
-        new RmStep(getProjectFilesystem(), scratchDir, true, true));
+        new LogContentsOfFileStep(getProjectFilesystem().resolve(argFilePath), Level.FINEST),
+        new RmStep(getProjectFilesystem(), argFilePath),
+        new LogContentsOfFileStep(getProjectFilesystem().resolve(fileListPath), Level.FINEST),
+        new RmStep(getProjectFilesystem(), fileListPath),
+        new RmStep(getProjectFilesystem(), scratchDir, RmStep.Mode.RECURSIVE));
   }
 
   @Override

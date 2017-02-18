@@ -21,10 +21,9 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.RuleKeyObjectSink;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 
 import java.nio.file.Path;
@@ -50,10 +49,11 @@ public class OutOfProcessJarBackedJavac extends OutOfProcessJsr199Javac {
       JavacExecutionContext context,
       BuildTarget invokingRule,
       ImmutableList<String> options,
-      ImmutableSet<String> safeAnnotationProcessors,
+      ImmutableList<ResolvedJavacPluginProperties> annotationProcessors,
       ImmutableSortedSet<Path> javaSourceFilePaths,
       Path pathToSrcsList,
-      Optional<Path> workingDirectory) throws InterruptedException {
+      Optional<Path> workingDirectory,
+      JavacOptions.AbiGenerationMode abiGenerationMode) throws InterruptedException {
 
     Map<String, Object> serializedContext = JavacExecutionContextSerializer.serialize(context);
     if (LOG.isVerboseEnabled()) {
@@ -65,15 +65,15 @@ public class OutOfProcessJarBackedJavac extends OutOfProcessJsr199Javac {
         serializedContext,
         invokingRule.getFullyQualifiedName(),
         options,
-        safeAnnotationProcessors.asList(),
         ImmutableList.copyOf(javaSourceFilePaths.stream().map(Path::toString).iterator()),
         pathToSrcsList.toString(),
-        workingDirectory.isPresent() ? workingDirectory.get().toString() : null);
+        workingDirectory.isPresent() ? workingDirectory.get().toString() : null,
+        abiGenerationMode);
   }
 
   @Override
-  public ImmutableCollection<BuildRule> getDeps(SourcePathResolver resolver) {
-    return resolver.filterBuildRuleInputs(getInputs());
+  public ImmutableCollection<BuildRule> getDeps(SourcePathRuleFinder ruleFinder) {
+    return ruleFinder.filterBuildRuleInputs(getInputs());
   }
 
   @Override

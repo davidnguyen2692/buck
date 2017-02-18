@@ -68,7 +68,6 @@ public class LuaStandaloneBinary extends AbstractBuildRule {
 
   public LuaStandaloneBinary(
       BuildRuleParams buildRuleParams,
-      SourcePathResolver resolver,
       Tool builder,
       ImmutableList<String> builderArgs,
       Path output,
@@ -77,7 +76,7 @@ public class LuaStandaloneBinary extends AbstractBuildRule {
       String mainModule,
       Tool lua,
       boolean cache) {
-    super(buildRuleParams, resolver);
+    super(buildRuleParams);
     this.builder = builder;
     this.builderArgs = builderArgs;
     this.output = output;
@@ -101,7 +100,12 @@ public class LuaStandaloneBinary extends AbstractBuildRule {
     steps.add(new MkdirStep(getProjectFilesystem(), output.getParent()));
 
     // Delete any other pex that was there (when switching between pex styles).
-    steps.add(new RmStep(getProjectFilesystem(), output, /* force */ true, /* recurse */ true));
+    steps.add(new RmStep(
+        getProjectFilesystem(),
+        output,
+        RmStep.Mode.RECURSIVE));
+
+    SourcePathResolver resolver = context.getSourcePathResolver();
 
     steps.add(
         new ShellStep(getProjectFilesystem().getRootPath()) {
@@ -117,19 +121,19 @@ public class LuaStandaloneBinary extends AbstractBuildRule {
                               components.getModules(),
                               Functions.compose(
                                   Object::toString,
-                                  getResolver()::getAbsolutePath)),
+                                  resolver::getAbsolutePath)),
                           "pythonModules",
                           Maps.transformValues(
                               components.getPythonModules(),
                               Functions.compose(
                                   Object::toString,
-                                  getResolver()::getAbsolutePath)),
+                                  resolver::getAbsolutePath)),
                           "nativeLibraries",
                           Maps.transformValues(
                               components.getNativeLibraries(),
                               Functions.compose(
                                   Object::toString,
-                                  getResolver()::getAbsolutePath)))));
+                                  resolver::getAbsolutePath)))));
             } catch (IOException e) {
               throw new RuntimeException(e);
             }
@@ -138,14 +142,14 @@ public class LuaStandaloneBinary extends AbstractBuildRule {
           @Override
           protected ImmutableList<String> getShellCommandInternal(ExecutionContext context) {
             ImmutableList.Builder<String> command = ImmutableList.builder();
-            command.addAll(builder.getCommandPrefix(getResolver()));
+            command.addAll(builder.getCommandPrefix(resolver));
             command.addAll(builderArgs);
             command.add("--entry-point", mainModule);
             command.add("--interpreter");
             if (starter.isPresent()) {
-              command.add(getResolver().getAbsolutePath(starter.get()).toString());
+              command.add(resolver.getAbsolutePath(starter.get()).toString());
             } else {
-              command.add(lua.getCommandPrefix(getResolver()).get(0));
+              command.add(lua.getCommandPrefix(resolver).get(0));
             }
             command.add(getProjectFilesystem().resolve(output).toString());
             return command.build();

@@ -19,18 +19,23 @@ package com.facebook.buck.cxx;
 import static java.nio.channels.FileChannel.MapMode.READ_WRITE;
 
 import com.facebook.buck.cxx.elf.Elf;
-import com.facebook.buck.cxx.elf.ElfHeader;
 import com.facebook.buck.cxx.elf.ElfSection;
+import com.facebook.buck.cxx.elf.ElfSymbolTable;
 import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.model.Pair;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
+import com.facebook.buck.util.MoreIterables;
+import com.facebook.buck.util.RichStream;
 import com.facebook.buck.util.immutables.BuckStyleTuple;
+import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 
 import org.immutables.value.Value;
 
 import java.io.IOException;
-import java.nio.ByteBuffer;
 import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.file.Path;
@@ -44,9 +49,47 @@ import java.util.Optional;
 @BuckStyleTuple
 abstract class AbstractElfSymbolTableScrubberStep implements Step {
 
+  @VisibleForTesting
+  static final int STABLE_SECTION = 1;
+
   abstract ProjectFilesystem getFilesystem();
   abstract Path getPath();
   abstract String getSection();
+  abstract boolean isAllowMissing();
+
+  private ElfSymbolTable fixUpSymbolTable(ElfSymbolTable table) {
+    ImmutableList.Builder<ElfSymbolTable.Entry> entries = ImmutableList.builder();
+
+    // The first symbol serves as the undefined symbol index, so always include it and start
+    // processing symbols after it.
+    entries.add(table.entries.get(0));
+
+    // Fixup and add the remaining entries.
+    RichStream.from(MoreIterables.enumerate(table.entries)).skip(1)
+        // Generate a new sanitized symbol table entry.
+        .map(
+            pair ->
+                new ElfSymbolTable.Entry(
+                    pair.getSecond().st_name,
+                    pair.getSecond().st_info,
+                    pair.getSecond().st_other,
+                    // A section index of 0 is special and means the symbol is undefined, so we
+                    // must maintain that.  Otherwise, if it's non-zero, fix it up to an arbitrary
+                    // stable section value so the number and ordering of sections can never affect
+                    // the content of the symbol table.
+                    pair.getSecond().st_shndx > 0 ? STABLE_SECTION : pair.getSecond().st_shndx,
+                    // Substitute non-zero addresses, dependent on size/layout of sections with a
+                    // stable address determined by the index of this symbol table entry in the
+                    // symbol table.
+                    pair.getSecond().st_value == 0 ? 0 : pair.getFirst(),
+                    // For functions, set the size to zero.
+                    pair.getSecond().st_info.st_type == ElfSymbolTable.Entry.Info.Type.STT_FUNC ?
+                        0 :
+                        pair.getSecond().st_size))
+        .forEach(entries::add);
+
+    return new ElfSymbolTable(entries.build());
+  }
 
   @Override
   public StepExecutionResult execute(ExecutionContext context) throws IOException {
@@ -59,34 +102,27 @@ abstract class AbstractElfSymbolTableScrubberStep implements Step {
       Elf elf = new Elf(buffer);
 
       // Locate the symbol table section.
-      Optional<ElfSection> section = elf.getSectionByName(getSection());
+      Optional<ElfSection> section = elf.getSectionByName(getSection()).map(Pair::getSecond);
       if (!section.isPresent()) {
-        throw new IOException(
-            String.format(
-                "Error parsing ELF file %s: no such section \"%s\"",
-                getPath(),
-                getSection()));
-      }
-
-      // Iterate over each symbol table entry and zero out the address and size of each symbols.
-      for (ByteBuffer body = section.get().body.duplicate(); body.hasRemaining(); ) {
-        if (elf.header.ei_class == ElfHeader.EIClass.ELFCLASS32) {
-          Elf.Elf32.getElf32Word(body);  // st_name
-          Elf.Elf32.putElf32Addr(body, 0);  // st_value
-          Elf.Elf32.putElf32Word(body, 0);  // st_size
-          body.get();  // st_info;
-          body.get();  // st_other;
-          Elf.Elf32.getElf32Half(body);  // st_shndx
+        if (isAllowMissing()) {
+          return StepExecutionResult.SUCCESS;
         } else {
-          Elf.Elf64.getElf64Word(body);  // st_name
-          body.get();  // st_info;
-          body.get();  // st_other;
-          Elf.Elf64.getElf64Half(body);  // st_shndx
-          Elf.Elf64.putElf64Addr(body, 0L);  // st_value;
-          Elf.Elf64.putElf64Xword(body, 0L);  // st_size
+          throw new IOException(
+              String.format(
+                  "Error parsing ELF file %s: no such section \"%s\"",
+                  getPath(),
+                  getSection()));
         }
       }
+
+      // Read in and fixup the symbol table then write it back out.
+      ElfSymbolTable table = ElfSymbolTable.parse(elf.header.ei_class, section.get().body);
+      ElfSymbolTable fixedUpTable = fixUpSymbolTable(table);
+      Preconditions.checkState(table.entries.size() == fixedUpTable.entries.size());
+      section.get().body.rewind();
+      fixedUpTable.write(elf.header.ei_class, section.get().body);
     }
+
     return StepExecutionResult.SUCCESS;
   }
 

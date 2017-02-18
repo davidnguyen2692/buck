@@ -26,7 +26,7 @@ import java.util.Optional;
 import javax.annotation.Nullable;
 
 public class GenruleBuilder
-    extends AbstractNodeBuilder<GenruleDescription.Arg, GenruleDescription> {
+    extends AbstractNodeBuilder<GenruleDescription.Arg, GenruleDescription, Genrule> {
   private GenruleBuilder(BuildTarget target) {
     super(new GenruleDescription(), target);
   }
@@ -52,6 +52,11 @@ public class GenruleBuilder
 
   public GenruleBuilder setCmdExe(@Nullable String cmdExe) {
     arg.cmdExe = Optional.ofNullable(cmdExe);
+    return this;
+  }
+
+  public GenruleBuilder setType(@Nullable String type) {
+    arg.type = Optional.ofNullable(type);
     return this;
   }
 

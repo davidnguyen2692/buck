@@ -16,11 +16,10 @@
 
 package com.facebook.buck.rage;
 
+import static com.facebook.buck.rage.AbstractRageConfig.RageProtocolVersion;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertThat;
-
-import static com.facebook.buck.rage.AbstractRageConfig.RageProtocolVersion;
 
 import com.facebook.buck.cli.BuckConfig;
 import com.facebook.buck.cli.FakeBuckConfig;
@@ -35,7 +34,6 @@ import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.testutil.integration.ZipInspector;
 import com.facebook.buck.timing.Clock;
 import com.facebook.buck.timing.DefaultClock;
-import com.facebook.buck.util.CapturingPrintStream;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.DefaultProcessExecutor;
 import com.facebook.buck.util.ObjectMappers;
@@ -115,6 +113,8 @@ public class RageCommandIntegrationTest {
                 HttpServletRequest httpServletRequest,
                 HttpServletResponse httpServletResponse) throws IOException, ServletException {
               httpServletResponse.setStatus(200);
+              request.setHandled(true);
+
               if (request.getUri().getPath().equals("/status.php")) {
                 return;
               }
@@ -144,7 +144,7 @@ public class RageCommandIntegrationTest {
           reporter,
           filesystem,
           objectMapper,
-          new CapturingPrintStream(),
+          new TestConsole(),
           TestBuildEnvironmentDescription.INSTANCE,
           VcsInfoCollector.create(new NoOpCmdLineInterface()),
           rageConfig,
@@ -192,7 +192,7 @@ public class RageCommandIntegrationTest {
         defectReporter,
         filesystem,
         ObjectMappers.newDefaultInstance(),
-        new CapturingPrintStream(),
+        new TestConsole(),
         TestBuildEnvironmentDescription.INSTANCE,
         VcsInfoCollector.create(new NoOpCmdLineInterface()),
         rageConfig,
@@ -222,6 +222,7 @@ public class RageCommandIntegrationTest {
                 HttpServletRequest httpServletRequest,
                 HttpServletResponse httpServletResponse) throws IOException, ServletException {
               httpServletResponse.setStatus(500);
+              request.setHandled(true);
             }
           });
       httpd.start();
@@ -243,7 +244,7 @@ public class RageCommandIntegrationTest {
           reporter,
           filesystem,
           objectMapper,
-          new CapturingPrintStream(),
+          new TestConsole(),
           TestBuildEnvironmentDescription.INSTANCE,
           VcsInfoCollector.create(new NoOpCmdLineInterface()),
           rageConfig,
@@ -274,6 +275,8 @@ public class RageCommandIntegrationTest {
                 HttpServletRequest httpServletRequest,
                 HttpServletResponse httpResponse) throws IOException, ServletException {
               httpResponse.setStatus(200);
+              request.setHandled(true);
+
               if (request.getUri().getPath().equals("/status.php")) {
                 return;
               }
@@ -308,7 +311,7 @@ public class RageCommandIntegrationTest {
           reporter,
           filesystem,
           objectMapper,
-          new CapturingPrintStream(),
+          new TestConsole(),
           TestBuildEnvironmentDescription.INSTANCE,
           VcsInfoCollector.create(new NoOpCmdLineInterface()),
           rageConfig,

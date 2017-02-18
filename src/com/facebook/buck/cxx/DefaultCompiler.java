@@ -20,11 +20,14 @@ import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.RuleKeyObjectSink;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.Tool;
+import com.facebook.buck.util.ProcessExecutor;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 
+import java.io.InputStream;
 import java.util.Optional;
 
 public abstract class DefaultCompiler implements Compiler {
@@ -46,8 +49,8 @@ public abstract class DefaultCompiler implements Compiler {
   }
 
   @Override
-  public ImmutableCollection<BuildRule> getDeps(SourcePathResolver resolver) {
-    return tool.getDeps(resolver);
+  public ImmutableCollection<BuildRule> getDeps(SourcePathRuleFinder ruleFinder) {
+    return tool.getDeps(ruleFinder);
   }
 
   @Override
@@ -110,5 +113,10 @@ public abstract class DefaultCompiler implements Compiler {
   @Override
   public boolean shouldSanitizeOutputBinary() {
     return true;
+  }
+
+  @Override
+  public InputStream getErrorStream(ProcessExecutor.LaunchedProcess compilerProcess) {
+    return compilerProcess.getErrorStream();
   }
 }

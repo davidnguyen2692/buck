@@ -25,11 +25,13 @@ import com.facebook.buck.distributed.thrift.BuildJobStateCell;
 import com.facebook.buck.distributed.thrift.BuildJobStateFileHashes;
 import com.facebook.buck.distributed.thrift.OrderedStringMapEntry;
 import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.Cell;
 import com.facebook.buck.rules.CellProvider;
 import com.facebook.buck.rules.DefaultCellPathResolver;
 import com.facebook.buck.rules.KnownBuildRuleTypesFactory;
 import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.rules.TargetGraphAndBuildTargets;
 import com.facebook.buck.util.cache.DefaultFileHashCache;
 import com.facebook.buck.util.cache.FileHashCache;
 import com.facebook.buck.util.cache.StackedFileHashCache;
@@ -50,6 +52,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
+import java.util.Optional;
 
 import javax.annotation.Nonnull;
 
@@ -98,7 +101,9 @@ public class DistBuildState {
       DistBuildCellIndexer distributedBuildCellIndexer,
       DistBuildFileHashes fileHashes,
       DistBuildTargetGraphCodec targetGraphCodec,
-      TargetGraph targetGraph) throws IOException, InterruptedException {
+      TargetGraph targetGraph,
+      ImmutableSet<BuildTarget> topLevelTargets) throws IOException, InterruptedException {
+    Preconditions.checkArgument(topLevelTargets.size() > 0);
     BuildJobState jobState = new BuildJobState();
     jobState.setFileHashes(fileHashes.getFileHashes());
     jobState.setTargetGraph(
@@ -106,10 +111,15 @@ public class DistBuildState {
             targetGraph.getNodes(),
             distributedBuildCellIndexer));
     jobState.setCells(distributedBuildCellIndexer.getState());
+
+    for (BuildTarget target : topLevelTargets) {
+      jobState.addToTopLevelTargets(target.getFullyQualifiedName());
+    }
     return jobState;
   }
 
   public static DistBuildState load(
+      Optional<BuckConfig> localBuckConfig, // e.g. the slave's .buckconfig
       BuildJobState jobState,
       Cell rootCell,
       KnownBuildRuleTypesFactory knownBuildRuleTypesFactory) throws IOException {
@@ -132,7 +142,7 @@ public class DistBuildState {
       Path cellRoot = uniqueBuildRoot.resolve(remoteCell.getNameHint());
       Files.createDirectories(cellRoot);
 
-      Config config = createConfig(remoteCell.getConfig());
+      Config config = createConfig(remoteCell.getConfig(), localBuckConfig);
       ProjectFilesystem projectFilesystem = new ProjectFilesystem(cellRoot, config);
       BuckConfig buckConfig = createBuckConfig(config, projectFilesystem, remoteCell.getConfig());
       cellConfigs.put(cellRoot, buckConfig);
@@ -155,7 +165,9 @@ public class DistBuildState {
     return remoteState;
   }
 
-  private static Config createConfig(BuildJobStateBuckConfig remoteBuckConfig) {
+  public static Config createConfig(
+      BuildJobStateBuckConfig remoteBuckConfig,
+      Optional<BuckConfig> overrideConfig) {
     ImmutableMap<String, ImmutableMap<String, String>> rawConfig = ImmutableMap.copyOf(
         Maps.transformValues(
             remoteBuckConfig.getRawBuckConfig(),
@@ -166,7 +178,13 @@ public class DistBuildState {
               }
               return builder.build();
             }));
-    return new Config(RawConfig.of(rawConfig));
+    RawConfig.Builder rawConfigBuilder = RawConfig.builder();
+    rawConfigBuilder.putAll(rawConfig);
+
+    if (overrideConfig.isPresent()) {
+      rawConfigBuilder.putAll(overrideConfig.get().getConfig().getRawConfig());
+    }
+    return new Config(rawConfigBuilder.build());
   }
 
   private static BuckConfig createBuckConfig(
@@ -208,7 +226,8 @@ public class DistBuildState {
     return Preconditions.checkNotNull(cells.get(DistBuildCellIndexer.ROOT_CELL_INDEX));
   }
 
-  public TargetGraph createTargetGraph(DistBuildTargetGraphCodec codec) throws IOException {
+  public TargetGraphAndBuildTargets createTargetGraph(DistBuildTargetGraphCodec codec)
+      throws IOException {
     return codec.createTargetGraph(
         remoteState.getTargetGraph(),
         Functions.forMap(cells));

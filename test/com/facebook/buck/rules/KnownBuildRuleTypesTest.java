@@ -131,6 +131,7 @@ public class KnownBuildRuleTypesTest {
     arg.exportedDeps = ImmutableSortedSet.of();
     arg.deps = ImmutableSortedSet.of();
     arg.tests = ImmutableSortedSet.of();
+    arg.generateAbiFromSource = Optional.empty();
   }
 
   private DefaultJavaLibrary createJavaLibrary(KnownBuildRuleTypes buildRuleTypes)
@@ -179,15 +180,16 @@ public class KnownBuildRuleTypesTest {
         .build();
     DefaultJavaLibrary configuredRule = createJavaLibrary(configuredBuildRuleTypes);
 
-    SourcePathResolver resolver = new SourcePathResolver(
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())
-     );
+    );
+    SourcePathResolver resolver = new SourcePathResolver(ruleFinder);
     FakeFileHashCache hashCache = new FakeFileHashCache(
         ImmutableMap.of(javac, MorePaths.asByteSource(javac).hash(Hashing.sha1())));
-    RuleKey configuredKey = new DefaultRuleKeyFactory(0, hashCache, resolver).build(
-        configuredRule);
-    RuleKey libraryKey = new DefaultRuleKeyFactory(0, hashCache, resolver).build(
-        libraryRule);
+    RuleKey configuredKey = new DefaultRuleKeyFactory(0, hashCache, resolver, ruleFinder)
+        .build(configuredRule);
+    RuleKey libraryKey = new DefaultRuleKeyFactory(0, hashCache, resolver, ruleFinder)
+        .build(libraryRule);
 
     assertNotEquals(libraryKey, configuredKey);
   }

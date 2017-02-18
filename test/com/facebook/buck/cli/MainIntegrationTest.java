@@ -117,11 +117,12 @@ public class MainIntegrationTest {
   private String getUsageString() {
     return Joiner.on('\n').join(
         "buck build tool",
-        "usage:",
-        "  buck [options]",
-        "  buck command --help",
-        "  buck command [command-options]",
-        "available commands:",
+        "Usage:",
+        "  buck [<options>]",
+        "  buck <command> --help",
+        "  buck <command> [<command-options>]",
+        "",
+        "Available commands:",
         "  audit              lists the inputs for the specified target",
         "  autodeps           auto-generates dependencies for build rules, where possible",
         "  build              builds the specified target",
@@ -136,7 +137,6 @@ public class MainIntegrationTest {
         "  publish            builds and publishes a library to a central repository",
         "  query              " +
             "provides facilities to query information about the target nodes graph",
-        "  quickstart         generates a default project directory",
         "  rage               create a defect report",
         "  root               prints the absolute path to the root of the current buck project",
         "  run                runs a target as a command",
@@ -146,9 +146,11 @@ public class MainIntegrationTest {
         "  test               builds and runs the tests for the specified target",
         "  uninstall          uninstalls an APK",
         "  verify-hash-cache  Verify contents of FileHashCache",
-        "options:",
+        "",
+        "Options:",
         " --help (-h)    : Shows this screen and exits.",
         " --version (-V) : Show version number.",
+        "",
         "");
   }
 }

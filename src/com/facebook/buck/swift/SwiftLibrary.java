@@ -52,10 +52,11 @@ import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.ImmutableSortedSet;
 
 import java.util.Optional;
 import java.util.regex.Pattern;
+import java.util.stream.Stream;
+import java.util.stream.StreamSupport;
 
 /**
  * An action graph representation of a Swift library from the target graph, providing the
@@ -231,15 +232,16 @@ class SwiftLibrary
   }
 
   @Override
-  public ImmutableSortedSet<BuildRule> getRuntimeDeps() {
+  public Stream<BuildTarget> getRuntimeDeps() {
     // We export all declared deps as runtime deps, to setup a transitive runtime dep chain which
     // will pull in runtime deps (e.g. other binaries) or transitive C/C++ libraries.  Since the
     // `CxxLibrary` rules themselves are noop meta rules, they shouldn't add any unnecessary
     // overhead.
-    return ImmutableSortedSet.<BuildRule>naturalOrder()
-        .addAll(getDeclaredDeps())
-        .addAll(exportedDeps)
-        .build();
+    return Stream
+        .concat(
+            getDeclaredDeps().stream(),
+            StreamSupport.stream(exportedDeps.spliterator(), false))
+        .map(BuildRule::getBuildTarget);
   }
 
   @Override

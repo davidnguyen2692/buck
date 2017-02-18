@@ -16,7 +16,7 @@
 
 package com.facebook.buck.d;
 
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.BuildContext;
@@ -52,6 +52,7 @@ import java.util.Optional;
 import java.util.concurrent.Callable;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Stream;
 
 @SuppressWarnings("PMD.TestClassWithoutTestCases")
 public class DTest extends AbstractBuildRule implements
@@ -65,12 +66,11 @@ public class DTest extends AbstractBuildRule implements
 
   public DTest(
       BuildRuleParams params,
-      SourcePathResolver resolver,
       BuildRule testBinaryBuildRule,
       ImmutableSortedSet<String> contacts,
       ImmutableSortedSet<Label> labels,
       Optional<Long> testRuleTimeoutMs) {
-    super(params, resolver);
+    super(params);
     this.contacts = contacts;
     this.labels = labels;
     this.testRuleTimeoutMs = testRuleTimeoutMs;
@@ -89,9 +89,8 @@ public class DTest extends AbstractBuildRule implements
     return contacts;
   }
 
-  public ImmutableList<String> getExecutableCommand(ProjectFilesystem projectFilesystem) {
-    return ImmutableList.of(
-        projectFilesystem.resolve(getPathToOutput()).toString());
+  private ImmutableList<String> getExecutableCommand(SourcePathResolver pathResolver) {
+    return ImmutableList.of(pathResolver.getAbsolutePath(getSourcePathToOutput()).toString());
   }
 
   @Override
@@ -126,8 +125,8 @@ public class DTest extends AbstractBuildRule implements
     return new BuildableProperties(BuildableProperties.Kind.TEST);
   }
 
-  private ImmutableList<String> getShellCommand() {
-    return getExecutableCommand(getProjectFilesystem());
+  private ImmutableList<String> getShellCommand(SourcePathResolver pathResolver) {
+    return getExecutableCommand(pathResolver);
   }
 
   @Override
@@ -206,12 +205,13 @@ public class DTest extends AbstractBuildRule implements
   public ImmutableList<Step> runTests(
       ExecutionContext executionContext,
       TestRunningOptions options,
+      SourcePathResolver pathResolver,
       TestReportingCallback testReportingCallback) {
     return ImmutableList.of(
         new MakeCleanDirectoryStep(getProjectFilesystem(), getPathToTestOutputDirectory()),
         new DTestStep(
             getProjectFilesystem(),
-            getShellCommand(),
+            getShellCommand(pathResolver),
             getPathToTestExitCode(),
             testRuleTimeoutMs,
             getPathToTestOutput()));
@@ -230,11 +230,12 @@ public class DTest extends AbstractBuildRule implements
   @Override
   public ExternalTestRunnerTestSpec getExternalTestRunnerSpec(
       ExecutionContext executionContext,
-      TestRunningOptions testRunningOptions) {
+      TestRunningOptions testRunningOptions,
+      SourcePathResolver pathResolver) {
     return ExternalTestRunnerTestSpec.builder()
         .setTarget(getBuildTarget())
         .setType("dunit")
-        .setCommand(getShellCommand())
+        .setCommand(getShellCommand(pathResolver))
         .setLabels(getLabels())
         .setContacts(getContacts())
         .build();
@@ -246,10 +247,10 @@ public class DTest extends AbstractBuildRule implements
   }
 
   @Override
-  public ImmutableSortedSet<BuildRule> getRuntimeDeps() {
+  public Stream<BuildTarget> getRuntimeDeps() {
     // Return the actual executable as a runtime dependency.
     // Without this, the file is not written when we get a cache hit.
-    return ImmutableSortedSet.of(testBinaryBuildRule);
+    return Stream.of(testBinaryBuildRule.getBuildTarget());
   }
 
 }

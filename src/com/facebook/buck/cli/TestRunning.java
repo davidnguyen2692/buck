@@ -18,7 +18,6 @@ package com.facebook.buck.cli;
 
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.ConsoleEvent;
-import com.facebook.buck.io.MoreProjectFilesystems;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.jvm.java.DefaultJavaLibrary;
 import com.facebook.buck.jvm.java.DefaultJavaPackageFinder;
@@ -29,13 +28,17 @@ import com.facebook.buck.jvm.java.JavaLibrary;
 import com.facebook.buck.jvm.java.JavaLibraryWithTests;
 import com.facebook.buck.jvm.java.JavaRuntimeLauncher;
 import com.facebook.buck.jvm.java.JavaTest;
+import com.facebook.buck.jvm.java.JavacOptions;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.HasBuildTarget;
 import com.facebook.buck.rules.BuildEngine;
 import com.facebook.buck.rules.BuildResult;
+import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleSuccessType;
 import com.facebook.buck.rules.IndividualTestEvent;
+import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TestRule;
 import com.facebook.buck.rules.TestRunEvent;
 import com.facebook.buck.rules.TestStatusMessageEvent;
@@ -126,20 +129,22 @@ public class TestRunning {
       final TestRunningOptions options,
       ListeningExecutorService service,
       BuildEngine buildEngine,
-      final StepRunner stepRunner)
+      final StepRunner stepRunner,
+      SourcePathResolver sourcePathResolver,
+      SourcePathRuleFinder ruleFinder)
       throws IOException, ExecutionException, InterruptedException {
 
-    ImmutableSet<JavaLibrary> rulesUnderTest;
+    ImmutableSet<JavaLibrary> rulesUnderTestForCoverage;
     // If needed, we first run instrumentation on the class files.
     if (options.isCodeCoverageEnabled()) {
-      rulesUnderTest = getRulesUnderTest(tests);
-      if (!rulesUnderTest.isEmpty()) {
+      rulesUnderTestForCoverage = getRulesUnderTest(tests);
+      if (!rulesUnderTestForCoverage.isEmpty()) {
         try {
           // We'll use the filesystem of the first rule under test. This will fail if there are any
           // tests from a different repo, but it'll help us bootstrap ourselves to being able to
           // support multiple repos
           // TODO(t8220837): Support tests in multiple repos
-          JavaLibrary library = rulesUnderTest.iterator().next();
+          JavaLibrary library = rulesUnderTestForCoverage.iterator().next();
           stepRunner.runStepForBuildTarget(
               executionContext,
               new MakeCleanDirectoryStep(
@@ -153,12 +158,12 @@ public class TestRunning {
         }
       }
     } else {
-      rulesUnderTest = ImmutableSet.of();
+      rulesUnderTestForCoverage = ImmutableSet.of();
     }
 
     final ImmutableSet<String> testTargets =
         FluentIterable.from(tests)
-            .transform(HasBuildTarget::getBuildTarget)
+            .transform(BuildRule::getBuildTarget)
             .transform(Object::toString)
             .toSet();
 
@@ -287,6 +292,7 @@ public class TestRunning {
         List<Step> testSteps = test.runTests(
             executionContext,
             options,
+            sourcePathResolver,
             testReportingCallback);
         if (!testSteps.isEmpty()) {
           stepsBuilder.addAll(testSteps);
@@ -424,22 +430,27 @@ public class TestRunning {
     }
 
     // Generate the code coverage report.
-    if (options.isCodeCoverageEnabled() && !rulesUnderTest.isEmpty()) {
+    if (options.isCodeCoverageEnabled() && !rulesUnderTestForCoverage.isEmpty()) {
       try {
+        JavaBuckConfig javaBuckConfig = params.getBuckConfig().getView(JavaBuckConfig.class);
         DefaultJavaPackageFinder defaultJavaPackageFinder =
-            params.getBuckConfig().getView(JavaBuckConfig.class).createDefaultJavaPackageFinder();
+            javaBuckConfig.createDefaultJavaPackageFinder();
         stepRunner.runStepForBuildTarget(
             executionContext,
             getReportCommand(
-                rulesUnderTest,
-                Optional.of(defaultJavaPackageFinder),
-                params.getBuckConfig().getView(JavaBuckConfig.class)
+                rulesUnderTestForCoverage,
+                defaultJavaPackageFinder,
+                javaBuckConfig
                     .getDefaultJavaOptions()
                     .getJavaRuntimeLauncher(),
                 params.getCell().getFilesystem(),
+                sourcePathResolver,
+                ruleFinder,
                 JacocoConstants.getJacocoOutputDir(params.getCell().getFilesystem()),
                 options.getCoverageReportFormat(),
                 options.getCoverageReportTitle(),
+                javaBuckConfig.getDefaultJavacOptions().getSpoolMode() ==
+                     JavacOptions.SpoolMode.INTERMEDIATE_TO_DISK,
                 options.getCoverageIncludes(),
                 options.getCoverageExcludes()),
             Optional.empty());
@@ -766,36 +777,48 @@ public class TestRunning {
    */
   private static Step getReportCommand(
       ImmutableSet<JavaLibrary> rulesUnderTest,
-      Optional<DefaultJavaPackageFinder> defaultJavaPackageFinderOptional,
+      DefaultJavaPackageFinder defaultJavaPackageFinder,
       JavaRuntimeLauncher javaRuntimeLauncher,
       ProjectFilesystem filesystem,
+      SourcePathResolver sourcePathResolver,
+      SourcePathRuleFinder ruleFinder,
       Path outputDirectory,
       CoverageReportFormat format,
       String title,
+      boolean useIntermediateClassesDir,
       Optional<String> coverageIncludes,
       Optional<String> coverageExcludes) {
     ImmutableSet.Builder<String> srcDirectories = ImmutableSet.builder();
-    ImmutableSet.Builder<Path> pathsToClasses = ImmutableSet.builder();
+    ImmutableSet.Builder<Path> pathsToJars = ImmutableSet.builder();
 
     // Add all source directories of java libraries that we are testing to -sourcepath.
     for (JavaLibrary rule : rulesUnderTest) {
       ImmutableSet<String> sourceFolderPath =
-          getPathToSourceFolders(rule, defaultJavaPackageFinderOptional, filesystem);
+          getPathToSourceFolders(rule, sourcePathResolver, ruleFinder, defaultJavaPackageFinder);
       if (!sourceFolderPath.isEmpty()) {
         srcDirectories.addAll(sourceFolderPath);
       }
-      Path classesDir = DefaultJavaLibrary.getClassesDir(rule.getBuildTarget(), filesystem);
-      if (classesDir == null) {
+      Path classesItem = null;
+
+      if (useIntermediateClassesDir) {
+        classesItem = DefaultJavaLibrary.getClassesDir(rule.getBuildTarget(), filesystem);
+      } else {
+        SourcePath path = rule.getSourcePathToOutput();
+        if (path != null) {
+          classesItem = sourcePathResolver.getRelativePath(path);
+        }
+      }
+      if (classesItem == null) {
         continue;
       }
-      pathsToClasses.add(classesDir);
+      pathsToJars.add(classesItem);
     }
 
     return new GenerateCodeCoverageReportStep(
         javaRuntimeLauncher,
         filesystem,
         srcDirectories.build(),
-        pathsToClasses.build(),
+        pathsToJars.build(),
         outputDirectory,
         format,
         title,
@@ -809,37 +832,31 @@ public class TestRunning {
   @VisibleForTesting
   static ImmutableSet<String> getPathToSourceFolders(
       JavaLibrary rule,
-      Optional<DefaultJavaPackageFinder> defaultJavaPackageFinderOptional,
-      ProjectFilesystem filesystem) {
-    ImmutableSet<Path> javaSrcs = rule.getJavaSrcs();
+      SourcePathResolver sourcePathResolver,
+      SourcePathRuleFinder ruleFinder,
+      DefaultJavaPackageFinder defaultJavaPackageFinder) {
+    ImmutableSet<SourcePath> javaSrcs = rule.getJavaSrcs();
 
     // A Java library rule with just resource files has an empty javaSrcs.
     if (javaSrcs.isEmpty()) {
       return ImmutableSet.of();
     }
 
-    // If defaultJavaPackageFinderOptional is not present, then it could mean that there was an
-    // error reading from the buck configuration file.
-    if (!defaultJavaPackageFinderOptional.isPresent()) {
-      throw new HumanReadableException(
-          "Please include a [java] section with src_root property in the .buckconfig file.");
-    }
-
-    DefaultJavaPackageFinder defaultJavaPackageFinder = defaultJavaPackageFinderOptional.get();
-
     // Iterate through all source paths to make sure we are generating a complete set of source
     // folders for the source paths.
     Set<String> srcFolders = Sets.newHashSet();
     loopThroughSourcePath:
-    for (Path javaSrcPath : javaSrcs) {
-      if (MoreProjectFilesystems.isGeneratedFile(filesystem, javaSrcPath)) {
+    for (SourcePath javaSrcPath : javaSrcs) {
+      if (ruleFinder.getRule(javaSrcPath).isPresent()) {
         continue;
       }
+
+      Path javaSrcRelativePath = sourcePathResolver.getRelativePath(javaSrcPath);
 
       // If the source path is already under a known source folder, then we can skip this
       // source path.
       for (String srcFolder : srcFolders) {
-        if (javaSrcPath.startsWith(srcFolder)) {
+        if (javaSrcRelativePath.startsWith(srcFolder)) {
           continue loopThroughSourcePath;
         }
       }
@@ -848,7 +865,7 @@ public class TestRunning {
       // root.
       ImmutableSortedSet<String> pathsFromRoot = defaultJavaPackageFinder.getPathsFromRoot();
       for (String root : pathsFromRoot) {
-        if (javaSrcPath.startsWith(root)) {
+        if (javaSrcRelativePath.startsWith(root)) {
           srcFolders.add(root);
           continue loopThroughSourcePath;
         }
@@ -857,7 +874,7 @@ public class TestRunning {
       // Traverse the file system from the parent directory of the java file until we hit the
       // parent of the src root directory.
       ImmutableSet<String> pathElements = defaultJavaPackageFinder.getPathElements();
-      Path directory = filesystem.getPathForRelativePath(javaSrcPath.getParent());
+      Path directory = sourcePathResolver.getAbsolutePath(javaSrcPath).getParent();
       if (pathElements.isEmpty()) {
         continue;
       }

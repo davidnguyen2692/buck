@@ -16,18 +16,16 @@
 
 package com.facebook.buck.cxx;
 
+import static org.easymock.EasyMock.createMock;
 import static org.junit.Assert.assertEquals;
 
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CommandTool;
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.FakeTestRule;
 import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
@@ -65,10 +63,6 @@ public class CxxTestTest {
     public FakeCxxTest() {
       super(
           createBuildParams(),
-          new SourcePathResolver(
-              new BuildRuleResolver(
-                  TargetGraph.EMPTY,
-                  new DefaultTargetNodeToBuildRuleTransformer())),
           ImmutableMap.of(),
           Suppliers.ofInstance(ImmutableMap.of()),
           Suppliers.ofInstance(ImmutableList.of()),
@@ -81,7 +75,7 @@ public class CxxTestTest {
     }
 
     @Override
-    protected ImmutableList<String> getShellCommand(Path output) {
+    protected ImmutableList<String> getShellCommand(SourcePathResolver resolver, Path output) {
       return ImmutableList.of();
     }
 
@@ -109,7 +103,9 @@ public class CxxTestTest {
           }
 
           @Override
-          protected ImmutableList<String> getShellCommand(Path output) {
+          protected ImmutableList<String> getShellCommand(
+              SourcePathResolver resolver,
+              Path output) {
             return command;
           }
 
@@ -130,6 +126,7 @@ public class CxxTestTest {
     ImmutableList<Step> actualSteps = cxxTest.runTests(
         executionContext,
         options,
+        createMock(SourcePathResolver.class),
         FakeTestRule.NOOP_REPORTING_CALLBACK);
 
     CxxTestStep cxxTestStep =

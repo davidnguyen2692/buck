@@ -42,6 +42,7 @@ import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.SourceWithFlags;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
@@ -77,7 +78,7 @@ public class IjModuleFactoryTest {
         moduleBasePath,
         ImmutableSet.of(javaLibBase));
 
-    assertEquals(ImmutableMap.of(buildTargetGuava, IjModuleGraph.DependencyType.PROD),
+    assertEquals(ImmutableMap.of(buildTargetGuava, DependencyType.PROD),
         module.getDependencies());
   }
 
@@ -107,8 +108,8 @@ public class IjModuleFactoryTest {
         ImmutableSet.of(javaLibBase, javaLibExtra));
 
     assertEquals(ImmutableMap.of(
-            buildTargetGuava, IjModuleGraph.DependencyType.PROD,
-            buildTargetJunit, IjModuleGraph.DependencyType.PROD),
+            buildTargetGuava, DependencyType.PROD,
+            buildTargetJunit, DependencyType.PROD),
         module.getDependencies());
   }
 
@@ -129,7 +130,7 @@ public class IjModuleFactoryTest {
         moduleBasePath,
         ImmutableSet.of(javaTestExtra));
 
-    assertEquals(ImmutableMap.of(buildTargetJunit, IjModuleGraph.DependencyType.TEST),
+    assertEquals(ImmutableMap.of(buildTargetJunit, DependencyType.TEST),
         module.getDependencies());
   }
 
@@ -161,8 +162,8 @@ public class IjModuleFactoryTest {
     // Guava is a dependency of both a prod and test target therefore it should be kept as a
     // prod dependency.
     assertEquals(ImmutableMap.of(
-            buildTargetGuava, IjModuleGraph.DependencyType.PROD,
-            buildTargetJunit, IjModuleGraph.DependencyType.TEST),
+            buildTargetGuava, DependencyType.PROD,
+            buildTargetJunit, DependencyType.TEST),
         module.getDependencies());
   }
 
@@ -206,9 +207,9 @@ public class IjModuleFactoryTest {
     // and prod sets. Therefore it is necessary to "promote" the test dependencies to prod so that
     // it's possible to compile all of the code in the folder.
     assertEquals(ImmutableMap.of(
-            buildTargetGuava, IjModuleGraph.DependencyType.PROD,
-            buildTargetJunit, IjModuleGraph.DependencyType.PROD,
-            buildTargetHamcrest, IjModuleGraph.DependencyType.TEST),
+            buildTargetGuava, DependencyType.PROD,
+            buildTargetJunit, DependencyType.PROD,
+            buildTargetHamcrest, DependencyType.TEST),
         module.getDependencies());
   }
 
@@ -239,11 +240,11 @@ public class IjModuleFactoryTest {
         ImmutableSet.of(androidBinary));
 
     assertEquals(ImmutableMap.of(
-            buildTargetGuava, IjModuleGraph.DependencyType.PROD),
+            buildTargetGuava, DependencyType.PROD),
         moduleJavaLib.getDependencies());
 
     assertEquals(ImmutableMap.of(
-            javaLibBase.getBuildTarget(), IjModuleGraph.DependencyType.PROD),
+            javaLibBase.getBuildTarget(), DependencyType.PROD),
         moduleFromBinary.getDependencies());
   }
 
@@ -276,13 +277,13 @@ public class IjModuleFactoryTest {
         ImmutableSet.of(javaLibWithAnnotationProcessor));
 
     assertEquals(ImmutableMap.of(
-            genruleBuildTarget, IjModuleGraph.DependencyType.PROD,
-            javaLibWithGenrule.getBuildTarget(), IjModuleGraph.DependencyType.COMPILED_SHADOW),
+            genruleBuildTarget, DependencyType.PROD,
+            javaLibWithGenrule.getBuildTarget(), DependencyType.COMPILED_SHADOW),
         moduleJavaLibWithGenrule.getDependencies());
 
     assertEquals(ImmutableMap.of(
             javaLibWithAnnotationProcessor.getBuildTarget(),
-            IjModuleGraph.DependencyType.COMPILED_SHADOW),
+            DependencyType.COMPILED_SHADOW),
         moduleJavaLibWithAnnotationProcessor.getDependencies());
   }
 
@@ -532,7 +533,8 @@ public class IjModuleFactoryTest {
 
   @Test
   public void testAndroidPrebuiltAar() {
-    final Path androidSupportBinaryPath = Paths.get("third_party/java/support/support.aar");
+    final SourcePath androidSupportBinaryPath =
+        new FakeSourcePath("third_party/java/support/support.aar");
     final Path androidSupportSourcesPath =
         Paths.get("third_party/java/support/support-sources.jar");
     final String androidSupportJavadocUrl = "file:///support/docs";
@@ -546,16 +548,17 @@ public class IjModuleFactoryTest {
     final BuildRuleResolver buildRuleResolver = new BuildRuleResolver(
         TargetGraph.EMPTY,
         new DefaultTargetNodeToBuildRuleTransformer());
-    final SourcePathResolver sourcePathResolver = new SourcePathResolver(buildRuleResolver);
-    DefaultIjLibraryFactory.IjLibraryFactoryResolver ijLibraryFactoryResolver =
-        new DefaultIjLibraryFactory.IjLibraryFactoryResolver() {
+    final SourcePathResolver sourcePathResolver =
+        new SourcePathResolver(new SourcePathRuleFinder(buildRuleResolver));
+    IjLibraryFactoryResolver ijLibraryFactoryResolver =
+        new IjLibraryFactoryResolver() {
           @Override
           public Path getPath(SourcePath path) {
             return sourcePathResolver.getRelativePath(path);
           }
 
           @Override
-          public Optional<Path> getPathIfJavaLibrary(TargetNode<?, ?> targetNode) {
+          public Optional<SourcePath> getPathIfJavaLibrary(TargetNode<?, ?> targetNode) {
             if (targetNode.equals(androidPrebuiltAar)) {
               return Optional.of(androidSupportBinaryPath);
             }
@@ -566,7 +569,9 @@ public class IjModuleFactoryTest {
     Optional<IjLibrary> library = new DefaultIjLibraryFactory(ijLibraryFactoryResolver)
         .getLibrary(androidPrebuiltAar);
     assertTrue(library.isPresent());
-    assertEquals(library.get().getBinaryJar(), Optional.of(androidSupportBinaryPath));
+    assertEquals(
+        library.get().getBinaryJar(),
+        Optional.of(sourcePathResolver.getRelativePath(androidSupportBinaryPath)));
     assertEquals(library.get().getSourceJar(), Optional.of(androidSupportSourcesPath));
     assertEquals(library.get().getJavadocUrl(), Optional.of(androidSupportJavadocUrl));
   }
@@ -578,7 +583,7 @@ public class IjModuleFactoryTest {
   private IjModuleFactory createIjModuleFactory(BuckConfig buckConfig) {
     return new IjModuleFactory(
         new FakeProjectFilesystem(),
-        new IjModuleFactory.IjModuleFactoryResolver() {
+        new IjModuleFactoryResolver() {
           @Override
           public Optional<Path> getDummyRDotJavaPath(TargetNode<?, ?> targetNode) {
             return Optional.empty();

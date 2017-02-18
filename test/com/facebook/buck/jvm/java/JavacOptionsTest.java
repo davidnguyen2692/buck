@@ -17,6 +17,7 @@
 package com.facebook.buck.jvm.java;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
+import static org.easymock.EasyMock.createMock;
 import static org.hamcrest.Matchers.hasEntry;
 import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.hasKey;
@@ -28,14 +29,15 @@ import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assume.assumeThat;
 
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.Either;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.util.environment.Platform;
-import com.google.common.base.Functions;
 import com.google.common.collect.Lists;
 
 import org.hamcrest.Matcher;
@@ -113,6 +115,13 @@ public class JavacOptionsTest {
   }
 
   @Test
+  public void abiGenerationModeClassByDefault() {
+    JavacOptions options = createStandardBuilder().build();
+
+    assertThat(options.getAbiGenerationMode(), is(JavacOptions.AbiGenerationMode.CLASS));
+  }
+
+  @Test
   public void productionBuildsCanBeEnabled() {
     JavacOptions options = createStandardBuilder()
         .setProductionBuild(true)
@@ -140,6 +149,7 @@ public class JavacOptionsTest {
   @Test
   public void shouldSetTheAnnotationSource() {
     AnnotationProcessingParams params = new AnnotationProcessingParams.Builder()
+        .setSafeAnnotationProcessors(Collections.emptySet())
         .addAllProcessors(Collections.singleton("processor"))
         .setProcessOnly(true)
         .build();
@@ -154,6 +164,7 @@ public class JavacOptionsTest {
   @Test
   public void shouldAddAllAddedAnnotationProcessors() {
     AnnotationProcessingParams params = new AnnotationProcessingParams.Builder()
+        .setSafeAnnotationProcessors(Collections.emptySet())
         .addAllProcessors(Lists.newArrayList("myproc", "theirproc"))
         .setProcessOnly(true)
         .build();
@@ -272,11 +283,11 @@ public class JavacOptionsTest {
         .setJavacJarPath(javacJarPath)
         .build();
 
-    SourcePathResolver resolver = new SourcePathResolver(
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())
      );
     assertThat(
-        options.getInputs(resolver),
+        options.getInputs(ruleFinder),
         Matchers.containsInAnyOrder(javacJarPath));
   }
 
@@ -305,7 +316,10 @@ public class JavacOptionsTest {
 
   private OptionAccumulator visitOptions(JavacOptions options) {
     OptionAccumulator optionsConsumer = new OptionAccumulator();
-    options.appendOptionsTo(optionsConsumer, Functions.identity());
+    options.appendOptionsTo(
+        optionsConsumer,
+        createMock(SourcePathResolver.class),
+        createMock(ProjectFilesystem.class));
     return optionsConsumer;
   }
 

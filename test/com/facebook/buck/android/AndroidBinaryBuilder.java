@@ -21,6 +21,7 @@ import static com.facebook.buck.jvm.java.JavaCompilationConstants.DEFAULT_JAVA_O
 
 import com.facebook.buck.android.FilterResourcesStep.ResourceFilter;
 import com.facebook.buck.android.ResourcesFilter.ResourceCompressionMode;
+import com.facebook.buck.android.aapt.RDotTxtEntry;
 import com.facebook.buck.cli.FakeBuckConfig;
 import com.facebook.buck.cxx.CxxPlatformUtils;
 import com.facebook.buck.model.BuildTarget;
@@ -35,8 +36,8 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 
-public class AndroidBinaryBuilder
-    extends AbstractNodeBuilder<AndroidBinaryDescription.Arg, AndroidBinaryDescription> {
+public class AndroidBinaryBuilder extends
+    AbstractNodeBuilder<AndroidBinaryDescription.Arg, AndroidBinaryDescription, AndroidBinary> {
 
   private AndroidBinaryBuilder(BuildTarget target) {
     super(
@@ -127,4 +128,19 @@ public class AndroidBinaryBuilder
     return this;
   }
 
+  public AndroidBinaryBuilder setDuplicateResourceBehavior(
+      AndroidBinaryDescription.Arg.DuplicateResourceBehaviour value) {
+    arg.duplicateResourceBehavior = value;
+    return this;
+  }
+
+  public AndroidBinaryBuilder setBannedDuplicateResourceTypes(Set<RDotTxtEntry.RType> value) {
+    arg.bannedDuplicateResourceTypes = value;
+    return this;
+  }
+
+  public AndroidBinaryBuilder setAllowedDuplicateResourceTypes(Set<RDotTxtEntry.RType> value) {
+    arg.allowedDuplicateResourceTypes = value;
+    return this;
+  }
 }

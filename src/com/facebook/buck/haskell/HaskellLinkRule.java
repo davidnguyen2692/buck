@@ -24,7 +24,6 @@ import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.shell.ShellStep;
@@ -56,13 +55,12 @@ public class HaskellLinkRule extends AbstractBuildRule {
 
   public HaskellLinkRule(
       BuildRuleParams buildRuleParams,
-      SourcePathResolver resolver,
       Tool linker,
       String name,
       ImmutableList<Arg> args,
       ImmutableList<Arg> linkerArgs,
       boolean cacheable) {
-    super(buildRuleParams, resolver);
+    super(buildRuleParams);
     this.linker = linker;
     this.name = name;
     this.args = args;
@@ -98,9 +96,9 @@ public class HaskellLinkRule extends AbstractBuildRule {
           }
 
           @Override
-          protected ImmutableList<String> getShellCommandInternal(ExecutionContext context) {
+          protected ImmutableList<String> getShellCommandInternal(ExecutionContext execContext) {
             return ImmutableList.<String>builder()
-                .addAll(linker.getCommandPrefix(getResolver()))
+                .addAll(linker.getCommandPrefix(context.getSourcePathResolver()))
                 .add("-o", getProjectFilesystem().resolve(getOutput()).toString())
                 .addAll(Arg.stringify(args))
                 .addAll(

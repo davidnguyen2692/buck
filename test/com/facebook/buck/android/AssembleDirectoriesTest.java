@@ -19,18 +19,19 @@ package com.facebook.buck.android;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.junit.Assert.assertEquals;
 
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
-import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildContext;
 import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.FakeBuildableContext;
 import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
@@ -75,21 +76,24 @@ public class AssembleDirectoriesTest {
             .build();
     ImmutableList<SourcePath> directories = ImmutableList.of(
         new FakeSourcePath(filesystem, "folder_a"), new FakeSourcePath(filesystem, "folder_b"));
+    BuildRuleResolver ruleResolver = new BuildRuleResolver(
+        TargetGraph.EMPTY,
+        new DefaultTargetNodeToBuildRuleTransformer());
+    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(
+        ruleResolver
+    ));
     AssembleDirectories assembleDirectories = new AssembleDirectories(
         buildRuleParams,
-        new SourcePathResolver(
-            new BuildRuleResolver(
-              TargetGraph.EMPTY,
-              new DefaultTargetNodeToBuildRuleTransformer())
-        ),
         directories);
+    ruleResolver.addToIndex(assembleDirectories);
+
     ImmutableList<Step> steps = assembleDirectories.getBuildSteps(
-        FakeBuildContext.NOOP_CONTEXT,
+        FakeBuildContext.withSourcePathResolver(pathResolver),
         new FakeBuildableContext());
     for (Step step : steps) {
       assertEquals(0, step.execute(context).getExitCode());
     }
-    Path outputFile = filesystem.resolve(assembleDirectories.getPathToOutput());
+    Path outputFile = pathResolver.getAbsolutePath(assembleDirectories.getSourcePathToOutput());
     try (DirectoryStream<Path> dir = Files.newDirectoryStream(outputFile)) {
       assertEquals(4, Iterables.size(dir));
     }

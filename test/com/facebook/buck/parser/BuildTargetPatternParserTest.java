@@ -117,7 +117,7 @@ public class BuildTargetPatternParserTest {
     assertEquals(
         new SubdirectoryBuildTargetPattern(
             filesystem.getRootPath(),
-            filesystem.getRootPath().getFileSystem().getPath("sub")),
+            filesystem.getPath("sub")),
         buildTargetPatternParser.parse(cellNames, "other//sub/..."));
   }
 
@@ -128,8 +128,8 @@ public class BuildTargetPatternParserTest {
         BuildTargetPatternParser.forVisibilityArgument();
 
     exception.expect(BuildTargetParseException.class);
-    exception.expectMessage("Build target path cannot be absolute or contain . or .. " +
-        "(found ///facebookorca/...)");
+    exception.expectMessage("absolute");
+    exception.expectMessage("(found ///facebookorca/...)");
     buildTargetPatternParser.parse(createCellRoots(filesystem), "///facebookorca/...");
   }
 }

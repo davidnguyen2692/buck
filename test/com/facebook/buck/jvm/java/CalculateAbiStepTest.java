@@ -16,19 +16,15 @@
 
 package com.facebook.buck.jvm.java;
 
-import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.junit.Assert.assertEquals;
 
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.rules.FakeBuildableContext;
-import com.facebook.buck.rules.keys.AbiRule;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.TestExecutionContext;
-import com.facebook.buck.testutil.Zip;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.testutil.integration.ZipInspector;
-import com.google.common.collect.ImmutableMap;
 
 import org.junit.Rule;
 import org.junit.Test;
@@ -39,7 +35,6 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 
 public class CalculateAbiStepTest {
-
   @Rule
   public TemporaryPaths temp = new TemporaryPaths();
 
@@ -60,11 +55,7 @@ public class CalculateAbiStepTest {
     FakeBuildableContext context = new FakeBuildableContext();
     new CalculateAbiStep(context, filesystem, binJar, abiJar).execute(executionContext);
 
-    String expectedHash = filesystem.computeSha1(Paths.get("abi.jar")).getHash();
-    ImmutableMap<String, Object> metadata = context.getRecordedMetadata();
-    Object seenHash = metadata.get(AbiRule.ABI_KEY_ON_DISK_METADATA);
-
-    assertEquals(expectedHash, seenHash);
+    String seenHash = filesystem.computeSha1(Paths.get("abi.jar")).getHash();
 
     // Hi there! This is hardcoded here because we want to make sure buck always produces the same
     // jar files across timezones and versions. If the test is failing because of an intentional
@@ -72,35 +63,10 @@ public class CalculateAbiStepTest {
     // investigate why the value is different.
     // NOTE: If this starts failing on CI for no obvious reason it's possible that the offset
     // calculation in ZipConstants.getFakeTime() does not account for DST correctly.
-    assertEquals("6866a1f2e236dd85c7ed9b7c291c0cc61d6451d3", seenHash);
+    assertEquals("929dc3a9a3470e885bf97eba60dd68b520b55c48", seenHash);
 
     // Assert that the abiJar contains non-class resources (like txt files).
     ZipInspector inspector = new ZipInspector(abiJar);
     inspector.assertFileExists("LICENSE.txt");
-  }
-
-  @Test
-  public void fallsBackToCalculatingAbiFromInputJarIfClassFileIsMalformed() throws IOException {
-    Path outDir = temp.newFolder().toAbsolutePath();
-    ProjectFilesystem filesystem = new ProjectFilesystem(outDir);
-
-    Path binJar = outDir.resolve("bad.jar");
-    try (Zip zip = new Zip(binJar, true)){
-      zip.add("Broken.class", "cafebabe bacon and cheese".getBytes(UTF_8));
-    }
-    String expectedHash = filesystem.computeSha1(binJar).getHash();
-
-    Path abiJar = outDir.resolve("abi.jar");
-
-    ExecutionContext executionContext = TestExecutionContext.newBuilder()
-        .build();
-
-    FakeBuildableContext context = new FakeBuildableContext();
-    new CalculateAbiStep(context, filesystem, binJar, abiJar).execute(executionContext);
-
-    ImmutableMap<String, Object> metadata = context.getRecordedMetadata();
-    Object seenHash = metadata.get(AbiRule.ABI_KEY_ON_DISK_METADATA);
-
-    assertEquals(expectedHash, seenHash);
   }
 }

@@ -47,8 +47,6 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.io.Reader;
-import java.io.StringReader;
 import java.math.BigInteger;
 import java.nio.file.CopyOption;
 import java.nio.file.FileAlreadyExistsException;
@@ -532,7 +530,7 @@ public class FakeProjectFilesystem extends ProjectFilesystem {
   }
 
   @Override
-  public Path createNewFile(Path path) throws IOException {
+  public Path createNewFile(Path path) {
     writeBytesToPath(new byte[0], path);
     return path;
   }
@@ -541,7 +539,7 @@ public class FakeProjectFilesystem extends ProjectFilesystem {
   public void writeLinesToPath(
       Iterable<String> lines,
       Path path,
-      FileAttribute<?>... attrs) throws IOException {
+      FileAttribute<?>... attrs) {
     StringBuilder builder = new StringBuilder();
     if (!Iterables.isEmpty(lines)) {
       Joiner.on('\n').appendTo(builder, lines);
@@ -554,7 +552,7 @@ public class FakeProjectFilesystem extends ProjectFilesystem {
   public void writeContentsToPath(
       String contents,
       Path path,
-      FileAttribute<?>... attrs) throws IOException {
+      FileAttribute<?>... attrs) {
     writeBytesToPath(contents.getBytes(Charsets.UTF_8), path, attrs);
   }
 
@@ -562,7 +560,7 @@ public class FakeProjectFilesystem extends ProjectFilesystem {
   public void writeBytesToPath(
       byte[] bytes,
       Path path,
-      FileAttribute<?>... attrs) throws IOException {
+      FileAttribute<?>... attrs) {
     Path normalizedPath = MorePaths.normalize(path);
     fileContents.put(normalizedPath, Preconditions.checkNotNull(bytes));
     fileAttributes.put(normalizedPath, ImmutableSet.copyOf(attrs));
@@ -632,18 +630,6 @@ public class FakeProjectFilesystem extends ProjectFilesystem {
       return Optional.empty();
     }
     return Optional.of(new String(getFileBytes(path), Charsets.UTF_8));
-  }
-
-  /**
-   * Does not support symlinks.
-   */
-  @Override
-  public Optional<Reader> getReaderIfFileExists(Path path) {
-    Optional<String> content = readFileIfItExists(path);
-    if (!content.isPresent()) {
-      return Optional.empty();
-    }
-    return Optional.of((Reader) new StringReader(content.get()));
   }
 
   /**

@@ -34,10 +34,10 @@ public class PathSourcePathTest {
     ProjectFilesystem projectFilesystem = new FakeProjectFilesystem();
     PathSourcePath path = new PathSourcePath(projectFilesystem, Paths.get("cheese"));
 
-    SourcePathResolver resolver = new SourcePathResolver(
+    SourcePathResolver resolver = new SourcePathResolver(new SourcePathRuleFinder(
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())
-     );
-    Path resolved = resolver.deprecatedGetPath(path);
+     ));
+    Path resolved = resolver.getRelativePath(path);
 
     assertEquals(Paths.get("cheese"), resolved);
   }

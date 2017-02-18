@@ -16,7 +16,9 @@
 
 package com.facebook.buck.rules;
 
-import com.google.common.collect.ImmutableSortedSet;
+import com.facebook.buck.model.BuildTarget;
+
+import java.util.stream.Stream;
 
 /**
  * Provides a facility for a rule to list dependencies it'll need at runtime.
@@ -35,5 +37,5 @@ import com.google.common.collect.ImmutableSortedSet;
  * the future.
  */
 public interface HasRuntimeDeps extends BuildRule {
-  ImmutableSortedSet<BuildRule> getRuntimeDeps();
+  Stream<BuildTarget> getRuntimeDeps();
 }

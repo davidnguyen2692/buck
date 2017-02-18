@@ -24,8 +24,9 @@ import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.RuleKey;
-import com.facebook.buck.rules.RuleKeyBuilder;
+import com.facebook.buck.rules.keys.RuleKeyBuilder;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.facebook.buck.rules.keys.DefaultRuleKeyFactory;
@@ -71,11 +72,6 @@ public class PreprocessorFlagsTest {
               true,
           },
           {
-              "systemIncludePaths",
-              defaultFlags.withSystemIncludePaths(Paths.get("different")),
-              false,
-          },
-          {
               "frameworkPaths",
               defaultFlags.withFrameworkPaths(
                   FrameworkPath.ofSourcePath(new FakeSourcePath("different"))),
@@ -100,11 +96,11 @@ public class PreprocessorFlagsTest {
 
     @Test
     public void shouldAffectRuleKey() {
-      SourcePathResolver pathResolver =
-          new SourcePathResolver(
-              new BuildRuleResolver(
-                  TargetGraph.EMPTY,
-                  new DefaultTargetNodeToBuildRuleTransformer()));
+      SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(
+          new BuildRuleResolver(
+              TargetGraph.EMPTY,
+              new DefaultTargetNodeToBuildRuleTransformer()));
+      SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
       BuildTarget target = BuildTargetFactory.newInstance("//foo:bar");
       FakeFileHashCache hashCache =
           FakeFileHashCache.createFromStrings(ImmutableMap.of(
@@ -113,13 +109,13 @@ public class PreprocessorFlagsTest {
       BuildRule fakeBuildRule = new FakeBuildRule(target, pathResolver);
 
       RuleKeyBuilder<RuleKey> builder;
-      builder = new DefaultRuleKeyFactory(0, hashCache, pathResolver)
-          .newInstance(fakeBuildRule);
+      builder = new DefaultRuleKeyFactory(0, hashCache, pathResolver, ruleFinder)
+          .newBuilderForTesting(fakeBuildRule);
       defaultFlags.appendToRuleKey(builder, CxxPlatformUtils.DEFAULT_COMPILER_DEBUG_PATH_SANITIZER);
       RuleKey defaultRuleKey = builder.build();
 
-      builder = new DefaultRuleKeyFactory(0, hashCache, pathResolver)
-          .newInstance(fakeBuildRule);
+      builder = new DefaultRuleKeyFactory(0, hashCache, pathResolver, ruleFinder)
+          .newBuilderForTesting(fakeBuildRule);
       alteredFlags.appendToRuleKey(builder, CxxPlatformUtils.DEFAULT_COMPILER_DEBUG_PATH_SANITIZER);
       RuleKey alteredRuleKey = builder.build();
 
@@ -134,11 +130,11 @@ public class PreprocessorFlagsTest {
   public static class OtherTests {
     @Test
     public void flagsAreSanitized() {
-      final SourcePathResolver pathResolver =
-          new SourcePathResolver(
-              new BuildRuleResolver(
-                  TargetGraph.EMPTY,
-                  new DefaultTargetNodeToBuildRuleTransformer()));
+      SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(
+          new BuildRuleResolver(
+              TargetGraph.EMPTY,
+              new DefaultTargetNodeToBuildRuleTransformer()));
+      final SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
       BuildTarget target = BuildTargetFactory.newInstance("//foo:bar");
       final FakeFileHashCache hashCache =
           FakeFileHashCache.createFromStrings(ImmutableMap.of());
@@ -158,8 +154,8 @@ public class PreprocessorFlagsTest {
               .build();
 
           RuleKeyBuilder<RuleKey> builder =
-              new DefaultRuleKeyFactory(0, hashCache, pathResolver)
-                  .newInstance(fakeBuildRule);
+              new DefaultRuleKeyFactory(0, hashCache, pathResolver, ruleFinder)
+                  .newBuilderForTesting(fakeBuildRule);
           PreprocessorFlags.builder().setOtherFlags(flags).build()
               .appendToRuleKey(builder, sanitizer);
           return builder.build();

@@ -16,6 +16,7 @@
 
 package com.facebook.buck.shell;
 
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BinaryBuildRule;
@@ -29,6 +30,7 @@ import com.facebook.buck.rules.Label;
 import com.facebook.buck.rules.NoopBuildRule;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TestRule;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.args.Arg;
@@ -52,6 +54,7 @@ import java.nio.file.Path;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Callable;
+import java.util.stream.Stream;
 
 /**
  * Test whose correctness is determined by running a specified shell script. If running the shell
@@ -62,6 +65,7 @@ public class ShTest
     extends NoopBuildRule
     implements TestRule, HasRuntimeDeps, ExternalTestRunnerRule, BinaryBuildRule {
 
+  private final SourcePathRuleFinder ruleFinder;
   @AddToRuleKey
   private final SourcePath test;
   @AddToRuleKey
@@ -79,6 +83,7 @@ public class ShTest
   protected ShTest(
       BuildRuleParams params,
       SourcePathResolver resolver,
+      SourcePathRuleFinder ruleFinder,
       SourcePath test,
       ImmutableList<Arg> args,
       ImmutableMap<String, Arg> env,
@@ -88,6 +93,7 @@ public class ShTest
       Set<Label> labels,
       ImmutableSet<String> contacts) {
     super(params, resolver);
+    this.ruleFinder = ruleFinder;
     this.test = test;
     this.args = args;
     this.env = env;
@@ -118,6 +124,7 @@ public class ShTest
   public ImmutableList<Step> runTests(
       ExecutionContext executionContext,
       TestRunningOptions options,
+      SourcePathResolver pathResolver,
       TestReportingCallback testReportingCallback) {
     Step mkdirClean = new MakeCleanDirectoryStep(
         getProjectFilesystem(),
@@ -127,7 +134,7 @@ public class ShTest
     Step runTest =
         new RunShTestAndRecordResultStep(
             getProjectFilesystem(),
-            getResolver().getAbsolutePath(test),
+            pathResolver.getAbsolutePath(test),
             Arg.stringify(args),
             Arg.stringify(env),
             testRuleTimeoutMs,
@@ -181,8 +188,8 @@ public class ShTest
   // A shell test has no real build dependencies.  Instead interpret the dependencies as runtime
   // dependencies, as these are always components that the shell test needs available to run.
   @Override
-  public ImmutableSortedSet<BuildRule> getRuntimeDeps() {
-    return getDeps();
+  public Stream<BuildTarget> getRuntimeDeps() {
+    return getDeps().stream().map(BuildRule::getBuildTarget);
   }
 
   @Override
@@ -194,7 +201,7 @@ public class ShTest
   public Tool getExecutableCommand() {
     CommandTool.Builder builder = new CommandTool.Builder()
         .addArg(new SourcePathArg(getResolver(), test))
-        .addDeps(getResolver().filterBuildRuleInputs(resources));
+        .addDeps(ruleFinder.filterBuildRuleInputs(resources));
 
     for (Arg arg : args) {
       builder.addArg(arg);
@@ -208,11 +215,12 @@ public class ShTest
   @Override
   public ExternalTestRunnerTestSpec getExternalTestRunnerSpec(
       ExecutionContext executionContext,
-      TestRunningOptions testRunningOptions) {
+      TestRunningOptions testRunningOptions,
+      SourcePathResolver pathResolver) {
     return ExternalTestRunnerTestSpec.builder()
         .setTarget(getBuildTarget())
         .setType("custom")
-        .addCommand(getResolver().getAbsolutePath(test).toString())
+        .addCommand(pathResolver.getAbsolutePath(test).toString())
         .addAllCommand(Arg.stringify(args))
         .setEnv(Arg.stringify(env))
         .addAllLabels(getLabels())

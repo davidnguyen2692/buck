@@ -28,7 +28,7 @@ import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.base.Preconditions;
@@ -37,7 +37,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 
-import java.nio.file.Path;
 import java.util.Optional;
 
 public class GwtBinaryDescription implements Description<GwtBinaryDescription.Arg> {
@@ -77,10 +76,12 @@ public class GwtBinaryDescription implements Description<GwtBinaryDescription.Ar
       final BuildRuleResolver resolver,
       A args) {
 
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+
     final ImmutableSortedSet.Builder<BuildRule> extraDeps = ImmutableSortedSet.naturalOrder();
 
     // Find all of the reachable JavaLibrary rules and grab their associated GwtModules.
-    final ImmutableSortedSet.Builder<Path> gwtModuleJarsBuilder =
+    final ImmutableSortedSet.Builder<SourcePath> gwtModuleJarsBuilder =
         ImmutableSortedSet.naturalOrder();
     ImmutableSortedSet<BuildRule> moduleDependencies = resolver.getAllRules(args.moduleDeps);
     new AbstractBreadthFirstTraversal<BuildRule>(moduleDependencies) {
@@ -92,7 +93,7 @@ public class GwtBinaryDescription implements Description<GwtBinaryDescription.Ar
 
         // If the java library doesn't generate any output, it doesn't contribute a GwtModule
         JavaLibrary javaLibrary = (JavaLibrary) rule;
-        if (javaLibrary.getPathToOutput() == null) {
+        if (javaLibrary.getSourcePathToOutput() == null) {
           return rule.getDeps();
         }
 
@@ -100,15 +101,14 @@ public class GwtBinaryDescription implements Description<GwtBinaryDescription.Ar
             javaLibrary.getBuildTarget().checkUnflavored(),
             JavaLibrary.GWT_MODULE_FLAVOR);
         Optional<BuildRule> gwtModule = resolver.getRuleOptional(gwtModuleTarget);
-        if (!gwtModule.isPresent() && javaLibrary.getPathToOutput() != null) {
+        if (!gwtModule.isPresent() && javaLibrary.getSourcePathToOutput() != null) {
           ImmutableSortedSet<SourcePath> filesForGwtModule =
               ImmutableSortedSet.<SourcePath>naturalOrder()
                   .addAll(javaLibrary.getSources())
                   .addAll(javaLibrary.getResources())
                   .build();
           ImmutableSortedSet<BuildRule> deps =
-              ImmutableSortedSet.copyOf(
-                  new SourcePathResolver(resolver).filterBuildRuleInputs(filesForGwtModule));
+              ImmutableSortedSet.copyOf(ruleFinder.filterBuildRuleInputs(filesForGwtModule));
 
           BuildRule module = resolver.addToIndex(
               new GwtModule(
@@ -116,7 +116,7 @@ public class GwtBinaryDescription implements Description<GwtBinaryDescription.Ar
                       gwtModuleTarget,
                       Suppliers.ofInstance(deps),
                       Suppliers.ofInstance(ImmutableSortedSet.of())),
-                  new SourcePathResolver(resolver),
+                  ruleFinder,
                   filesForGwtModule));
           gwtModule = Optional.of(module);
         }
@@ -126,7 +126,7 @@ public class GwtBinaryDescription implements Description<GwtBinaryDescription.Ar
         if (gwtModule.isPresent()) {
           extraDeps.add(gwtModule.get());
           gwtModuleJarsBuilder.add(
-              Preconditions.checkNotNull(gwtModule.get().getPathToOutput()));
+              Preconditions.checkNotNull(gwtModule.get().getSourcePathToOutput()));
         }
 
         // Traverse all of the deps of this rule.
@@ -136,7 +136,6 @@ public class GwtBinaryDescription implements Description<GwtBinaryDescription.Ar
 
     return new GwtBinary(
         params.copyWithExtraDeps(Suppliers.ofInstance(extraDeps.build())),
-        new SourcePathResolver(resolver),
         args.modules,
         javaOptions.getJavaRuntimeLauncher(),
         args.vmArgs,

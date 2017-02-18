@@ -34,6 +34,7 @@ import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.base.Preconditions;
@@ -78,7 +79,7 @@ public class AndroidPrebuiltAarDescription
       BuildRuleParams params,
       BuildRuleResolver buildRuleResolver,
       A args) throws NoSuchBuildTargetException {
-    SourcePathResolver pathResolver = new SourcePathResolver(buildRuleResolver);
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(buildRuleResolver);
 
     ImmutableSet<Flavor> flavors = params.getBuildTarget().getFlavors();
     if (flavors.contains(AAR_UNZIP_FLAVOR)) {
@@ -86,8 +87,8 @@ public class AndroidPrebuiltAarDescription
       BuildRuleParams unzipAarParams = params.copyWithDeps(
           Suppliers.ofInstance(ImmutableSortedSet.of()),
           Suppliers.ofInstance(ImmutableSortedSet.copyOf(
-              pathResolver.filterBuildRuleInputs(args.aar))));
-      return new UnzipAar(unzipAarParams, pathResolver, args.aar);
+              ruleFinder.filterBuildRuleInputs(args.aar))));
+      return new UnzipAar(unzipAarParams, args.aar);
     }
 
     BuildRule unzipAarRule =
@@ -99,10 +100,10 @@ public class AndroidPrebuiltAarDescription
         params.getBuildTarget());
     UnzipAar unzipAar = (UnzipAar) unzipAarRule;
 
-    if (flavors.contains(CalculateAbi.FLAVOR)) {
+    if (CalculateAbi.isAbiTarget(params.getBuildTarget())) {
       return CalculateAbi.of(
           params.getBuildTarget(),
-          pathResolver,
+          ruleFinder,
           params,
           new BuildTargetSourcePath(
               unzipAar.getBuildTarget(),
@@ -119,14 +120,13 @@ public class AndroidPrebuiltAarDescription
                 AndroidPrebuiltAar.class),
             AndroidPrebuiltAar::getPrebuiltJar));
 
-    BuildTarget abiJarTarget = params.getBuildTarget().withAppendedFlavors(CalculateAbi.FLAVOR);
+    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
 
     PrebuiltJar prebuiltJar = buildRuleResolver.addToIndex(
         createPrebuiltJar(
             unzipAar,
             params,
             pathResolver,
-            abiJarTarget,
             ImmutableSortedSet.copyOf(javaDeps)));
 
     BuildRuleParams androidLibraryParams = params.copyWithDeps(
@@ -135,6 +135,7 @@ public class AndroidPrebuiltAarDescription
     return new AndroidPrebuiltAar(
         androidLibraryParams,
         /* resolver */ pathResolver,
+        ruleFinder,
         /* proguardConfig */ new BuildTargetSourcePath(
             unzipAar.getBuildTarget(),
             unzipAar.getProguardConfig()),
@@ -146,7 +147,6 @@ public class AndroidPrebuiltAarDescription
         /* javacOptions */ javacOptions,
         new JavacToJarStepFactory(javacOptions, new BootClasspathAppender()),
         /* exportedDeps */ javaDeps,
-        abiJarTarget,
         JavaLibraryRules.getAbiInputs(buildRuleResolver, androidLibraryParams.getDeps()));
   }
 
@@ -154,7 +154,6 @@ public class AndroidPrebuiltAarDescription
       UnzipAar unzipAar,
       BuildRuleParams params,
       SourcePathResolver resolver,
-      BuildTarget abiJar,
       ImmutableSortedSet<BuildRule> deps) {
     BuildRuleParams buildRuleParams = params.copyWithChanges(
         /* buildTarget */ BuildTargets.createFlavoredBuildTarget(
@@ -168,7 +167,6 @@ public class AndroidPrebuiltAarDescription
         /* binaryJar */ new BuildTargetSourcePath(
             unzipAar.getBuildTarget(),
             unzipAar.getPathToClassesJar()),
-        abiJar,
         /* sourceJar */ Optional.empty(),
         /* gwtJar */ Optional.empty(),
         /* javadocUrl */ Optional.empty(),

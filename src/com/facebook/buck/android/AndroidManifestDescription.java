@@ -23,7 +23,7 @@ import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.base.Suppliers;
@@ -46,7 +46,7 @@ public class AndroidManifestDescription implements Description<AndroidManifestDe
       BuildRuleParams params,
       BuildRuleResolver resolver,
       A args) {
-    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
 
     AndroidTransitiveDependencyGraph transitiveDependencyGraph =
         new AndroidTransitiveDependencyGraph(resolver.getAllRules(args.deps));
@@ -62,7 +62,7 @@ public class AndroidManifestDescription implements Description<AndroidManifestDe
     // TODO(shs96c): t4744625 This should happen automagically.
     ImmutableSortedSet<BuildRule> newDeps = ImmutableSortedSet.<BuildRule>naturalOrder()
         .addAll(
-            pathResolver.filterBuildRuleInputs(
+            ruleFinder.filterBuildRuleInputs(
                 Sets.union(manifestFiles, Collections.singleton(args.skeleton))))
         .build();
 
@@ -70,7 +70,6 @@ public class AndroidManifestDescription implements Description<AndroidManifestDe
         params.copyWithDeps(
             Suppliers.ofInstance(newDeps),
             params.getExtraDeps()),
-        pathResolver,
         args.skeleton,
         manifestFiles);
   }

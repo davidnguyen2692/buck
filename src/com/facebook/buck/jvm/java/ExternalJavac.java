@@ -25,6 +25,7 @@ import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.RuleKeyObjectSink;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.DefaultProcessExecutor;
 import com.facebook.buck.util.HumanReadableException;
@@ -33,6 +34,7 @@ import com.facebook.buck.util.ProcessExecutorParams;
 import com.facebook.buck.zip.Unzip;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
+import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
@@ -87,8 +89,8 @@ public class ExternalJavac implements Javac {
   }
 
   @Override
-  public ImmutableCollection<BuildRule> getDeps(SourcePathResolver resolver) {
-    return resolver.filterBuildRuleInputs(getInputs());
+  public ImmutableCollection<BuildRule> getDeps(SourcePathRuleFinder ruleFinder) {
+    return ruleFinder.filterBuildRuleInputs(getInputs());
   }
 
   @Override
@@ -169,10 +171,15 @@ public class ExternalJavac implements Javac {
       JavacExecutionContext context,
       BuildTarget invokingRule,
       ImmutableList<String> options,
-      ImmutableSet<String> safeAnnotationProcessors,
+      ImmutableList<ResolvedJavacPluginProperties> annotationProcessors,
       ImmutableSortedSet<Path> javaSourceFilePaths,
       Path pathToSrcsList,
-      Optional<Path> workingDirectory) throws InterruptedException {
+      Optional<Path> workingDirectory,
+      JavacOptions.AbiGenerationMode abiGenerationMode) throws InterruptedException {
+
+    Preconditions.checkArgument(
+        abiGenerationMode == AbstractJavacOptions.AbiGenerationMode.CLASS,
+        "Source ABI verification requires JSR199");
     ImmutableList.Builder<String> command = ImmutableList.builder();
     command.add(
         pathToJavac.isLeft() ?

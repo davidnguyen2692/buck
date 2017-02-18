@@ -32,16 +32,15 @@ import com.facebook.buck.jvm.java.JavacOptionsAmender;
 import com.facebook.buck.jvm.java.JavacToJarStepFactory;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Flavor;
-import com.facebook.buck.model.HasBuildTarget;
 import com.facebook.buck.model.ImmutableFlavor;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRules;
-import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.coercer.BuildConfigFields;
 import com.facebook.buck.rules.coercer.ManifestEntries;
 import com.facebook.buck.util.MoreCollectors;
@@ -96,6 +95,7 @@ public class AndroidBinaryGraphEnhancer {
   private final ManifestEntries manifestEntries;
   private final BuildRuleResolver ruleResolver;
   private final SourcePathResolver pathResolver;
+  private final SourcePathRuleFinder ruleFinder;
   private final ResourceCompressionMode resourceCompressionMode;
   private final ResourceFilter resourceFilter;
   private final EnumSet<RType> bannedDuplicateResourceTypes;
@@ -160,7 +160,8 @@ public class AndroidBinaryGraphEnhancer {
     this.originalBuildTarget = originalParams.getBuildTarget();
     this.originalDeps = originalParams.getDeps();
     this.ruleResolver = ruleResolver;
-    this.pathResolver = new SourcePathResolver(ruleResolver);
+    this.ruleFinder = new SourcePathRuleFinder(ruleResolver);
+    this.pathResolver = new SourcePathResolver(ruleFinder);
     this.resourceCompressionMode = resourceCompressionMode;
     this.resourceFilter = resourcesFilter;
     this.bannedDuplicateResourceTypes = bannedDuplicateResourceTypes;
@@ -238,7 +239,6 @@ public class AndroidBinaryGraphEnhancer {
                   writeMapTarget,
                   /* declaredDeps */ Suppliers.ofInstance(ImmutableSortedSet.of(generatorRule)),
                   /* extraDeps */ Suppliers.ofInstance(ImmutableSortedSet.of())),
-                  pathResolver,
                   sonameMergeMap.get(),
                   generatorRule);
       ruleResolver.addToIndex(generateCodeForMergedLibraryMap);
@@ -252,19 +252,14 @@ public class AndroidBinaryGraphEnhancer {
       DefaultJavaLibrary compileMergedNativeLibMapGenCode = new DefaultJavaLibrary(
           paramsForCompileGenCode,
           pathResolver,
-          ImmutableSet.of(
-              new BuildTargetSourcePath(
-                  generateCodeForMergedLibraryMap.getBuildTarget(),
-                  generateCodeForMergedLibraryMap.getPathToOutput())),
+          ruleFinder,
+          ImmutableSet.of(generateCodeForMergedLibraryMap.getSourcePathToOutput()),
           /* resources */ ImmutableSet.of(),
           javacOptions.getGeneratedSourceFolderName(),
           /* proguardConfig */ Optional.empty(),
           /* postprocessClassesCommands */ ImmutableList.of(),
           /* exportedDeps */ ImmutableSortedSet.of(),
           /* providedDeps */ ImmutableSortedSet.of(),
-          // We just use the full output jar as the ABI jar.
-          // Because no Java libraries depend on us, there is no risk of wasteful rebuilding.
-          compileMergedNativeLibGenCode,
           JavaLibraryRules.getAbiInputs(ruleResolver, paramsForCompileGenCode.getDeps()),
           /* trackClassUsage */ false,
           /* additionalClasspathEntries */ ImmutableSet.of(),
@@ -288,7 +283,7 @@ public class AndroidBinaryGraphEnhancer {
         getTargetsAsRules(resourceDetails.getResourcesWithNonEmptyResDir());
 
     ImmutableCollection<BuildRule> rulesWithResourceDirectories =
-        pathResolver.filterBuildRuleInputs(resourceDetails.getResourceDirectories());
+        ruleFinder.filterBuildRuleInputs(resourceDetails.getResourceDirectories());
 
     FilteredResourcesProvider filteredResourcesProvider;
     boolean needsResourceFiltering = resourceFilter.isEnabled() ||
@@ -307,7 +302,6 @@ public class AndroidBinaryGraphEnhancer {
               /* extraDeps */ Suppliers.ofInstance(ImmutableSortedSet.of()));
       ResourcesFilter resourcesFilter = new ResourcesFilter(
           paramsForResourcesFilter,
-          pathResolver,
           resourceDetails.getResourceDirectories(),
           ImmutableSet.copyOf(resourceDetails.getWhitelistedStringDirectories()),
           locales,
@@ -320,31 +314,25 @@ public class AndroidBinaryGraphEnhancer {
       resourceRules = ImmutableSortedSet.of(resourcesFilter);
     } else {
       filteredResourcesProvider = new IdentityResourcesProvider(
-          pathResolver.deprecatedAllPaths(resourceDetails.getResourceDirectories()));
+          resourceDetails.getResourceDirectories().stream()
+              .map(pathResolver::getRelativePath)
+              .collect(MoreCollectors.toImmutableList()));
     }
 
     // Create the AaptPackageResourcesBuildable.
     BuildTarget buildTargetForAapt = createBuildTargetWithFlavor(AAPT_PACKAGE_FLAVOR);
     BuildRuleParams paramsForAaptPackageResources = buildRuleParams.copyWithChanges(
         buildTargetForAapt,
-        Suppliers.ofInstance(
-            ImmutableSortedSet.<BuildRule>naturalOrder()
-                // Add all deps with non-empty res dirs, since we at least need the R.txt file
-                // (even if we're filtering).
-                .addAll(getTargetsAsRules(resourceDetails.getResourcesWithNonEmptyResDir()))
-                .addAll(rulesWithResourceDirectories)
-                .addAll(
-                    pathResolver.filterBuildRuleInputs(
-                        packageableCollection.getAssetsDirectories()))
-                .addAll(getAdditionalAaptDeps(pathResolver, resourceRules, packageableCollection))
-                .build()),
-        /* extraDeps */ Suppliers.ofInstance(ImmutableSortedSet.of()));
+        Suppliers.ofInstance(ImmutableSortedSet.of()),
+        Suppliers.ofInstance(ImmutableSortedSet.of()));
     AaptPackageResources aaptPackageResources = new AaptPackageResources(
         paramsForAaptPackageResources,
-        pathResolver,
+        ruleFinder,
+        ruleResolver,
         manifest,
         filteredResourcesProvider,
         getTargetsAsResourceDeps(resourceDetails.getResourcesWithNonEmptyResDir()),
+        getTargetsAsRules(resourceDetails.getResourcesWithEmptyResButNonEmptyAssetsDir()),
         packageableCollection.getAssetsDirectories(),
         resourceUnionPackage,
         packageType,
@@ -378,7 +366,6 @@ public class AndroidBinaryGraphEnhancer {
       packageStringAssets = Optional.of(
           new PackageStringAssets(
               paramsForPackageStringAssets,
-              pathResolver,
               locales,
               filteredResourcesProvider,
               aaptPackageResources));
@@ -419,7 +406,6 @@ public class AndroidBinaryGraphEnhancer {
         /* extraDeps */ Suppliers.ofInstance(ImmutableSortedSet.of()));
     TrimUberRDotJava trimUberRDotJava = new TrimUberRDotJava(
         paramsForTrimUberRDotJava,
-        pathResolver,
         aaptPackageResources,
         preDexedLibrariesForResourceIdFiltering,
         keepResourcePattern);
@@ -435,10 +421,8 @@ public class AndroidBinaryGraphEnhancer {
     JavaLibrary compileUberRDotJava = new DefaultJavaLibrary(
         paramsForCompileUberRDotJava,
         pathResolver,
-        ImmutableSet.of(
-            new BuildTargetSourcePath(
-                trimUberRDotJava.getBuildTarget(),
-                trimUberRDotJava.getPathToOutput())),
+        ruleFinder,
+        ImmutableSet.of(trimUberRDotJava.getSourcePathToOutput()),
         /* resources */ ImmutableSet.of(),
         javacOptions.getGeneratedSourceFolderName(),
         /* proguardConfig */ Optional.empty(),
@@ -447,7 +431,6 @@ public class AndroidBinaryGraphEnhancer {
         /* providedDeps */ ImmutableSortedSet.of(),
         // Because the Uber R.java has no method bodies or private methods or fields,
         // we can just use its output as the ABI.
-        compileUberRDotJavaTarget,
         JavaLibraryRules.getAbiInputs(ruleResolver, paramsForCompileUberRDotJava.getDeps()),
         /* trackClassUsage */ false,
         /* additionalClasspathEntries */ ImmutableSet.of(),
@@ -468,7 +451,7 @@ public class AndroidBinaryGraphEnhancer {
         Suppliers.ofInstance(ImmutableSortedSet.of(compileUberRDotJava)),
         /* extraDeps */ Suppliers.ofInstance(ImmutableSortedSet.of()));
     DexProducedFromJavaLibrary dexUberRDotJava =
-        new DexProducedFromJavaLibrary(paramsForDexUberRDotJava, pathResolver, compileUberRDotJava);
+        new DexProducedFromJavaLibrary(paramsForDexUberRDotJava, compileUberRDotJava);
     ruleResolver.addToIndex(dexUberRDotJava);
 
     Optional<PreDexMerge> preDexMerge = Optional.empty();
@@ -486,7 +469,7 @@ public class AndroidBinaryGraphEnhancer {
     // Add dependencies on all the build rules generating third-party JARs.  This is mainly to
     // correctly capture deps when a prebuilt_jar forwards the output from another build rule.
     enhancedDeps.addAll(
-        pathResolver.filterBuildRuleInputs(packageableCollection.getPathsToThirdPartyJars()));
+        ruleFinder.filterBuildRuleInputs(packageableCollection.getPathsToThirdPartyJars()));
 
     Optional<ComputeExopackageDepsAbi> computeExopackageDepsAbi = Optional.empty();
     if (!exopackageModes.isEmpty()) {
@@ -497,12 +480,9 @@ public class AndroidBinaryGraphEnhancer {
       computeExopackageDepsAbi = Optional.of(
           new ComputeExopackageDepsAbi(
               paramsForComputeExopackageAbi,
-              pathResolver,
               exopackageModes,
               packageableCollection,
-              aaptPackageResources,
               copyNativeLibraries,
-              packageStringAssets,
               preDexMerge
           ));
       ruleResolver.addToIndex(computeExopackageDepsAbi.get());
@@ -522,7 +502,7 @@ public class AndroidBinaryGraphEnhancer {
                 .addAll(packageableCollection.getClasspathEntriesToDex())
                 .addAll(
                     additionalJavaLibraries.stream()
-                        .map(rule -> new BuildTargetSourcePath(rule.getBuildTarget()))
+                        .map(BuildRule::getSourcePathToOutput)
                         .collect(MoreCollectors.toImmutableList()))
                 .build())
         .setFinalDeps(enhancedDeps.build())
@@ -582,9 +562,8 @@ public class AndroidBinaryGraphEnhancer {
       ruleResolver.addToIndex(buildConfigJavaLibrary);
 
       enhancedDeps.add(buildConfigJavaLibrary);
-      Path buildConfigJar = buildConfigJavaLibrary.getPathToOutput();
       Preconditions.checkNotNull(
-          buildConfigJar,
+          buildConfigJavaLibrary.getSourcePathToOutput(),
           "%s must have an output file.",
           buildConfigJavaLibrary);
       compilationRulesBuilder.add(buildConfigJavaLibrary);
@@ -612,7 +591,6 @@ public class AndroidBinaryGraphEnhancer {
         /* extraDeps */ Suppliers.ofInstance(ImmutableSortedSet.of()));
     PreDexMerge preDexMerge = new PreDexMerge(
         paramsForPreDexMerge,
-        pathResolver,
         primaryDexPath,
         dexSplitMode,
         apkModuleGraph,
@@ -648,7 +626,7 @@ public class AndroidBinaryGraphEnhancer {
 
       // If the rule has no output file (which happens when a java_library has no srcs or
       // resources, but export_deps is true), then there will not be anything to dx.
-      if (javaLibrary.getPathToOutput() == null) {
+      if (javaLibrary.getSourcePathToOutput() == null) {
         continue;
       }
 
@@ -673,7 +651,7 @@ public class AndroidBinaryGraphEnhancer {
               ImmutableSortedSet.of(ruleResolver.getRule(javaLibrary.getBuildTarget()))),
           /* extraDeps */ Suppliers.ofInstance(ImmutableSortedSet.of()));
       DexProducedFromJavaLibrary preDex =
-          new DexProducedFromJavaLibrary(paramsForPreDex, pathResolver, javaLibrary);
+          new DexProducedFromJavaLibrary(paramsForPreDex, javaLibrary);
       ruleResolver.addToIndex(preDex);
       preDexDeps.put(apkModuleGraph.findModuleForTarget(buildTarget), preDex);
     }
@@ -684,25 +662,6 @@ public class AndroidBinaryGraphEnhancer {
     return BuildTarget.builder(originalBuildTarget)
         .addFlavors(flavor)
         .build();
-  }
-
-  private ImmutableSortedSet<BuildRule> getAdditionalAaptDeps(
-      SourcePathResolver resolver,
-      ImmutableSortedSet<BuildRule> resourceRules,
-      AndroidPackageableCollection packageableCollection) {
-    ImmutableSortedSet.Builder<BuildRule> builder = ImmutableSortedSet.<BuildRule>naturalOrder()
-        .addAll(resourceRules)
-        .addAll(
-            getTargetsAsRules(
-                packageableCollection.getResourceDetails()
-                    .getResourcesWithEmptyResButNonEmptyAssetsDir().stream()
-                    .map(HasBuildTarget::getBuildTarget)
-                    .collect(MoreCollectors.toImmutableList())));
-    Optional<BuildRule> manifestRule = resolver.getRule(manifest);
-    if (manifestRule.isPresent()) {
-      builder.add(manifestRule.get());
-    }
-    return builder.build();
   }
 
   private ImmutableSortedSet<BuildRule> getDexMergeDeps(

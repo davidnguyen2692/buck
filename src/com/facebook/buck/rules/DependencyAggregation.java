@@ -37,10 +37,8 @@ import javax.annotation.Nullable;
  */
 public final class DependencyAggregation extends AbstractBuildRule {
 
-  public DependencyAggregation(
-      BuildRuleParams buildRuleParams,
-      SourcePathResolver resolver) {
-    super(buildRuleParams, resolver);
+  public DependencyAggregation(BuildRuleParams buildRuleParams) {
+    super(buildRuleParams);
   }
 
   @Override

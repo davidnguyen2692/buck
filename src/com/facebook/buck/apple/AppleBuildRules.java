@@ -37,7 +37,6 @@ import com.google.common.collect.Iterables;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Optional;
-import java.util.stream.StreamSupport;
 
 
 /**
@@ -50,7 +49,6 @@ public final class AppleBuildRules {
   // Utility class not to be instantiated.
   private AppleBuildRules() { }
 
-  @SuppressWarnings("unchecked")
   public static final ImmutableSet<Class<? extends Description<?>>>
       XCODE_TARGET_DESCRIPTION_CLASSES = ImmutableSet.of(
           AppleLibraryDescription.class,
@@ -130,7 +128,7 @@ public final class AppleBuildRules {
     LINKING,
   }
 
-  public static Iterable<TargetNode<?, ?>> getRecursiveTargetNodeDependenciesOfTypes(
+  public static ImmutableSet<TargetNode<?, ?>> getRecursiveTargetNodeDependenciesOfTypes(
       final TargetGraph targetGraph,
       final Optional<AppleDependenciesCache> cache,
       final RecursiveDependenciesMode mode,
@@ -142,6 +140,7 @@ public final class AppleBuildRules {
         mode,
         descriptionClasses);
 
+    @SuppressWarnings("unchecked")
     GraphTraversable<TargetNode<?, ?>> graphTraversable = node -> {
       if (!isXcodeTargetDescription(node.getDescription()) ||
           SwiftLibraryDescription.isSwiftTarget(node.getBuildTarget())) {
@@ -208,25 +207,19 @@ public final class AppleBuildRules {
       if (node != targetNode) {
         switch (mode) {
           case LINKING:
+          case COPYING:
             boolean nodeIsAppleLibrary =
                 node.getDescription() instanceof AppleLibraryDescription;
             boolean nodeIsCxxLibrary =
                 node.getDescription() instanceof CxxLibraryDescription;
             if (nodeIsAppleLibrary || nodeIsCxxLibrary) {
-              if (AppleLibraryDescription.isSharedLibraryTarget(node.getBuildTarget())) {
+              if (AppleLibraryDescription.isSharedLibraryNode(
+                  (TargetNode<CxxLibraryDescription.Arg, ?>) node)) {
                 deps = exportedDeps;
               } else {
                 deps = defaultDeps;
               }
             } else if (RECURSIVE_DEPENDENCIES_STOP_AT_DESCRIPTION_CLASSES.contains(
-                node.getDescription().getClass())) {
-              deps = exportedDeps;
-            } else {
-              deps = defaultDeps;
-            }
-            break;
-          case COPYING:
-            if (RECURSIVE_DEPENDENCIES_STOP_AT_DESCRIPTION_CLASSES.contains(
                 node.getDescription().getClass())) {
               deps = exportedDeps;
             } else {
@@ -245,7 +238,7 @@ public final class AppleBuildRules {
       return deps.iterator();
     };
 
-    final ImmutableList.Builder<TargetNode<?, ?>> filteredRules = ImmutableList.builder();
+    final ImmutableSet.Builder<TargetNode<?, ?>> filteredRules = ImmutableSet.builder();
     AcyclicDepthFirstPostOrderTraversal<TargetNode<?, ?>> traversal =
         new AcyclicDepthFirstPostOrderTraversal<>(graphTraversable);
     try {
@@ -260,7 +253,7 @@ public final class AppleBuildRules {
       // actual load failures and cycle exceptions should have been caught at an earlier stage
       throw new RuntimeException(e);
     }
-    ImmutableList<TargetNode<?, ?>> result = filteredRules.build();
+    ImmutableSet<TargetNode<?, ?>> result = filteredRules.build();
     LOG.verbose(
         "Got recursive dependencies of node %s mode %s types %s: %s\n",
         targetNode,
@@ -308,7 +301,7 @@ public final class AppleBuildRules {
             input -> isXcodeTargetDescription(input.getDescription())));
   }
 
-  public static Function<TargetNode<?, ?>, Iterable<TargetNode<?, ?>>>
+  public static Function<TargetNode<?, ?>, ImmutableSet<TargetNode<?, ?>>>
     newRecursiveRuleDependencyTransformer(
       final TargetGraph targetGraph,
       final Optional<AppleDependenciesCache> cache,
@@ -367,14 +360,14 @@ public final class AppleBuildRules {
     return targetNodes
         .stream()
         .flatMap(
-            targetNode -> StreamSupport.stream(
+            targetNode ->
                 newRecursiveRuleDependencyTransformer(
                     targetGraph,
                     cache,
                     RecursiveDependenciesMode.COPYING,
                     descriptionClasses)
                     .apply(targetNode)
-                    .spliterator(), false))
+                    .stream())
         .map(input -> (T) input.getConstructorArg())
         .collect(MoreCollectors.toImmutableSet());
   }

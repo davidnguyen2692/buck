@@ -24,11 +24,11 @@ import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
-import com.facebook.buck.rules.ExopackageInfo;
 import com.facebook.buck.rules.FakeBuildRule;
+import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.FakeTargetNodeBuilder;
-import com.facebook.buck.rules.InstallableApk;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.testutil.TargetGraphFactory;
@@ -36,9 +36,7 @@ import com.facebook.buck.testutil.TargetGraphFactory;
 import org.hamcrest.Matchers;
 import org.junit.Test;
 
-import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.Optional;
 
 public class ApkGenruleDescriptionTest {
 
@@ -46,9 +44,10 @@ public class ApkGenruleDescriptionTest {
   public void testClasspathTransitiveDepsBecomeFirstOrderDeps() throws Exception {
     SourcePathResolver emptyPathResolver =
         new SourcePathResolver(
-            new BuildRuleResolver(
-                TargetGraph.EMPTY,
-                new DefaultTargetNodeToBuildRuleTransformer()));
+            new SourcePathRuleFinder(
+                new BuildRuleResolver(
+                    TargetGraph.EMPTY,
+                    new DefaultTargetNodeToBuildRuleTransformer())));
 
     BuildTarget installableApkTarget = BuildTargetFactory.newInstance("//:installable");
     TargetNode<?, ?> installableApkNode =
@@ -81,7 +80,7 @@ public class ApkGenruleDescriptionTest {
     assertThat(genrule.getDeps(), Matchers.hasItems(dep, transitiveDep));
   }
 
-  private static class FakeInstallable extends FakeBuildRule implements InstallableApk {
+  private static class FakeInstallable extends FakeBuildRule implements HasInstallableApk {
 
     public FakeInstallable(
         BuildTarget buildTarget,
@@ -90,20 +89,11 @@ public class ApkGenruleDescriptionTest {
     }
 
     @Override
-    public Path getManifestPath() {
-      return Paths.get("nothing");
+    public ApkInfo getApkInfo() {
+      return ApkInfo.builder()
+          .setApkPath(new FakeSourcePath("buck-out/app.apk"))
+          .setManifestPath(new FakeSourcePath("nothing"))
+          .build();
     }
-
-    @Override
-    public Path getApkPath() {
-      return Paths.get("buck-out/app.apk");
-    }
-
-    @Override
-    public Optional<ExopackageInfo> getExopackageInfo() {
-      return Optional.empty();
-    }
-
   }
-
 }

@@ -30,11 +30,11 @@ import com.facebook.buck.jvm.java.JavaFileParser;
 import com.facebook.buck.jvm.java.JavaLibrary;
 import com.facebook.buck.jvm.java.JvmLibraryArg;
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.HasBuildTarget;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraphAndTargets;
 import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.util.OptionalCompat;
@@ -54,8 +54,9 @@ public class IjProject {
   private final JavaFileParser javaFileParser;
   private final BuildRuleResolver buildRuleResolver;
   private final SourcePathResolver sourcePathResolver;
+  private final SourcePathRuleFinder ruleFinder;
   private final ProjectFilesystem projectFilesystem;
-  private final IjModuleGraph.AggregationMode aggregationMode;
+  private final AggregationMode aggregationMode;
   private final IjProjectConfig projectConfig;
   private final IntellijConfig intellijConfig;
 
@@ -65,14 +66,16 @@ public class IjProject {
       JavaFileParser javaFileParser,
       BuildRuleResolver buildRuleResolver,
       SourcePathResolver sourcePathResolver,
+      SourcePathRuleFinder ruleFinder,
       ProjectFilesystem projectFilesystem,
-      IjModuleGraph.AggregationMode aggregationMode,
+      AggregationMode aggregationMode,
       BuckConfig buckConfig) {
     this.targetGraphAndTargets = targetGraphAndTargets;
     this.javaPackageFinder = javaPackageFinder;
     this.javaFileParser = javaFileParser;
     this.buildRuleResolver = buildRuleResolver;
     this.sourcePathResolver = sourcePathResolver;
+    this.ruleFinder = ruleFinder;
     this.projectFilesystem = projectFilesystem;
     this.aggregationMode = aggregationMode;
     this.projectConfig = IjProjectBuckConfig.create(buckConfig);
@@ -94,10 +97,10 @@ public class IjProject {
       throws IOException {
     final ImmutableSet.Builder<BuildTarget> requiredBuildTargets = ImmutableSet.builder();
     IjLibraryFactory libraryFactory = new DefaultIjLibraryFactory(
-        new DefaultIjLibraryFactory.IjLibraryFactoryResolver() {
+        new IjLibraryFactoryResolver() {
           @Override
           public Path getPath(SourcePath path) {
-            Optional<BuildRule> rule = sourcePathResolver.getRule(path);
+            Optional<BuildRule> rule = ruleFinder.getRule(path);
             if (rule.isPresent()) {
               requiredBuildTargets.add(rule.get().getBuildTarget());
             }
@@ -106,7 +109,7 @@ public class IjProject {
           }
 
           @Override
-          public Optional<Path> getPathIfJavaLibrary(TargetNode<?, ?> targetNode) {
+          public Optional<SourcePath> getPathIfJavaLibrary(TargetNode<?, ?> targetNode) {
             BuildRule rule = buildRuleResolver.getRule(targetNode.getBuildTarget());
             if (!(rule instanceof JavaLibrary)) {
               return Optional.empty();
@@ -116,11 +119,11 @@ public class IjProject {
               return Optional.ofNullable(aarRule.getBinaryJar());
             }
             requiredBuildTargets.add(rule.getBuildTarget());
-            return Optional.ofNullable(rule.getPathToOutput());
+            return Optional.ofNullable(rule.getSourcePathToOutput());
           }
         });
-    IjModuleFactory.IjModuleFactoryResolver moduleFactoryResolver =
-        new IjModuleFactory.IjModuleFactoryResolver() {
+    IjModuleFactoryResolver moduleFactoryResolver =
+        new IjModuleFactoryResolver() {
 
           @Override
           public Optional<Path> getDummyRDotJavaPath(TargetNode<?, ?> targetNode) {
@@ -164,17 +167,19 @@ public class IjProject {
           @Override
           public Optional<Path> getAndroidResourcePath(
               TargetNode<AndroidResourceDescription.Arg, ?> targetNode) {
-            return targetNode
-                .getConstructorArg()
-                .res.map(this::getRelativePathAndRecordRule);
+            return AndroidResourceDescription.getResDirectoryForProject(
+                buildRuleResolver,
+                targetNode)
+                .map(this::getRelativePathAndRecordRule);
           }
 
           @Override
           public Optional<Path> getAssetsPath(
               TargetNode<AndroidResourceDescription.Arg, ?> targetNode) {
-            return targetNode
-                .getConstructorArg()
-                .assets.map(this::getRelativePathAndRecordRule);
+            return AndroidResourceDescription.getAssetsDirectoryForProject(
+                buildRuleResolver,
+                targetNode)
+                .map(this::getRelativePathAndRecordRule);
           }
 
           @Override
@@ -186,8 +191,8 @@ public class IjProject {
                 .buildAnnotationProcessingParams(
                     targetNode.getBuildTarget(),
                     projectFilesystem,
-                    buildRuleResolver
-                );
+                    buildRuleResolver,
+                    ImmutableSet.of());
             if (annotationProcessingParams == null || annotationProcessingParams.isEmpty()) {
               return Optional.empty();
             }
@@ -197,8 +202,8 @@ public class IjProject {
 
           private Path getRelativePathAndRecordRule(SourcePath sourcePath) {
             requiredBuildTargets.addAll(
-                OptionalCompat.asSet(sourcePathResolver.getRule(sourcePath)
-                    .map(HasBuildTarget::getBuildTarget)));
+                OptionalCompat.asSet(ruleFinder.getRule(sourcePath)
+                    .map(BuildRule::getBuildTarget)));
             return sourcePathResolver.getRelativePath(sourcePath);
           }
         };

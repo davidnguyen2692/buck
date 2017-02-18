@@ -22,6 +22,7 @@ import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.ToolProvider;
 import com.facebook.buck.util.immutables.BuckStyleTuple;
 
@@ -39,13 +40,20 @@ abstract class AbstractElfSharedLibraryInterfaceFactory implements SharedLibrary
       BuildRuleParams baseParams,
       BuildRuleResolver resolver,
       SourcePathResolver pathResolver,
+      SourcePathRuleFinder ruleFinder,
       SourcePath library) {
     return ElfSharedLibraryInterface.from(
         target,
         baseParams,
         pathResolver,
+        ruleFinder,
         getObjcopy().resolve(resolver),
         library);
+  }
+
+  @Override
+  public Iterable<BuildTarget> getParseTimeDeps() {
+    return getObjcopy().getParseTimeDeps();
   }
 
 }

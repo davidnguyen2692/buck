@@ -16,6 +16,7 @@
 
 package com.facebook.buck.cxx;
 
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.ExternalTestRunnerRule;
@@ -24,6 +25,7 @@ import com.facebook.buck.rules.HasRuntimeDeps;
 import com.facebook.buck.rules.Label;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.test.TestResultSummary;
@@ -57,6 +59,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Stream;
 
 import javax.annotation.Nullable;
 
@@ -67,13 +70,14 @@ public class CxxGtestTest extends CxxTest implements HasRuntimeDeps, ExternalTes
   private static final Pattern END = Pattern.compile("^\\[\\s*(FAILED|OK)\\s*\\] .*");
   private static final String NOTRUN = "notrun";
 
+  private final SourcePathRuleFinder ruleFinder;
   private final BuildRule binary;
   private final Tool executable;
   private final long maxTestOutputSize;
 
   public CxxGtestTest(
       BuildRuleParams params,
-      SourcePathResolver resolver,
+      SourcePathRuleFinder ruleFinder,
       BuildRule binary,
       Tool executable,
       Supplier<ImmutableMap<String, String>> env,
@@ -87,7 +91,6 @@ public class CxxGtestTest extends CxxTest implements HasRuntimeDeps, ExternalTes
       long maxTestOutputSize) {
     super(
         params,
-        resolver,
         executable.getEnvironment(),
         env,
         args,
@@ -97,6 +100,7 @@ public class CxxGtestTest extends CxxTest implements HasRuntimeDeps, ExternalTes
         contacts,
         runTestSeparately,
         testRuleTimeoutMs);
+    this.ruleFinder = ruleFinder;
     this.binary = binary;
     this.executable = executable;
     this.maxTestOutputSize = maxTestOutputSize;
@@ -109,9 +113,9 @@ public class CxxGtestTest extends CxxTest implements HasRuntimeDeps, ExternalTes
   }
 
   @Override
-  protected ImmutableList<String> getShellCommand(Path output) {
+  protected ImmutableList<String> getShellCommand(SourcePathResolver pathResolver, Path output) {
     return ImmutableList.<String>builder()
-        .addAll(executable.getCommandPrefix(getResolver()))
+        .addAll(executable.getCommandPrefix(pathResolver))
         .add("--gtest_color=no")
         .add("--gtest_output=xml:" + getProjectFilesystem().resolve(output).toString())
         .build();
@@ -148,7 +152,7 @@ public class CxxGtestTest extends CxxTest implements HasRuntimeDeps, ExternalTes
     // summary with the output we have.
     Document doc;
     try {
-      doc = XmlDomParser.parse(results);
+      doc = XmlDomParser.parse(getProjectFilesystem().resolve(results));
     } catch (SAXException e) {
       return ImmutableList.of(
           getProgramFailureSummary(
@@ -226,21 +230,22 @@ public class CxxGtestTest extends CxxTest implements HasRuntimeDeps, ExternalTes
   // The C++ test rules just wrap a test binary produced by another rule, so make sure that's
   // always available to run the test.
   @Override
-  public ImmutableSortedSet<BuildRule> getRuntimeDeps() {
-    return ImmutableSortedSet.<BuildRule>naturalOrder()
-        .addAll(super.getRuntimeDeps())
-        .addAll(executable.getDeps(getResolver()))
-        .build();
+  public Stream<BuildTarget> getRuntimeDeps() {
+    return Stream.concat(
+        super.getRuntimeDeps(),
+        executable.getDeps(ruleFinder).stream()
+            .map(BuildRule::getBuildTarget));
   }
 
   @Override
   public ExternalTestRunnerTestSpec getExternalTestRunnerSpec(
       ExecutionContext executionContext,
-      TestRunningOptions testRunningOptions) {
+      TestRunningOptions testRunningOptions,
+      SourcePathResolver pathResolver) {
     return ExternalTestRunnerTestSpec.builder()
         .setTarget(getBuildTarget())
         .setType("gtest")
-        .addAllCommand(executable.getCommandPrefix(getResolver()))
+        .addAllCommand(executable.getCommandPrefix(pathResolver))
         .addAllCommand(getArgs().get())
         .putAllEnv(getEnv().get())
         .addAllLabels(getLabels())

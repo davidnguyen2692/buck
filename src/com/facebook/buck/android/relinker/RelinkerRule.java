@@ -23,7 +23,7 @@ import com.facebook.buck.cxx.LinkerMapMode;
 import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.ImmutableFlavor;
-import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.rules.AbstractBuildRuleWithResolver;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
@@ -33,6 +33,7 @@ import com.facebook.buck.rules.OverrideScheduleRule;
 import com.facebook.buck.rules.RuleScheduleInfo;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.StringArg;
@@ -57,7 +58,7 @@ import java.util.Set;
 
 import javax.annotation.Nullable;
 
-class RelinkerRule extends AbstractBuildRule implements OverrideScheduleRule {
+class RelinkerRule extends AbstractBuildRuleWithResolver implements OverrideScheduleRule {
 
   @AddToRuleKey
   private final ImmutableSortedSet<SourcePath> symbolsNeededPaths;
@@ -76,10 +77,12 @@ class RelinkerRule extends AbstractBuildRule implements OverrideScheduleRule {
 
   private final BuildRuleParams buildRuleParams;
   private final CxxBuckConfig cxxBuckConfig;
+  private final SourcePathResolver pathResolver;
 
   public RelinkerRule(
       BuildRuleParams buildRuleParams,
       SourcePathResolver resolver,
+      SourcePathRuleFinder ruleFinder,
       ImmutableSortedSet<SourcePath> symbolsNeededPaths,
       NdkCxxPlatforms.TargetCpuType cpuType,
       Tool objdump,
@@ -88,7 +91,8 @@ class RelinkerRule extends AbstractBuildRule implements OverrideScheduleRule {
       boolean isRelinkable,
       Linker linker,
       ImmutableList<Arg> linkerArgs) {
-    super(withDepsFromArgs(buildRuleParams, resolver, linkerArgs), resolver);
+    super(withDepsFromArgs(buildRuleParams, ruleFinder, linkerArgs), resolver);
+    this.pathResolver = resolver;
     this.cpuType = cpuType;
     this.objdump = objdump;
     this.cxxBuckConfig = cxxBuckConfig;
@@ -102,10 +106,10 @@ class RelinkerRule extends AbstractBuildRule implements OverrideScheduleRule {
 
   private static BuildRuleParams withDepsFromArgs(
       BuildRuleParams params,
-      SourcePathResolver resolver,
+      SourcePathRuleFinder ruleFinder,
       ImmutableList<Arg> args) {
     return params.appendExtraDeps(
-        Iterables.concat(Iterables.transform(args, arg -> arg.getDeps(resolver))));
+        Iterables.concat(Iterables.transform(args, arg -> arg.getDeps(ruleFinder))));
   }
 
   private static String getVersionScript(Set<String> needed, Set<String> provided) {
@@ -161,7 +165,6 @@ class RelinkerRule extends AbstractBuildRule implements OverrideScheduleRule {
               buildRuleParams
                   .withFlavor(ImmutableFlavor.of("cxx-link"))
                   .withoutFlavor(LinkerMapMode.NO_LINKER_MAP.getFlavor()),
-              getResolver(),
               linker,
               getLibFilePath(),
               args,
@@ -222,7 +225,7 @@ class RelinkerRule extends AbstractBuildRule implements OverrideScheduleRule {
 
 
   private Path getBaseLibPath() {
-    return getResolver().getAbsolutePath(baseLibSourcePath);
+    return pathResolver.getAbsolutePath(baseLibSourcePath);
   }
 
   private Path getScratchDirPath() {
@@ -243,7 +246,7 @@ class RelinkerRule extends AbstractBuildRule implements OverrideScheduleRule {
     return Symbols.getSymbols(
         executor,
         objdump,
-        getResolver(),
+        pathResolver,
         absolutify(path));
   }
 
@@ -283,7 +286,7 @@ class RelinkerRule extends AbstractBuildRule implements OverrideScheduleRule {
     ImmutableSet.Builder<String> symbolsNeeded = ImmutableSet.builder();
     for (SourcePath source : symbolsNeededPaths) {
       symbolsNeeded.addAll(
-          Files.readAllLines(getResolver().getAbsolutePath(source), Charsets.UTF_8));
+          Files.readAllLines(pathResolver.getAbsolutePath(source), Charsets.UTF_8));
     }
     return symbolsNeeded.build();
   }

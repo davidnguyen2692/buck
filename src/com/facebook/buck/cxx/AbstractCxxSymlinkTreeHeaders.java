@@ -20,7 +20,7 @@ import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.RuleKeyObjectSink;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.util.OptionalCompat;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.google.common.collect.ImmutableList;
@@ -69,12 +69,12 @@ abstract class AbstractCxxSymlinkTreeHeaders extends CxxHeaders {
    * @return all deps required by this header pack.
    */
   @Override
-  public Iterable<BuildRule> getDeps(SourcePathResolver resolver) {
+  public Iterable<BuildRule> getDeps(SourcePathRuleFinder ruleFinder) {
     ImmutableList.Builder<BuildRule> deps = ImmutableList.builder();
-    deps.addAll(resolver.filterBuildRuleInputs(getNameToPathMap().values()));
-    deps.addAll(resolver.filterBuildRuleInputs(getRoot()));
-    deps.addAll(resolver.filterBuildRuleInputs(getIncludeRoot()));
-    deps.addAll(resolver.filterBuildRuleInputs(OptionalCompat.asSet(getHeaderMap())));
+    deps.addAll(ruleFinder.filterBuildRuleInputs(getNameToPathMap().values()));
+    deps.addAll(ruleFinder.filterBuildRuleInputs(getRoot()));
+    deps.addAll(ruleFinder.filterBuildRuleInputs(getIncludeRoot()));
+    deps.addAll(ruleFinder.filterBuildRuleInputs(OptionalCompat.asSet(getHeaderMap())));
     return deps.build();
   }
 
@@ -99,17 +99,25 @@ abstract class AbstractCxxSymlinkTreeHeaders extends CxxHeaders {
         new BuildTargetSourcePath(
             symlinkTree.getBuildTarget(),
             symlinkTree.getRoot()));
-    builder.setIncludeRoot(
-        new BuildTargetSourcePath(
-            symlinkTree.getBuildTarget(),
-            symlinkTree.getIncludePath()));
-    builder.putAllNameToPathMap(symlinkTree.getLinks());
-    if (symlinkTree.getHeaderMap().isPresent()) {
-      builder.setHeaderMap(
+
+    if (includeType == CxxPreprocessables.IncludeType.LOCAL) {
+      builder.setIncludeRoot(
           new BuildTargetSourcePath(
               symlinkTree.getBuildTarget(),
-              symlinkTree.getHeaderMap().get()));
+              symlinkTree.getIncludePath()));
+      if (symlinkTree.getHeaderMap().isPresent()) {
+        builder.setHeaderMap(
+            new BuildTargetSourcePath(
+                symlinkTree.getBuildTarget(),
+                symlinkTree.getHeaderMap().get()));
+      }
+    } else {
+      builder.setIncludeRoot(
+          new BuildTargetSourcePath(
+              symlinkTree.getBuildTarget(),
+              symlinkTree.getRoot()));
     }
+    builder.putAllNameToPathMap(symlinkTree.getLinks());
     return builder.build();
   }
 

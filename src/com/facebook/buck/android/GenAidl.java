@@ -30,7 +30,6 @@ import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.BuildableProperties;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.MkdirStep;
@@ -73,10 +72,9 @@ public class GenAidl extends AbstractBuildRule {
 
   GenAidl(
       BuildRuleParams params,
-      SourcePathResolver resolver,
       SourcePath aidlFilePath,
       String importPath) {
-    super(params, resolver);
+    super(params);
     this.aidlFilePath = aidlFilePath;
     this.importPath = importPath;
     BuildTarget buildTarget = params.getBuildTarget();
@@ -111,7 +109,7 @@ public class GenAidl extends AbstractBuildRule {
     AidlStep command = new AidlStep(
         getProjectFilesystem(),
         target,
-        getResolver().getAbsolutePath(aidlFilePath),
+        context.getSourcePathResolver().getAbsolutePath(aidlFilePath),
         ImmutableSet.of(importPath),
         outputDirectory);
     commands.add(command);

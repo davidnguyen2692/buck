@@ -24,7 +24,6 @@ import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.shell.DefaultShellStep;
 import com.facebook.buck.step.AbstractExecutionStep;
 import com.facebook.buck.step.ExecutionContext;
@@ -59,10 +58,9 @@ public class CxxInferAnalyze extends AbstractBuildRule {
 
   CxxInferAnalyze(
       BuildRuleParams buildRuleParams,
-      SourcePathResolver pathResolver,
       InferBuckConfig inferConfig,
       CxxInferCaptureAndAggregatingRules<CxxInferAnalyze> captureAndAnalyzeRules) {
-    super(buildRuleParams, pathResolver);
+    super(buildRuleParams);
     this.captureAndAnalyzeRules = captureAndAnalyzeRules;
     this.resultsDir = BuildTargets.getGenPath(
         getProjectFilesystem(),
@@ -116,28 +114,33 @@ public class CxxInferAnalyze extends AbstractBuildRule {
       BuildContext context,
       BuildableContext buildableContext) {
     buildableContext.recordArtifact(specsDir);
-    buildableContext.recordArtifact(this.getPathToOutput());
+    buildableContext.recordArtifact(
+        context.getSourcePathResolver().getRelativePath(getSourcePathToOutput()));
     return ImmutableList.<Step>builder()
         .add(new MkdirStep(getProjectFilesystem(), specsDir))
         .add(
             new SymCopyStep(
                 getProjectFilesystem(),
                 captureAndAnalyzeRules.captureRules.stream()
-                    .map(CxxInferCapture::getPathToOutput)
+                    .map(CxxInferCapture::getSourcePathToOutput)
+                    .map(context.getSourcePathResolver()::getRelativePath)
                     .collect(MoreCollectors.toImmutableList()),
                 resultsDir))
         .add(
             new AbstractExecutionStep("write_specs_path_list") {
               @Override
-              public StepExecutionResult execute(ExecutionContext context) throws IOException {
+              public StepExecutionResult execute(ExecutionContext executionContext)
+                  throws IOException {
                 try {
                   ImmutableList<String> specsDirsWithAbsolutePath =
                       getSpecsOfAllDeps().stream()
-                          .map(input -> getResolver().getAbsolutePath(input).toString())
+                          .map(input ->
+                              context.getSourcePathResolver().getAbsolutePath(input).toString())
                           .collect(MoreCollectors.toImmutableList());
                   getProjectFilesystem().writeLinesToPath(specsDirsWithAbsolutePath, specsPathList);
                 } catch (IOException e) {
-                  context.logError(e, "Error while writing specs path list file for the analyzer");
+                  executionContext.logError(
+                      e, "Error while writing specs path list file for the analyzer");
                   return StepExecutionResult.ERROR;
                 }
                 return StepExecutionResult.SUCCESS;

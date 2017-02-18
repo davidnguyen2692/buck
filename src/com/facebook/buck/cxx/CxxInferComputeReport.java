@@ -24,7 +24,6 @@ import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.HasPostBuildSteps;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.google.common.collect.FluentIterable;
@@ -38,7 +37,8 @@ import java.nio.file.Path;
  * Merge all the json reports together into one and emit a list of results dirs of each
  * capture and analysis target involved for the analysis itself.
  */
-public class CxxInferComputeReport extends AbstractBuildRule implements HasPostBuildSteps {
+public class CxxInferComputeReport extends AbstractBuildRule
+    implements HasPostBuildSteps {
 
   private CxxInferAnalyze analysisToReport;
   private ProjectFilesystem projectFilesystem;
@@ -47,9 +47,8 @@ public class CxxInferComputeReport extends AbstractBuildRule implements HasPostB
 
   public CxxInferComputeReport(
       BuildRuleParams buildRuleParams,
-      SourcePathResolver sourcePathResolver,
       CxxInferAnalyze analysisToReport) {
-    super(buildRuleParams, sourcePathResolver);
+    super(buildRuleParams);
     this.analysisToReport = analysisToReport;
     this.outputDirectory =
         BuildTargets.getGenPath(getProjectFilesystem(), this.getBuildTarget(), "infer-%s");
@@ -91,7 +90,7 @@ public class CxxInferComputeReport extends AbstractBuildRule implements HasPostB
   }
 
   @Override
-  public ImmutableList<Step> getPostBuildSteps() {
+  public ImmutableList<Step> getPostBuildSteps(BuildContext context) {
     return ImmutableList.<Step>builder()
         .add(new MkdirStep(projectFilesystem, outputDirectory))
         .add(

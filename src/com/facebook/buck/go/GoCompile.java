@@ -25,7 +25,6 @@ import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.BuildableProperties;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SymlinkTree;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.step.Step;
@@ -67,7 +66,6 @@ public class GoCompile extends AbstractBuildRule {
 
   public GoCompile(
       BuildRuleParams params,
-      SourcePathResolver resolver,
       SymlinkTree symlinkTree,
       Path packageName,
       ImmutableMap<Path, Path> importPathMap,
@@ -79,7 +77,7 @@ public class GoCompile extends AbstractBuildRule {
       Tool assembler,
       Tool packer,
       GoPlatform platform) {
-    super(params, resolver);
+    super(params);
     this.importPathMap = importPathMap;
     this.srcs = srcs;
     this.symlinkTree = symlinkTree;
@@ -108,7 +106,7 @@ public class GoCompile extends AbstractBuildRule {
     ImmutableList.Builder<Path> headerSrcListBuilder = ImmutableList.builder();
     ImmutableList.Builder<Path> asmSrcListBuilder = ImmutableList.builder();
     for (SourcePath path : srcs) {
-      Path srcPath = getResolver().getAbsolutePath(path);
+      Path srcPath = context.getSourcePathResolver().getAbsolutePath(path);
       String extension = MorePaths.getFileExtension(srcPath).toLowerCase();
       if (extension.equals("s")) {
         asmSrcListBuilder.add(srcPath);
@@ -148,7 +146,7 @@ public class GoCompile extends AbstractBuildRule {
       steps.add(new GoCompileStep(
           getProjectFilesystem().getRootPath(),
           compiler.getEnvironment(),
-          compiler.getCommandPrefix(getResolver()),
+          compiler.getCommandPrefix(context.getSourcePathResolver()),
           compilerFlags,
           packageName,
           compileSrcs,
@@ -192,7 +190,7 @@ public class GoCompile extends AbstractBuildRule {
             new GoAssembleStep(
                 getProjectFilesystem().getRootPath(),
                 assembler.getEnvironment(),
-                assembler.getCommandPrefix(getResolver()),
+                assembler.getCommandPrefix(context.getSourcePathResolver()),
                 assemblerFlags,
                 asmSrc,
                 ImmutableList.<Path>builder()
@@ -208,7 +206,7 @@ public class GoCompile extends AbstractBuildRule {
       steps.add(new GoPackStep(
           getProjectFilesystem().getRootPath(),
           packer.getEnvironment(),
-          packer.getCommandPrefix(getResolver()),
+          packer.getCommandPrefix(context.getSourcePathResolver()),
           GoPackStep.Operation.APPEND,
           asmOutputs.build(),
           output));

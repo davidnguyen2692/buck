@@ -25,10 +25,10 @@ import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.util.Ansi;
-import com.google.common.base.Functions;
 import com.google.common.collect.ImmutableList;
 
 import org.junit.Test;
@@ -38,7 +38,6 @@ import org.junit.runners.Parameterized;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Collection;
-import java.util.Optional;
 
 /**
  * Tests that various error line path replacements happen (or doesn't happen) in both relative and
@@ -52,13 +51,14 @@ public class CxxErrorTransformerFactoryTest {
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
     BuildRuleResolver ruleResolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver pathResolver = new SourcePathResolver(ruleResolver);
+    SourcePathResolver pathResolver =
+        new SourcePathResolver(new SourcePathRuleFinder(ruleResolver));
 
-    Path original = Paths.get("buck-out/foo#bar/world.h");
-    Path replacement = Paths.get("hello/world.h");
+    Path original = filesystem.resolve("buck-out/foo#bar/world.h");
+    Path replacement = filesystem.resolve("hello/world.h");
 
     HeaderPathNormalizer.Builder normalizerBuilder =
-        new HeaderPathNormalizer.Builder(pathResolver, Functions.identity());
+        new HeaderPathNormalizer.Builder(pathResolver);
     normalizerBuilder.addHeader(new FakeSourcePath(replacement.toString()), original);
     HeaderPathNormalizer normalizer = normalizerBuilder.build();
 
@@ -66,15 +66,17 @@ public class CxxErrorTransformerFactoryTest {
         {
             "relative paths",
             new CxxErrorTransformerFactory(
-                Optional.empty(),
+                filesystem,
+                false,
                 normalizer),
-            replacement,
+            filesystem.relativize(replacement),
             original
         },
         {
             "absolute paths",
             new CxxErrorTransformerFactory(
-                Optional.of(filesystem::resolve),
+                filesystem,
+                true,
                 normalizer),
             replacement.toAbsolutePath(),
             original

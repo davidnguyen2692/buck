@@ -22,10 +22,10 @@ JAVA_CLASSPATHS = [
     "build/dx_classes",
     "src",
     "src-gen",
-    "third-party/java/android/sdklib.jar",
-    "third-party/java/android/sdk-common-24.2.3.jar",
-    "third-party/java/android/common-24.2.3.jar",
-    "third-party/java/android/layoutlib-api-24.2.3.jar",
+    "third-party/java/android/sdklib-25.2.0.jar",
+    "third-party/java/android/sdk-common-25.2.0.jar",
+    "third-party/java/android/common-25.2.0.jar",
+    "third-party/java/android/layoutlib-api-25.2.0.jar",
     "third-party/java/aopalliance/aopalliance.jar",
     "third-party/java/args4j/args4j-2.0.30.jar",
     "third-party/java/asm/asm-debug-all-5.0.3.jar",
@@ -34,7 +34,7 @@ JAVA_CLASSPATHS = [
     "third-party/java/commons-logging/commons-logging-1.2.jar",
     "third-party/java/concurrent-locks/concurrent-locks-1.0.0.jar",
     "third-party/java/dd-plist/dd-plist.jar",
-    "third-party/java/ddmlib/ddmlib-22.5.3.jar",
+    "third-party/java/ddmlib/ddmlib-25.2.0.jar",
     "third-party/java/eclipse/org.eclipse.core.contenttype_3.5.100.v20160418-1621.jar",
     "third-party/java/eclipse/org.eclipse.core.jobs_3.8.0.v20160319-0610.jar",
     "third-party/java/eclipse/org.eclipse.core.resources_3.11.0.v20160422-0304.jar",
@@ -45,7 +45,8 @@ JAVA_CLASSPATHS = [
     "third-party/java/eclipse/org.eclipse.jdt.core_3.12.0.v20160426-1326.jar",
     "third-party/java/eclipse/org.eclipse.osgi_3.11.0.v20160427-2120.jar",
     "third-party/java/gson/gson-2.2.4.jar",
-    "third-party/java/guava/guava-19.0.jar",
+    "third-party/java/guava/guava-20.0.jar",
+    "third-party/java/errorprone/error-prone-annotations-2.0.15.jar",
     "third-party/java/guice/guice-3.0.jar",
     "third-party/java/guice/guice-assistedinject-3.0.jar",
     "third-party/java/guice/guice-multibindings-3.0.jar",
@@ -68,8 +69,8 @@ JAVA_CLASSPATHS = [
     "third-party/java/nailgun/nailgun-server-0.9.2-SNAPSHOT.jar",
     "third-party/java/nuprocess/nuprocess-1.1.0.jar",
     "third-party/java/ObjCBridge/ObjCBridge.jar",
-    "third-party/java/okhttp/okhttp-3.3.0.jar",
-    "third-party/java/okio/okio-1.8.0.jar",
+    "third-party/java/okhttp/okhttp-3.6.0.jar",
+    "third-party/java/okio/okio-1.11.0.jar",
     "third-party/java/oshi/oshi-core-3.3-SNAPSHOT.jar",
     "third-party/java/servlet-api/javax.servlet-api-3.1.0.jar",
     "third-party/java/slf4j/slf4j-jdk14-1.7.5.jar",
@@ -280,6 +281,9 @@ class BuckRepo(BuckTool):
                 self._run_ant_clean(ant)
                 self._run_ant(ant)
                 print("All done, continuing with build.", file=sys.stderr)
+
+    def _get_resource_lock_path(self):
+        return None
 
     def _has_resource(self, resource):
         return True

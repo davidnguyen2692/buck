@@ -17,6 +17,7 @@ package com.facebook.buck.apple;
 
 import com.facebook.buck.cxx.CxxFlags;
 import com.facebook.buck.cxx.FrameworkDependencies;
+import com.facebook.buck.cxx.NativeLinkable;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.AbstractDescriptionArg;
@@ -28,6 +29,7 @@ import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.MetadataProvidingDescription;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
@@ -57,11 +59,12 @@ public class PrebuiltAppleFrameworkDescription implements
     return new PrebuiltAppleFramework(
         params,
         resolver,
-        new SourcePathResolver(resolver),
+        new SourcePathResolver(new SourcePathRuleFinder(resolver)),
         args.framework,
+        args.preferredLinkage,
         args.frameworks,
         args.supportedPlatformsRegex,
-        input -> CxxFlags.getFlags(
+        input -> CxxFlags.getFlagsWithPlatformMacroExpansion(
             args.exportedLinkerFlags,
             args.exportedPlatformLinkerFlags,
             input)
@@ -91,5 +94,7 @@ public class PrebuiltAppleFrameworkDescription implements
     public ImmutableList<String> exportedLinkerFlags = ImmutableList.of();
     public PatternMatchedCollection<ImmutableList<String>> exportedPlatformLinkerFlags =
         PatternMatchedCollection.of();
+    public ImmutableSortedSet<BuildTarget> deps = ImmutableSortedSet.of();
+    public NativeLinkable.Linkage preferredLinkage;
   }
 }

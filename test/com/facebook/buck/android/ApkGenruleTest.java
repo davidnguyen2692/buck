@@ -34,15 +34,14 @@ import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
-import com.facebook.buck.rules.ExopackageInfo;
 import com.facebook.buck.rules.FakeBuildContext;
 import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.FakeBuildableContext;
 import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.rules.InstallableApk;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.shell.AbstractGenruleStep;
 import com.facebook.buck.step.ExecutionContext;
@@ -86,7 +85,7 @@ public class ApkGenruleTest {
 
     BuildTarget keystoreTarget =
         BuildTargetFactory.newInstance(filesystem.getRootPath(), "//keystore:debug");
-    Keystore keystore = (Keystore) KeystoreBuilder.createBuilder(keystoreTarget)
+    Keystore keystore = KeystoreBuilder.createBuilder(keystoreTarget)
         .setStore(new FakeSourcePath(filesystem, "keystore/debug.keystore"))
         .setProperties(new FakeSourcePath(filesystem, "keystore/debug.keystore.properties"))
         .build(ruleResolver, filesystem);
@@ -127,10 +126,13 @@ public class ApkGenruleTest {
             "//src/com/facebook:sign_fb4a");
     ApkGenruleDescription description = new ApkGenruleDescription();
     ApkGenruleDescription.Arg arg = description.createUnpopulatedConstructorArg();
-    arg.apk = new FakeInstallable(apkTarget, new SourcePathResolver(ruleResolver)).getBuildTarget();
+    SourcePathResolver pathResolver =
+        new SourcePathResolver(new SourcePathRuleFinder(ruleResolver));
+    arg.apk = new FakeInstallable(apkTarget, pathResolver).getBuildTarget();
     arg.bash = Optional.of("");
     arg.cmd = Optional.of("python signer.py $APK key.properties > $OUT");
     arg.cmdExe = Optional.of("");
+    arg.type = Optional.empty();
     arg.out = "signed_fb4a.apk";
     arg.srcs = ImmutableList.of(
         new PathSourcePath(projectFilesystem, fileSystem.getPath("src/com/facebook/signer.py")),
@@ -150,20 +152,20 @@ public class ApkGenruleTest {
             projectFilesystem.getBuckPaths().getGenDir().toString() +
              "/src/com/facebook/sign_fb4a/sign_fb4a.apk").toString();
     assertEquals(expectedApkOutput,
-        apkGenrule.getAbsoluteOutputFilePath());
+        apkGenrule.getAbsoluteOutputFilePath(pathResolver));
     assertEquals(
         "The apk that this rule is modifying must have the apk in its deps.",
         ImmutableSet.of(apkTarget.toString()),
         apkGenrule.getDeps().stream()
             .map(Object::toString)
             .collect(MoreCollectors.toImmutableSet()));
-    BuildContext buildContext = FakeBuildContext.NOOP_CONTEXT;
+    BuildContext buildContext = FakeBuildContext.withSourcePathResolver(pathResolver);
     Iterable<Path> expectedInputsToCompareToOutputs = ImmutableList.of(
         fileSystem.getPath("src/com/facebook/signer.py"),
         fileSystem.getPath("src/com/facebook/key.properties"));
     MoreAsserts.assertIterablesEquals(
         expectedInputsToCompareToOutputs,
-        apkGenrule.getSrcs());
+        pathResolver.filterInputsToCompareToOutput(apkGenrule.getSrcs()));
 
     // Verify that the shell commands that the genrule produces are correct.
     List<Step> steps = apkGenrule.getBuildSteps(buildContext, new FakeBuildableContext());
@@ -177,8 +179,8 @@ public class ApkGenruleTest {
         "First command should delete the output file to be written by the genrule.",
         ImmutableList.of(
             "rm",
-            "-r",
             "-f",
+            "-r",
             expectedApkOutput),
         rmCommand.getShellCommand());
 
@@ -252,25 +254,18 @@ public class ApkGenruleTest {
         .build();
   }
 
-  private static class FakeInstallable extends FakeBuildRule implements InstallableApk {
+  private static class FakeInstallable extends FakeBuildRule implements HasInstallableApk {
 
     public FakeInstallable(BuildTarget buildTarget, SourcePathResolver resolver) {
       super(buildTarget, resolver);
     }
 
     @Override
-    public Path getManifestPath() {
-      return Paths.get("spoof");
-    }
-
-    @Override
-    public Path getApkPath() {
-      return Paths.get("buck-out/gen/fb4a.apk");
-    }
-
-    @Override
-    public Optional<ExopackageInfo> getExopackageInfo() {
-      return Optional.empty();
+    public ApkInfo getApkInfo() {
+      return ApkInfo.builder()
+          .setApkPath(new FakeSourcePath("buck-out/gen/fb4a.apk"))
+          .setManifestPath(new FakeSourcePath("spoof"))
+          .build();
     }
   }
 }

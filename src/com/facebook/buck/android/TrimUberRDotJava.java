@@ -23,7 +23,6 @@ import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
@@ -64,11 +63,10 @@ class TrimUberRDotJava extends AbstractBuildRule {
 
   TrimUberRDotJava(
       BuildRuleParams buildRuleParams,
-      SourcePathResolver resolver,
       AaptPackageResources aaptPackageResources,
       Collection<DexProducedFromJavaLibrary> allPreDexRules,
       Optional<String> keepResourcePattern) {
-    super(buildRuleParams, resolver);
+    super(buildRuleParams);
     this.aaptPackageResources = aaptPackageResources;
     this.allPreDexRules = allPreDexRules;
     this.keepResourcePattern = keepResourcePattern;
@@ -78,11 +76,13 @@ class TrimUberRDotJava extends AbstractBuildRule {
   public ImmutableList<Step> getBuildSteps(
       BuildContext context,
       BuildableContext buildableContext) {
-    buildableContext.recordArtifact(getPathToOutput());
+    Path output = context.getSourcePathResolver().getRelativePath(getSourcePathToOutput());
+    buildableContext.recordArtifact(output);
     return ImmutableList.of(
-        new MakeCleanDirectoryStep(getProjectFilesystem(), getPathToOutput().getParent()),
-        new PerformTrimStep(),
-        new ZipScrubberStep(getProjectFilesystem(), getPathToOutput())
+        new MakeCleanDirectoryStep(getProjectFilesystem(), output.getParent()),
+        new PerformTrimStep(
+            context.getSourcePathResolver().getAbsolutePath(getSourcePathToOutput())),
+        new ZipScrubberStep(getProjectFilesystem(), output)
     );
   }
 
@@ -95,6 +95,12 @@ class TrimUberRDotJava extends AbstractBuildRule {
   }
 
   private class PerformTrimStep implements Step {
+    private final Path absolutePathToOutput;
+
+    public PerformTrimStep(Path absolutePathToOutput) {
+      this.absolutePathToOutput = absolutePathToOutput;
+    }
+
     @Override
     public StepExecutionResult execute(ExecutionContext context)
         throws IOException, InterruptedException {
@@ -110,7 +116,7 @@ class TrimUberRDotJava extends AbstractBuildRule {
       final ProjectFilesystem projectFilesystem = getProjectFilesystem();
       final Path sourceDir = aaptPackageResources.getPathToGeneratedRDotJavaSrcFiles();
       try (final CustomZipOutputStream output =
-               ZipOutputStreams.newOutputStream(projectFilesystem.resolve(getPathToOutput()))) {
+               ZipOutputStreams.newOutputStream(absolutePathToOutput)) {
         if (!projectFilesystem.exists(sourceDir)) {
           // dx fails if its input contains no classes.  Rather than add empty input handling
           // to DxStep, the dex merger, and every other step of this chain, just generate a
@@ -174,7 +180,7 @@ class TrimUberRDotJava extends AbstractBuildRule {
       return String.format(
           "trim_uber_r_dot_java %s > %s",
           aaptPackageResources.getPathToGeneratedRDotJavaSrcFiles(),
-          getPathToOutput());
+          getProjectFilesystem().relativize(absolutePathToOutput));
     }
   }
 

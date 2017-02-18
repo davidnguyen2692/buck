@@ -21,6 +21,7 @@ import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assume.assumeTrue;
 
 import com.facebook.buck.rules.keys.DefaultRuleKeyFactory;
+import com.facebook.buck.rules.keys.RuleKeyBuilder;
 import com.facebook.buck.testutil.FakeFileHashCache;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.base.Strings;
@@ -35,9 +36,10 @@ public class ToolTest {
 
   @Test
   public void hashFileToolsCreatedWithTheSamePathAreEqual() {
-    SourcePathResolver pathResolver = new SourcePathResolver(
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())
     );
+    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
     DefaultRuleKeyFactory ruleKeyFactory =
         new DefaultRuleKeyFactory(
             0,
@@ -47,7 +49,8 @@ public class ToolTest {
                     .put("other-path", Strings.repeat("b", 40))
                     .put("same", Strings.repeat("a", 40))
                     .build()),
-            pathResolver);
+            pathResolver,
+            ruleFinder);
 
     Path path = Paths.get("path");
     Path otherPath = Paths.get("other-path");
@@ -89,15 +92,17 @@ public class ToolTest {
 
   @Test
   public void customVersion() {
-    SourcePathResolver pathResolver = new SourcePathResolver(
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())
     );
+    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
     DefaultRuleKeyFactory ruleKeyFactory =
         new DefaultRuleKeyFactory(
             0,
             FakeFileHashCache.createFromStrings(
                 ImmutableMap.of()),
-            pathResolver);
+            pathResolver,
+            ruleFinder);
 
     String tool = "tool";
     String version = "version";
@@ -132,9 +137,10 @@ public class ToolTest {
     HashedFileTool tool1 = new HashedFileTool(Paths.get("/usr/local/bin/python2.7"));
     HashedFileTool tool2 = new HashedFileTool(Paths.get("/opt/bin/python2.7"));
 
-    SourcePathResolver pathResolver = new SourcePathResolver(
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())
     );
+    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
     DefaultRuleKeyFactory ruleKeyFactory =
         new DefaultRuleKeyFactory(
             0,
@@ -144,7 +150,8 @@ public class ToolTest {
                     .put("/usr/local/bin/python2.7", Strings.repeat("a", 40))
                     .put("/opt/bin/python2.7", Strings.repeat("a", 40))
                     .build()),
-            pathResolver);
+            pathResolver,
+            ruleFinder);
 
     RuleKey tool1RuleKey =
         createRuleKeyBuilder(ruleKeyFactory, pathResolver)
@@ -162,6 +169,6 @@ public class ToolTest {
   private RuleKeyBuilder<RuleKey> createRuleKeyBuilder(
       DefaultRuleKeyFactory factory,
       SourcePathResolver resolver) {
-    return factory.newInstance(new FakeBuildRule("//:test", resolver));
+    return factory.newBuilderForTesting(new FakeBuildRule("//:test", resolver));
   }
 }

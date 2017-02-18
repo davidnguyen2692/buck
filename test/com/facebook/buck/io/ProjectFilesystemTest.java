@@ -33,11 +33,11 @@ import com.facebook.buck.zip.ZipConstants;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Ordering;
-import com.google.common.io.CharStreams;
+import com.google.common.jimfs.Configuration;
+import com.google.common.jimfs.Jimfs;
 
 import org.apache.commons.compress.archivers.zip.ZipArchiveEntry;
 import org.apache.commons.compress.archivers.zip.ZipFile;
@@ -52,6 +52,7 @@ import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.file.FileSystem;
 import java.nio.file.FileSystems;
 import java.nio.file.FileVisitOption;
 import java.nio.file.FileVisitResult;
@@ -163,20 +164,6 @@ public class ProjectFilesystemTest {
     Path multiLineFile = tmp.newFile("foo.txt");
     Files.write(multiLineFile, "foo\nbar\nbaz\n".getBytes(UTF_8));
     assertEquals(Optional.of("foo"), filesystem.readFirstLine("foo.txt"));
-  }
-
-  @Test
-  public void getReaderIfFileExists() throws IOException {
-    Path file = tmp.newFile("foo.txt");
-    Files.write(file, "fooooo\nbar\nbaz\n".getBytes(UTF_8));
-    assertEquals(
-        "fooooo\nbar\nbaz\n",
-        CharStreams.toString(filesystem.getReaderIfFileExists(Paths.get("foo.txt")).get()));
-  }
-
-  @Test
-  public void getReaderIfFileExistsNoFile() throws IOException {
-    assertEquals(Optional.empty(), filesystem.getReaderIfFileExists(Paths.get("foo.txt")));
   }
 
   @Test
@@ -446,10 +433,7 @@ public class ProjectFilesystemTest {
 
     // Archive it into a zipfile using `ProjectFileSystem.createZip`.
     Path zipFile = tmp.getRoot().resolve("test.zip");
-    filesystem.createZip(
-        ImmutableList.of(exe),
-        zipFile,
-        ImmutableMap.of(Paths.get("additional"), "info"));
+    filesystem.createZip(ImmutableList.of(exe), zipFile);
 
     // Iterate over each of the entries, expecting to see all zeros in the time fields.
     Date dosEpoch = new Date(ZipUtil.dosToJavaTime(ZipConstants.DOS_FAKE_TIME));
@@ -521,25 +505,6 @@ public class ProjectFilesystemTest {
   }
 
   @Test
-  public void testCreateZipWithAdditionalFiles() throws IOException {
-    tmp.newFolder("foo");
-    tmp.newFile("foo/bar.txt");
-    tmp.newFile("foo/baz.txt");
-
-    Path output = tmp.newFile("out.zip");
-
-    filesystem.createZip(
-        ImmutableList.of(Paths.get("foo/bar.txt"), Paths.get("foo/baz.txt")),
-        output,
-        ImmutableMap.of(Paths.get("log/info.txt"), "hello"));
-
-    ZipInspector zipInspector = new ZipInspector(output);
-    assertEquals(
-        ImmutableSet.of("foo/bar.txt", "foo/baz.txt", "log/info.txt"),
-        zipInspector.getZipFileEntries());
-  }
-
-  @Test
   public void testGetZipContents() throws IOException {
     tmp.newFolder("foo");
     tmp.newFile("foo/bar.txt");
@@ -549,15 +514,13 @@ public class ProjectFilesystemTest {
 
     filesystem.createZip(
         ImmutableList.of(Paths.get("foo/bar.txt"), Paths.get("foo/baz.txt")),
-        output,
-        ImmutableMap.of(Paths.get("log/info.txt"), "hello"));
+        output);
 
     ImmutableCollection<Path> actualContents = filesystem.getZipMembers(output);
     assertEquals(
         ImmutableList.of(
             Paths.get("foo/bar.txt"),
-            Paths.get("foo/baz.txt"),
-            Paths.get("log/info.txt")),
+            Paths.get("foo/baz.txt")),
         actualContents);
   }
 
@@ -677,5 +640,18 @@ public class ProjectFilesystemTest {
         "Two ProjectFilesystems with same glob in ignore should be equal",
         new ProjectFilesystem(rootPath, config),
         equalTo(new ProjectFilesystem(rootPath, config)));
+  }
+
+  @Test
+  public void getPathReturnsPathWithCorrectFilesystem() throws IOException {
+    FileSystem vfs = Jimfs.newFileSystem(Configuration.unix());
+    Path root = vfs.getPath("/root");
+    Files.createDirectories(root);
+    assertEquals(
+        vfs,
+        new ProjectFilesystem(root).getPath("bar").getFileSystem());
+    assertEquals(
+        vfs.getPath("bar"),
+        new ProjectFilesystem(root).getPath("bar"));
   }
 }

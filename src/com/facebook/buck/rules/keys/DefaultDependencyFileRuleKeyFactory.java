@@ -17,12 +17,12 @@
 package com.facebook.buck.rules.keys;
 
 import com.facebook.buck.hashing.FileHashLoader;
-import com.facebook.buck.model.Pair;
-import com.facebook.buck.rules.ArchiveMemberSourcePath;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.RuleKey;
+import com.facebook.buck.rules.RuleKeyAppendable;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -30,218 +30,226 @@ import com.google.common.collect.Sets;
 
 import java.io.IOException;
 import java.nio.file.NoSuchFileException;
-import java.util.Optional;
+import java.util.function.Predicate;
+
+import javax.annotation.Nullable;
 
 /**
- * A variant of {@link InputBasedRuleKeyFactory} which ignores inputs when calculating the
- * {@link RuleKey}, allowing them to specified explicitly.
+ * A factory for generating dependency-file {@link RuleKey}s.
  */
-public class DefaultDependencyFileRuleKeyFactory
-    extends InputBasedRuleKeyFactory
-    implements DependencyFileRuleKeyFactory {
+public final class DefaultDependencyFileRuleKeyFactory implements DependencyFileRuleKeyFactory {
 
+  private final RuleKeyFieldLoader ruleKeyFieldLoader;
+  private final FileHashLoader fileHashLoader;
   private final SourcePathResolver pathResolver;
+  private final SourcePathRuleFinder ruleFinder;
 
   public DefaultDependencyFileRuleKeyFactory(
-      int seed,
-      FileHashLoader fileHashLoader,
-      SourcePathResolver pathResolver) {
-    super(
-        seed,
-        fileHashLoader,
-        pathResolver,
-        InputHandling.IGNORE,
-        ArchiveHandling.MEMBERS,
-        Long.MAX_VALUE);
+      RuleKeyFieldLoader ruleKeyFieldLoader,
+      FileHashLoader hashLoader,
+      SourcePathResolver pathResolver,
+      SourcePathRuleFinder ruleFinder) {
+    this.ruleKeyFieldLoader = ruleKeyFieldLoader;
+    this.fileHashLoader = hashLoader;
     this.pathResolver = pathResolver;
+    this.ruleFinder = ruleFinder;
   }
 
   @Override
-  public Optional<Pair<RuleKey, ImmutableSet<SourcePath>>> build(
+  public RuleKeyAndInputs build(
       SupportsDependencyFileRuleKey rule,
       ImmutableList<DependencyFileEntry> depFileEntries) throws IOException {
-    return new DependencyFileRuleKeyBuilder(rule)
-        .build(rule.getPossibleInputSourcePaths(), depFileEntries);
+    // Note, we do not cache this as it didn't show performance improvements.
+    return buildKey(rule, KeyType.DEP_FILE, depFileEntries);
   }
 
   @Override
-  public Optional<Pair<RuleKey, ImmutableSet<SourcePath>>> buildManifestKey(
+  public RuleKeyAndInputs buildManifestKey(
       SupportsDependencyFileRuleKey rule)
       throws IOException {
-    return new ManifestKeyBuilder(rule)
-        .build(rule.getPossibleInputSourcePaths());
+    // Note, we do not cache this as it didn't show performance improvements.
+    return buildKey(rule, KeyType.MANIFEST, ImmutableList.of());
   }
 
-  private class ManifestKeyBuilder {
-    private final BuilderWrapper builder;
-
-    public ManifestKeyBuilder(BuildRule rule) {
-      builder = new BuilderWrapper(newInstance(rule));
-      builder.setReflectively("buck.key_type", "manifest");
-    }
-
-    /**
-     * @return Pair of dep-file rule key and the members of possibleDepFileSourcePaths that actually
-     *         appeared in the dep file
-     * @throws IOException
-     */
-    public Optional<Pair<RuleKey, ImmutableSet<SourcePath>>> build(
-        Optional<ImmutableSet<SourcePath>> possibleDepFileSourcePaths) throws IOException {
-      ImmutableSet<SourcePath> inputs = builder.getInputsSoFar();
-
-      final ImmutableSet<SourcePath> depFileInputs;
-      if (possibleDepFileSourcePaths.isPresent()) {
-        // possibleDepFileSourcePaths is an ImmutableSortedSet which implements contains() via
-        // binary search rather than via hashing. Thus taking the intersection/difference
-        // is O(n*log(n)). Here, we make a hash-based copy of the set, so that intersection
-        // will be reduced to O(N).
-        ImmutableSet<SourcePath> possibleDepFileSourcePathsUnsorted =
-            ImmutableSet.copyOf(possibleDepFileSourcePaths.get());
-        Sets.SetView<SourcePath> nonDepFileInputs = Sets.difference(
-            inputs,
-            possibleDepFileSourcePathsUnsorted);
-
-        builder.addToRuleKey(nonDepFileInputs);
-
-        depFileInputs = ImmutableSet.copyOf(Sets.intersection(
-            inputs,
-            possibleDepFileSourcePathsUnsorted));
-      } else {
-        // If not present, we treat all the input files as covered by dep file.
-        depFileInputs = inputs;
-      }
-
-      Optional<RuleKey> ruleKey = builder.build();
-      if (ruleKey.isPresent()) {
-        return Optional.of(new Pair<>(ruleKey.get(), depFileInputs));
-      } else {
-        return Optional.empty();
-      }
-    }
+  private RuleKeyAndInputs buildKey(
+      SupportsDependencyFileRuleKey rule,
+      KeyType keyType,
+      ImmutableList<DependencyFileEntry> depFileEntries) throws IOException {
+    Builder builder = new Builder(
+        rule,
+        keyType,
+        depFileEntries,
+        rule.getCoveredByDepFilePredicate(),
+        rule.getExistenceOfInterestPredicate());
+    ruleKeyFieldLoader.setFields(rule, builder);
+    builder.setReflectively("buck.key_type", keyType);
+    Result result = builder.buildResult();
+    return RuleKeyAndInputs.of(result.getRuleKey(), result.getSourcePaths());
   }
 
+  class Builder extends RuleKeyBuilder<RuleKey> {
 
-  private class DependencyFileRuleKeyBuilder {
-    private final BuilderWrapper builder;
-    private final BuildRule rule;
+    private final SupportsDependencyFileRuleKey rule;
+    private final KeyType keyType;
+    private final ImmutableSet<DependencyFileEntry> depFileEntriesSet;
 
-    public DependencyFileRuleKeyBuilder(BuildRule rule) {
+    private final Predicate<SourcePath> coveredPathPredicate;
+    private final Predicate<SourcePath> interestingPathPredicate;
+
+    final ImmutableSet.Builder<SourcePath> sourcePaths = ImmutableSet.builder();
+    final ImmutableSet.Builder<DependencyFileEntry> accountedEntries = ImmutableSet.builder();
+
+    private Builder(
+        SupportsDependencyFileRuleKey rule,
+        KeyType keyType,
+        ImmutableList<DependencyFileEntry> depFileEntries,
+        Predicate<SourcePath> coveredPathPredicate,
+        Predicate<SourcePath> interestingPathPredicate) {
+      super(ruleFinder, pathResolver, fileHashLoader);
+      this.keyType = keyType;
       this.rule = rule;
-
-      // Create a builder which records all `SourcePath`s which are possibly used by the rule.
-      builder = new BuilderWrapper(newInstance(rule));
+      this.depFileEntriesSet = ImmutableSet.copyOf(depFileEntries);
+      this.coveredPathPredicate = coveredPathPredicate;
+      this.interestingPathPredicate = interestingPathPredicate;
     }
 
-    public Optional<Pair<RuleKey, ImmutableSet<SourcePath>>> build(
-        Optional<ImmutableSet<SourcePath>> possibleDepFileSourcePaths,
-        ImmutableList<DependencyFileEntry> depFileEntries) throws IOException {
-      // TODO(jkeljo): Make this use possibleDepFileSourcePaths all the time
-      Iterable<SourcePath> inputsSoFar = builder.getIterableInputsSoFar();
-      // Dep file paths come as a sorted set, which does binary search instead of hashing for
-      // lookups, so we re-create it as a hashset.
-      ImmutableSet<SourcePath> fastPossibleSourcePaths =
-          possibleDepFileSourcePaths.isPresent() ?
-              ImmutableSet.copyOf(possibleDepFileSourcePaths.get()) :
-              ImmutableSet.of();
+    @Override
+    protected Builder setAppendableRuleKey(RuleKeyAppendable appendable) {
+      // Note, we do not compute a separate `RuleKey` for `RuleKeyAppendables`. Instead we just hash
+      // the content directly under the appendable scope. Collision-wise there is no difference. The
+      // former allowed us to do caching, but it turns out that didn't make much of a difference
+      // performance-wise. Furthermore, after fixing this factory to account for the field names and
+      // structure while hashing `SourcePaths`, caching `RuleKeyAppendables` becomes much more
+      // trickier. We can't perform hashing immediately because `SourcePaths` of the same appendable
+      // instance may be handled differently when referenced by different build rules. Therefore we
+      // need to defer that work to be done at the time a particular build rule is being handled.
+      // Instead of keeping a simple set of `SourcePaths`, we'd also have to keep the structure
+      // information for each path. In particular, each path found in the following field
+      // `@AddToRuleKey Optional<ImmutableList<SourcePath>> myPaths` would have to be accompanied by
+      // its structure information: `myPaths;Optional;List`. This adds additional overhead of
+      // bookkeeping that information and counters any benefits caching would provide here.
+      try (RuleKeyScopedHasher.Scope wrapperScope =
+               getScopedHasher().wrapperScope(RuleKeyHasher.Wrapper.APPENDABLE)) {
+        appendable.appendToRuleKey(this);
+      }
+      return this;
+    }
 
-      ImmutableSet<DependencyFileEntry> depFileEntriesSet = ImmutableSet.copyOf(depFileEntries);
+    @Override
+    protected Builder setReflectively(@Nullable Object val) {
+      if (val instanceof ArchiveDependencySupplier) {
+        Object members = ((ArchiveDependencySupplier) val).getArchiveMembers(pathResolver);
+        super.setReflectively(members);
+      } else {
+        super.setReflectively(val);
+      }
+      return this;
+    }
 
-      final ImmutableSet.Builder<SourcePath> depFileSourcePathsBuilder = ImmutableSet.builder();
-      final ImmutableSet.Builder<DependencyFileEntry> filesAccountedFor = ImmutableSet.builder();
-
-      // Each input path falls into one of three categories:
-      // 1) It's not covered by dep files, so we need to consider it part of the rule key
-      // 2) It's covered by dep files and present in the dep file, so we consider it
-      //    part of the rule key
-      // 3) It's covered by dep files but not present in the dep file, so we don't include it in
-      //    the rule key (the benefit of dep file support is that lots of things fall in this
-      //    category, so we can avoid rebuilds that would have happened with input-based rule keys)
-      for (SourcePath input : inputsSoFar) {
-        if (possibleDepFileSourcePaths.isPresent() && !fastPossibleSourcePaths.contains(input)) {
-          // If this path is not a dep file path, then add it to the builder directly.
-          // Note that if {@code possibleDepFileSourcePaths} is not present, we treat
-          // all the input files as covered by dep file, so we'll never end up here!
-          builder.addToRuleKey(input);
+    @Override
+    protected Builder setSourcePath(SourcePath input) throws IOException {
+      if (keyType == KeyType.DEP_FILE) {
+        // Each existing input path falls into one of four categories:
+        // 1) It's not covered by dep-files, so we need to consider it part of the rule key.
+        // 2) It's covered by dep-files and present in the dep-file, so we need to consider it part
+        //    of the rule key.
+        // 3) It's covered by dep-files but not present in the dep-file, however the existence is
+        //    of interest, so we need to consider its path as part of the rule key.
+        // 4) It's covered by dep-files but not present in the dep-file nor is existence of interest
+        //    so we don't include it in the rule key. The benefit of dep-file support is based on
+        //    the premise that lots of things fall in this category, so we can avoid rebuilds that
+        //    would have happened with input-based rule keys.
+        if (!coveredPathPredicate.test(input)) {
+          // 1: If this path is not covered by dep-file, then add it to the builder directly.
+          this.setSourcePathDirectly(input);
         } else {
-          // If this input path is covered by the dep paths, check to see if it was declared
-          // as a real dependency by the dep file entries
+          // 2,3,4: This input path is covered by the dep-file
           DependencyFileEntry entry = DependencyFileEntry.fromSourcePath(input, pathResolver);
           if (depFileEntriesSet.contains(entry)) {
-            builder.addToRuleKey(input);
-            depFileSourcePathsBuilder.add(input);
-            filesAccountedFor.add(entry);
+            // 2: input was declared as a real dependency by the dep-file entries so add to key
+            this.setSourcePathDirectly(input);
+            sourcePaths.add(input);
+            accountedEntries.add(entry);
+          } else if (interestingPathPredicate.test(input)) {
+            // 3: path not present in the dep-file, however the existence is of interest
+            this.setNonHashingSourcePath(input);
+          }
+        }
+      } else {
+        // Comparing to dep-file keys, manifest keys gets constructed as if no covered input is
+        // used, but we return the list of all such covered inputs for further inspection.
+        if (!coveredPathPredicate.test(input)) {
+          this.setSourcePathDirectly(input);
+        } else {
+          sourcePaths.add(input);
+          if (interestingPathPredicate.test(input)) {
+            this.setNonHashingSourcePath(input);
           }
         }
       }
-
-      Sets.SetView<DependencyFileEntry> filesUnaccountedFor = Sets.difference(
-          depFileEntriesSet, filesAccountedFor.build());
-      // If we don't find actual inputs in one of the rules that corresponded to the input, this
-      // likely means that the rule changed to no longer use the input. In this case we need to
-      // throw a `NoSuchFileException` so that the build engine handles this as a signal that the
-      // dep file rule key cannot be used.
-      if (!filesUnaccountedFor.isEmpty()) {
-        throw new NoSuchFileException(
-            String.format(
-                "%s: could not find any inputs matching the relative paths [%s]",
-                rule.getBuildTarget(),
-                Joiner.on(',').join(filesUnaccountedFor)));
-      }
-
-      Optional<RuleKey> ruleKey = builder.build();
-      if (ruleKey.isPresent()) {
-        return Optional.of(new Pair<>(ruleKey.get(), depFileSourcePathsBuilder.build()));
-      } else {
-        return Optional.empty();
-      }
-    }
-
-  }
-
-  private class BuilderWrapper {
-    private final Builder builder;
-
-    public BuilderWrapper(Builder builder) {
-      this.builder = builder;
-    }
-
-    public Optional<RuleKey> build() {
-      return builder.build();
-    }
-
-    public ImmutableSet<SourcePath> getInputsSoFar() {
-      return builder.getInputsSoFar();
-    }
-
-    public Iterable<SourcePath> getIterableInputsSoFar() {
-      return builder.getIterableInputsSoFar();
-    }
-
-    public void addToRuleKey(Iterable<SourcePath> sourcePaths) throws IOException {
-      for (SourcePath sourcePath : sourcePaths) {
-        addToRuleKey(sourcePath);
-      }
-    }
-
-    public void addToRuleKey(SourcePath sourcePath) throws IOException {
-      // Add each `SourcePath` using `builder.setPath()`.  We can't use `builder.setSourcePath()`
-      // here since the special `RuleKeyBuilder` sub-class that dep-file rule keys use intentionally
-      // override `builder.setSourcePath()` to be a noop (and just record the inputs).
-      if (sourcePath instanceof ArchiveMemberSourcePath) {
-        builder.setArchiveMemberPath(
-            pathResolver.getAbsoluteArchiveMemberPath(sourcePath),
-            pathResolver.getRelativeArchiveMemberPath(sourcePath));
-      } else {
-        builder.setPath(
-            pathResolver.getAbsolutePath(sourcePath),
-            pathResolver.getRelativePath(sourcePath));
-      }
-    }
-
-    public BuilderWrapper setReflectively(String key, Object value) {
-      builder.setReflectively(key, value);
       return this;
     }
+
+    // Rules supporting dep-file rule keys should be described entirely by their `SourcePath`
+    // inputs.  If we see a `BuildRule` when generating the rule key, this is likely a break in
+    // that contract, so check for that.
+    @Override
+    protected Builder setBuildRule(BuildRule rule) {
+      throw new IllegalStateException(
+          String.format(
+              "Dependency-file rule key builders cannot process build rules. " +
+                  "Was given %s to add to rule key.",
+              rule));
+    }
+
+    final Result buildResult() throws IOException {
+      if (keyType == KeyType.DEP_FILE) {
+        // If we don't find actual inputs in one of the rules that corresponded to the input, this
+        // likely means that the rule changed to no longer use the input. In this case we need to
+        // throw a `NoSuchFileException` so that the build engine handles this as a signal that the
+        // dep file rule key cannot be used.
+        Sets.SetView<DependencyFileEntry> unaccountedEntries =
+            Sets.difference(depFileEntriesSet, accountedEntries.build());
+        if (!unaccountedEntries.isEmpty()) {
+          throw new NoSuchFileException(
+              String.format(
+                  "%s: could not find any inputs matching the relative paths [%s]",
+                  rule.getBuildTarget(),
+                  Joiner.on(',').join(unaccountedEntries)));
+        }
+      }
+      return new Result(buildRuleKey(), sourcePaths.build());
+    }
+
+    @Override
+    public RuleKey build() {
+      return buildRuleKey();
+    }
+  }
+
+  private static class Result {
+
+    private final RuleKey ruleKey;
+    private final ImmutableSet<SourcePath> sourcePaths;
+
+    public Result(
+        RuleKey ruleKey,
+        ImmutableSet<SourcePath> sourcePaths) {
+      this.ruleKey = ruleKey;
+      this.sourcePaths = sourcePaths;
+    }
+
+    public RuleKey getRuleKey() {
+      return ruleKey;
+    }
+
+    public ImmutableSet<SourcePath> getSourcePaths() {
+      return sourcePaths;
+    }
+  }
+
+  private enum KeyType {
+    DEP_FILE, MANIFEST
   }
 
 }

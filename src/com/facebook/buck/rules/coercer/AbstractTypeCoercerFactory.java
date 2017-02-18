@@ -22,11 +22,16 @@ import com.facebook.buck.model.BuildTargetPattern;
 import com.facebook.buck.model.Either;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.Pair;
+import com.facebook.buck.parser.BuildTargetPatternParser;
 import com.facebook.buck.python.NeededCoverageSpec;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.Label;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourceWithFlags;
+import com.facebook.buck.rules.macros.ClasspathMacro;
+import com.facebook.buck.rules.macros.ExecutableMacro;
+import com.facebook.buck.rules.macros.LocationMacro;
+import com.facebook.buck.rules.macros.MavenCoordinatesMacro;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.PropertyNamingStrategy;
@@ -78,7 +83,14 @@ public class AbstractTypeCoercerFactory implements TypeCoercerFactory {
               Path pathRelativeToProjectRoot,
               Object object)
               throws CoerceFailedException {
-            throw new UnsupportedOperationException();
+            // This is only actually used directly by ConstructorArgMarshaller, for parsing the
+            // groups list. It's also queried (but not actually used) when Descriptions declare
+            // deps fields.
+            // TODO(tophyr): make this work for all types of BuildTargetPatterns
+            // probably differentiate them by inheritance
+            return BuildTargetPatternParser.forVisibilityArgument().parse(
+                cellRoots,
+                (String) object);
           }
         };
     TypeCoercer<BuildTarget> buildTargetTypeCoercer = new BuildTargetTypeCoercer();
@@ -131,6 +143,18 @@ public class AbstractTypeCoercerFactory implements TypeCoercerFactory {
         neededCoverageSpecTypeCoercer,
         new ConstraintTypeCoercer(),
         new VersionTypeCoercer(),
+        new QueryCoercer(),
+        StringWithMacrosTypeCoercer.from(
+            ImmutableMap.of(
+                "classpath", ClasspathMacro.class,
+                "exe", ExecutableMacro.class,
+                "location", LocationMacro.class,
+                "maver_coords", MavenCoordinatesMacro.class),
+            ImmutableList.of(
+                new ClasspathMacroTypeCoercer(buildTargetTypeCoercer),
+                new ExecutableMacroTypeCoercer(buildTargetTypeCoercer),
+                new LocationMacroTypeCoercer(buildTargetTypeCoercer),
+                new MavenCoordinatesMacroTypeCoercer(buildTargetTypeCoercer))),
     };
   }
 

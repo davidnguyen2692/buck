@@ -27,6 +27,11 @@ import java.util.Optional;
 public abstract class AbstractMacroExpander<T> implements MacroExpander {
 
   /**
+   * @return the class for the parsed input type.
+   */
+  public abstract Class<T> getInputClass();
+
+  /**
    * @return parse the input arguments into a type that will be used on the interfaces below.
    */
   protected abstract T parse(
@@ -84,7 +89,8 @@ public abstract class AbstractMacroExpander<T> implements MacroExpander {
   public ImmutableList<BuildTarget> extractParseTimeDepsFrom(
       BuildTarget target,
       CellPathResolver cellNames,
-      T input) {
+      T input)
+      throws MacroException {
     return ImmutableList.of();
   }
 
@@ -93,7 +99,8 @@ public abstract class AbstractMacroExpander<T> implements MacroExpander {
       BuildTarget target,
       CellPathResolver cellNames,
       BuildRuleResolver resolver,
-      ImmutableList<String> input) throws MacroException {
+      ImmutableList<String> input)
+      throws MacroException {
     return extractRuleKeyAppendablesFrom(
         target,
         cellNames,

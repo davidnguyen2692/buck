@@ -19,6 +19,7 @@ package com.facebook.buck.python;
 import static com.facebook.buck.rules.BuildableProperties.Kind.LIBRARY;
 
 import com.facebook.buck.cxx.CxxPlatform;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableProperties;
@@ -30,10 +31,10 @@ import com.google.common.base.Function;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.ImmutableSortedSet;
 
 import java.nio.file.Path;
 import java.util.Optional;
+import java.util.stream.Stream;
 
 public class PythonLibrary extends NoopBuildRule implements PythonPackagable, HasRuntimeDeps {
 
@@ -81,8 +82,8 @@ public class PythonLibrary extends NoopBuildRule implements PythonPackagable, Ha
   }
 
   @Override
-  public ImmutableSortedSet<BuildRule> getRuntimeDeps() {
-    return getDeclaredDeps();
+  public Stream<BuildTarget> getRuntimeDeps() {
+    return getDeclaredDeps().stream().map(BuildRule::getBuildTarget);
   }
 
 }

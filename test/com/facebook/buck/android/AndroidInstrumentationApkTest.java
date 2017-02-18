@@ -29,10 +29,13 @@ import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.FakeSourcePath;
+import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.util.MoreCollectors;
 import com.google.common.collect.ImmutableMap;
@@ -42,17 +45,17 @@ import com.google.common.util.concurrent.MoreExecutors;
 
 import org.junit.Test;
 
-import java.nio.file.Path;
-
 public class AndroidInstrumentationApkTest {
 
   @Test
   public void testAndroidInstrumentationApkExcludesClassesFromInstrumentedApk() throws Exception {
     BuildRuleResolver ruleResolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver pathResolver = new SourcePathResolver(ruleResolver);
+    SourcePathResolver pathResolver =
+        new SourcePathResolver(new SourcePathRuleFinder(ruleResolver));
+    BuildTarget javaLibrary1Target = BuildTargetFactory.newInstance("//java/com/example:lib1");
     final FakeJavaLibrary javaLibrary1 = new FakeJavaLibrary(
-        BuildTargetFactory.newInstance("//java/com/example:lib1"), pathResolver);
+        javaLibrary1Target, pathResolver);
 
     FakeJavaLibrary javaLibrary2 = new FakeJavaLibrary(
         BuildTargetFactory.newInstance("//java/com/example:lib2"),
@@ -60,21 +63,25 @@ public class AndroidInstrumentationApkTest {
         /* deps */ ImmutableSortedSet.of((BuildRule) javaLibrary1)) {
 
       @Override
-      public ImmutableSet<Path> getTransitiveClasspaths() {
-        return ImmutableSet.of(javaLibrary1.getPathToOutput(), this.getPathToOutput());
+      public ImmutableSet<SourcePath> getTransitiveClasspaths() {
+        return ImmutableSet.of(
+            new BuildTargetSourcePath(javaLibrary1Target),
+            getSourcePathToOutput());
       }
     };
 
-    final FakeJavaLibrary javaLibrary3 = new FakeJavaLibrary(
-        BuildTargetFactory.newInstance("//java/com/example:lib3"), pathResolver);
+    BuildTarget javaLibrary3Target = BuildTargetFactory.newInstance("//java/com/example:lib3");
+    final FakeJavaLibrary javaLibrary3 = new FakeJavaLibrary(javaLibrary3Target, pathResolver);
 
     FakeJavaLibrary javaLibrary4 = new FakeJavaLibrary(
         BuildTargetFactory.newInstance("//java/com/example:lib4"),
         pathResolver,
         /* deps */ ImmutableSortedSet.of((BuildRule) javaLibrary3)) {
       @Override
-      public ImmutableSet<Path> getTransitiveClasspaths() {
-        return ImmutableSet.of(javaLibrary3.getPathToOutput(), this.getPathToOutput());
+      public ImmutableSet<SourcePath> getTransitiveClasspaths() {
+        return ImmutableSet.of(
+            new BuildTargetSourcePath(javaLibrary3Target),
+            getSourcePathToOutput());
       }
     };
 
@@ -99,7 +106,7 @@ public class AndroidInstrumentationApkTest {
         .setManifest(new FakeSourcePath("apps/AndroidManifest.xml"))
         .setKeystore(keystore.getBuildTarget())
         .setOriginalDeps(originalDepsTargets);
-    AndroidBinary androidBinary = (AndroidBinary) androidBinaryBuilder.build(ruleResolver);
+    AndroidBinary androidBinary = androidBinaryBuilder.build(ruleResolver);
 
     // AndroidInstrumentationApk transitively depends on :lib1, :lib2, :lib3, and :lib4.
     ImmutableSortedSet<BuildTarget> apkOriginalDepsTargets = ImmutableSortedSet.of(
@@ -140,7 +147,7 @@ public class AndroidInstrumentationApkTest {
                 javaLibrary3.getBuildTarget(),
                 "%s.jar")),
         androidBinary.getAndroidPackageableCollection().getClasspathEntriesToDex().stream()
-            .map(pathResolver::deprecatedGetPath)
+            .map(pathResolver::getRelativePath)
             .collect(MoreCollectors.toImmutableSet()));
     assertEquals(
         "//apps:instrumentation should have one JAR file to dex.",
@@ -152,7 +159,7 @@ public class AndroidInstrumentationApkTest {
         androidInstrumentationApk
             .getAndroidPackageableCollection()
             .getClasspathEntriesToDex().stream()
-            .map(pathResolver::deprecatedGetPath)
+            .map(pathResolver::getRelativePath)
             .collect(MoreCollectors.toImmutableSet()));
   }
 }

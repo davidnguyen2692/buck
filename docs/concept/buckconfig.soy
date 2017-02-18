@@ -12,6 +12,7 @@
 {template .soyweb}
   {call buck.page}
     {param title: '.buckconfig' /}
+    {param navid: 'concept_buckconfig' /}
     {param description}
       An optional file that contains configuration information for Buck.
     {/param}
@@ -69,6 +70,18 @@ outside double quotes. For example, if <em>flags</em> is a field being
 interpreted as a list of strings separated by
 spaces, <code>flags=-foo "-bar \u0429"</code> will result in two
 strings: <q>foo</q> and <q>-bar &#1065;</q>.
+
+<p>
+Finally, other fields' values can be interpolated by including <code>$(config &lt;section&gt;.&lt;field&gt;)</code> inside of a value. For example, if you want to use the go vendor path in a custom setting, you can use:
+</p>
+
+<p>
+{literal}<pre class="prettyprint lang-ini">
+[custom_section]
+custom_value = $(config go.vendor_path)
+</pre>
+{/literal}
+</p>
 
 <h2>.buckconfig.local</h2>
 
@@ -656,6 +669,15 @@ $ buck targets --resolve-alias app#src_jar
   {/param}
 {/call}
 
+{call buckconfig.entry}
+  {param section: 'buildfile' /}
+  {param name: 'name' /}
+  {param example_value: 'TARGETS' /}
+  {param description}
+    The name of {call buck.build_file /}s within a project. This defaults to <code>BUCK</code>.
+  {/param}
+{/call}
+
 {call buckconfig.section}
   {param name: 'cache' /}
   {param description}
@@ -711,6 +733,35 @@ $ buck targets --resolve-alias app#src_jar
   {param description}
     Dictates if the cache is <code>readonly</code> or <code>readwrite</code> (default) when using
     directory-based caching ({call buckconfig.cache_mode /} must contain <code>dir</code>).
+  {/param}
+{/call}
+
+{call buckconfig.entry}
+  {param section: 'cache' /}
+  {param name: 'dir_cache_names' /}
+  {param description}
+    A comma-separated list of names used to configure multiple dir caches.  The caches will be used{sp}
+    <b>serially</b> in the order in which their names are specified here.  If an artifact is found
+    further along in the list, an attempt to store it in the caches earlier in the list will be
+    made.  In the following example, if the artifact is found in the <code>warm</code> cache, it
+    will not be stored in the <code>local</code> cache. Note: if <code>[cache] dir</code> or <code>[cache] dir_mode</code>{sp}
+    are found, then Buck will fall back to single dir cache more and <code>[cache] dir_cache_names</code>{sp}
+    will be completely ignored.
+  {/param}
+  {param raw_example}
+{literal}<pre class="prettyprint lang-ini">
+[cache]
+    mode = dir
+    dir_cache_names = warm, local
+
+[cache#warm]
+    dir = ~/prefetched_cache
+    dir_mode = readonly
+
+[cache#local]
+    dir = ~/buck_cache
+    dir_mode = readwrite
+</pre>{/literal}
   {/param}
 {/call}
 
@@ -1149,6 +1200,16 @@ $ buck targets --resolve-alias app#src_jar
   {/param}
 {/call}
 
+{call buckconfig.entry}
+  {param section: 'download' /}
+  {param name: 'max_number_of_retries' /}
+  {param example_value: '3' /}
+  {param description}
+    In case buck is unable to download a file, it will retry specified number of times before
+    giving up.
+  {/param}
+{/call}
+
 {call buckconfig.section}
   {param name: 'cxx' /}
   {param description}
@@ -1339,6 +1400,50 @@ $ buck targets --resolve-alias app#src_jar
   {param example_value: '--plugin someplugin' /}
   {param description}
     The flags to pass to the archive indexer.
+  {/param}
+{/call}
+
+{call buckconfig.entry}
+  {param section: 'cxx' /}
+  {param name: 'gtest_dep' /}
+  {param example_value: '//third-party/gtest:gtest' /}
+  {param description}
+    The {call buck.build_rule /} to compile the <a href="https://github.com/google/googletest" target="_blank">Google Test</a> framework.
+  {/param}
+  {param raw_example}
+    <p>
+      If you had your Google Test code in <code>third-party/gtest/</code>, the {call buck.build_file /} in that directory would look something like this:
+    </p>
+    <pre class="prettyprint lang-py">
+{literal}
+cxx_library(
+  name = 'gtest',
+  srcs = subdir_glob([
+    'googletest/src/gtest-all.cc',
+    'googlemock/src/gmock-all.cc',
+    'googlemock/src/gmock_main.cc',
+  ]),
+  header_namespace = '',
+  exported_headers = subdir_glob([
+    ('googletest/include', '**/*.h'),
+    ('googlemock/include', '**/*.h'),
+  ]),
+  headers = subdir_glob([
+    ('googletest', 'src/*.cc'),
+    ('googletest', 'src/*.h'),
+    ('googlemock', 'src/*.cc'),
+    ('googlemock', 'src/*.h'),
+  ]),
+  platform_linker_flags = [
+    ('android', []),
+    ('', ['-lpthread']),
+  ],
+  visibility = [
+    '//test/...',
+  ],
+)
+{/literal}
+    </pre>
   {/param}
 {/call}
 
@@ -1657,6 +1762,18 @@ $ buck targets --resolve-alias app#src_jar
   {param example_value: '1.8' /}
   {param description}
     SDK name for Java modules.
+  {/param}
+{/call}
+
+{call buckconfig.entry}
+  {param section: 'intellij' /}
+  {param name: 'generated_srcs_map' /}
+  {param example_value: '//path/to/target1 => __%name%_target1__, \n                       //path/to/target2 => __%name%_target2__' /}
+  {param description}
+    Allows adding folders with generated source code to IntelliJ project. These folders are added
+    only if a module depends on a key target. In the example below, if
+    module <code>//app/target</code> depends on <code>//path/to/target1</code>
+    folder <code>buck-out/gen/app/lib/__lib_target1__</code> will be added to IntelliJ project.
   {/param}
 {/call}
 
@@ -2138,7 +2255,7 @@ your <code>.buckjavaargs</code> file</a>:
     will silently ignore symlinks.
     </p>
     <p>
-    The default value is <code>allow</code>.
+    The default value is <code>warn</code>.
     </p>
   {/param}
 {/call}
@@ -2252,28 +2369,10 @@ your <code>.buckjavaargs</code> file</a>:
 
 {call buckconfig.entry}
   {param section: 'project' /}
-  {param name: 'enable_build_file_sandboxing' /}
-  {param example_value: 'true' /}
-  {param description}
-    When set to <code>true</code> (the default is <code>false</code>), Buck will put restrictions
-    on importing arbitrary Python modules in {call buck.build_file /}s to make it harder to
-    accidentally violate assumptions about determinism of BUCK files and build rules. It will be
-    possible to import only whitelisted or sanitized modules, unrestricted import
-    behavior can be restored in a context by using
-    <a href="{ROOT}function/allow_unsafe_import.html"> <code>allow_unsafe_import()</code> </a>
-    function.
-  {/param}
-{/call}
-
-{call buckconfig.entry}
-  {param section: 'project' /}
   {param name: 'build_file_import_whitelist' /}
   {param example_value: 'math, Foo' /}
   {param description}
-    A comma-separated list that configures which Python modules will be added to the build file
-    import whitelist in this project when
-    <a href="{ROOT}concept/buckconfig.html#project.enable_build_file_sandboxing"> build file sandboxing </a>
-    is enabled.
+    A comma-separated list that configures which Python modules can be imported in build files.
   {/param}
 {/call}
 

@@ -28,6 +28,7 @@ import com.facebook.buck.rules.FakeBuildableContext;
 import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
@@ -109,17 +110,17 @@ public class MergeAndroidResourcesSourcesTest {
     ImmutableList<SourcePath> directories = ImmutableList.of(
         new FakeSourcePath(filesystem, "res_in_1"),
         new FakeSourcePath(filesystem, "res_in_2"));
+    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(
+        new BuildRuleResolver(
+            TargetGraph.EMPTY,
+            new DefaultTargetNodeToBuildRuleTransformer())));
     MergeAndroidResourceSources mergeAndroidResourceSourcesStep =
         new MergeAndroidResourceSources(
             buildRuleParams,
-            new SourcePathResolver(
-                new BuildRuleResolver(
-                    TargetGraph.EMPTY,
-                    new DefaultTargetNodeToBuildRuleTransformer())),
             directories);
 
     ImmutableList<Step> steps = mergeAndroidResourceSourcesStep.getBuildSteps(
-        FakeBuildContext.NOOP_CONTEXT,
+        FakeBuildContext.withSourcePathResolver(pathResolver),
         new FakeBuildableContext());
     assertThat(
         steps,
@@ -143,10 +144,12 @@ public class MergeAndroidResourcesSourcesTest {
   public void testStepExecution() throws IOException, InterruptedException {
     Path rootPath = tmp.getRoot().toPath();
     File outFolder = tmp.newFolder("out");
+    File tmpFolder = tmp.newFolder("tmp");
 
     MergeAndroidResourceSourcesStep step = new MergeAndroidResourceSourcesStep(
         ImmutableList.of(rootPath.resolve("res_in_1"), rootPath.resolve("res_in_2")),
-        outFolder.toPath()
+        outFolder.toPath(),
+        tmpFolder.toPath()
     );
     step.execute(context);
     assertThat(

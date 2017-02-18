@@ -16,7 +16,7 @@
 
 package com.facebook.buck.distributed;
 
-import com.facebook.buck.cli.ConfigPathGetter;
+import com.facebook.buck.cli.BuckConfig;
 import com.facebook.buck.distributed.thrift.BuildJobStateFileHashEntry;
 import com.facebook.buck.distributed.thrift.BuildJobStateFileHashes;
 import com.facebook.buck.hashing.FileHashLoader;
@@ -27,7 +27,9 @@ import com.facebook.buck.rules.ActionGraph;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.keys.DefaultRuleKeyFactory;
+import com.facebook.buck.rules.keys.RuleKeyFieldLoader;
 import com.facebook.buck.util.cache.DefaultFileHashCache;
 import com.facebook.buck.util.cache.FileHashCache;
 import com.facebook.buck.util.cache.StackedFileHashCache;
@@ -69,11 +71,12 @@ public class DistBuildFileHashes {
   public DistBuildFileHashes(
       ActionGraph actionGraph,
       final SourcePathResolver sourcePathResolver,
+      SourcePathRuleFinder ruleFinder,
       final FileHashCache rootCellFileHashCache,
       final Function<? super Path, Integer> cellIndexer,
       ListeningExecutorService executorService,
       final int keySeed,
-      final ConfigPathGetter buckConfig) {
+      final BuckConfig buckConfig) {
 
     this.remoteFileHashes = CacheBuilder.newBuilder().build(
         new CacheLoader<ProjectFilesystem, BuildJobStateFileHashes>() {
@@ -94,10 +97,11 @@ public class DistBuildFileHashes {
                         DefaultFileHashCache.createDefaultFileHashCache(key))),
                 key,
                 remoteFileHashes.get(key),
-                buckConfig);
+                new DistBuildConfig(buckConfig));
           }
         });
-    this.ruleKeyFactories = createRuleKeyFactories(sourcePathResolver, fileHashLoaders, keySeed);
+    this.ruleKeyFactories =
+        createRuleKeyFactories(sourcePathResolver, ruleFinder, fileHashLoaders, keySeed);
     this.ruleKeys = ruleKeyComputation(actionGraph, this.ruleKeyFactories, executorService);
     this.fileHashes = fileHashesComputation(
         Futures.transform(this.ruleKeys, Functions.constant(null)),
@@ -108,6 +112,7 @@ public class DistBuildFileHashes {
   public static LoadingCache<ProjectFilesystem, DefaultRuleKeyFactory>
   createRuleKeyFactories(
       final SourcePathResolver sourcePathResolver,
+      final SourcePathRuleFinder ruleFinder,
       final LoadingCache<ProjectFilesystem, ? extends FileHashLoader> fileHashLoaders,
       final int keySeed) {
     return CacheBuilder.newBuilder().build(
@@ -115,9 +120,10 @@ public class DistBuildFileHashes {
           @Override
           public DefaultRuleKeyFactory load(ProjectFilesystem key) throws Exception {
             return new DefaultRuleKeyFactory(
-                /* seed */ keySeed,
+                new RuleKeyFieldLoader(keySeed),
                 fileHashLoaders.get(key),
-                sourcePathResolver
+                sourcePathResolver,
+                ruleFinder
             );
           }
         });
@@ -169,8 +175,8 @@ public class DistBuildFileHashes {
     try {
       return fileHashes.get();
     } catch (ExecutionException e) {
-      Throwables.propagateIfInstanceOf(e.getCause(), IOException.class);
-      Throwables.propagateIfInstanceOf(e.getCause(), InterruptedException.class);
+      Throwables.throwIfInstanceOf(e.getCause(), IOException.class);
+      Throwables.throwIfInstanceOf(e.getCause(), InterruptedException.class);
       throw new RuntimeException(e.getCause());
     }
   }

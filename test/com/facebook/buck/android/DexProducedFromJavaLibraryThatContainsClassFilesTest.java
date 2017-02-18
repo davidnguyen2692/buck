@@ -17,6 +17,7 @@
 package com.facebook.buck.android;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
+import static org.easymock.EasyMock.createMock;
 import static org.easymock.EasyMock.expect;
 import static org.hamcrest.Matchers.startsWith;
 import static org.junit.Assert.assertEquals;
@@ -26,6 +27,7 @@ import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.dalvik.EstimateDexWeightStep;
 import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.jvm.java.DefaultJavaLibrary;
 import com.facebook.buck.jvm.java.FakeJavaLibrary;
 import com.facebook.buck.jvm.java.JavaLibrary;
 import com.facebook.buck.jvm.java.JavaLibraryBuilder;
@@ -44,7 +46,7 @@ import com.facebook.buck.rules.FakeOnDiskBuildInfo;
 import com.facebook.buck.rules.FakeSourcePathResolver;
 import com.facebook.buck.rules.InitializableFromDisk;
 import com.facebook.buck.rules.OnDiskBuildInfo;
-import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
@@ -62,7 +64,7 @@ import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.hash.HashCode;
 import com.google.common.hash.Hashing;
 
-import org.easymock.EasyMockSupport;
+import org.easymock.EasyMock;
 import org.junit.Test;
 
 import java.io.IOException;
@@ -71,15 +73,15 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
 
-public class DexProducedFromJavaLibraryThatContainsClassFilesTest extends EasyMockSupport {
+public class DexProducedFromJavaLibraryThatContainsClassFilesTest {
 
   @Test
   public void testGetBuildStepsWhenThereAreClassesToDex() throws IOException, InterruptedException {
     ProjectFilesystem filesystem = FakeProjectFilesystem.createJavaOnlyFilesystem();
 
-    FakeSourcePathResolver pathResolver = new FakeSourcePathResolver(
+    FakeSourcePathResolver pathResolver = new FakeSourcePathResolver(new SourcePathRuleFinder(
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())
-    );
+    ));
     FakeJavaLibrary javaLibraryRule = new FakeJavaLibrary(
         BuildTargetFactory.newInstance(filesystem.getRootPath(), "//foo:bar"),
         pathResolver,
@@ -95,10 +97,8 @@ public class DexProducedFromJavaLibraryThatContainsClassFilesTest extends EasyMo
         BuildTargets.getGenPath(filesystem, javaLibraryRule.getBuildTarget(), "%s.jar");
     javaLibraryRule.setOutputFile(jarOutput.toString());
 
-    BuildContext context = FakeBuildContext.NOOP_CONTEXT;
+    BuildContext context = FakeBuildContext.withSourcePathResolver(pathResolver);
     FakeBuildableContext buildableContext = new FakeBuildableContext();
-
-    replayAll();
 
     Path dexOutput = BuildTargets.getGenPath(
         filesystem,
@@ -115,16 +115,12 @@ public class DexProducedFromJavaLibraryThatContainsClassFilesTest extends EasyMo
         .setProjectFilesystem(filesystem)
         .build();
     DexProducedFromJavaLibrary preDex =
-        new DexProducedFromJavaLibrary(params, pathResolver, javaLibraryRule);
+        new DexProducedFromJavaLibrary(params, javaLibraryRule);
     List<Step> steps = preDex.getBuildSteps(context, buildableContext);
 
-    verifyAll();
-    resetAll();
-
     AndroidPlatformTarget androidPlatformTarget = createMock(AndroidPlatformTarget.class);
-    expect(androidPlatformTarget.getDxExecutable()).andReturn(Paths.get("/usr/bin/dx"));
-
-    replayAll();
+    expect(androidPlatformTarget.getDxExecutable()).andStubReturn(Paths.get("/usr/bin/dx"));
+    EasyMock.replay(androidPlatformTarget);
 
     ExecutionContext executionContext = TestExecutionContext
         .newBuilder()
@@ -147,11 +143,6 @@ public class DexProducedFromJavaLibraryThatContainsClassFilesTest extends EasyMo
         steps,
         executionContext);
 
-    verifyAll();
-    resetAll();
-
-    replayAll();
-
     ((EstimateDexWeightStep) steps.get(2)).setWeightEstimateForTesting(250);
     Step recordArtifactAndMetadataStep = steps.get(5);
     int exitCode = recordArtifactAndMetadataStep.execute(executionContext).getExitCode();
@@ -162,8 +153,6 @@ public class DexProducedFromJavaLibraryThatContainsClassFilesTest extends EasyMo
 
     buildableContext.assertContainsMetadataMapping(
         DexProducedFromJavaLibrary.WEIGHT_ESTIMATE, "250");
-
-    verifyAll();
   }
 
   private void createFiles(ProjectFilesystem filesystem, String... paths) throws IOException {
@@ -176,18 +165,16 @@ public class DexProducedFromJavaLibraryThatContainsClassFilesTest extends EasyMo
   }
 
   @Test
-  public void testGetBuildStepsWhenThereAreNoClassesToDex()
-      throws IOException, InterruptedException {
-    JavaLibrary javaLibrary = createMock(JavaLibrary.class);
-    expect(javaLibrary.getBuildTarget()).andReturn(BuildTargetFactory.newInstance("//foo:bar"));
-    expect(javaLibrary.getClassNamesToHashes()).andReturn(
-        ImmutableSortedMap.of());
+  public void testGetBuildStepsWhenThereAreNoClassesToDex() throws Exception {
+    BuildRuleResolver resolver =
+        new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+    DefaultJavaLibrary javaLibrary = JavaLibraryBuilder.createBuilder("//foo:bar").build(resolver);
+    javaLibrary.getBuildOutputInitializer().setBuildOutput(
+        new JavaLibrary.Data(ImmutableSortedMap.of()));
 
     BuildContext context = FakeBuildContext.NOOP_CONTEXT;
     FakeBuildableContext buildableContext = new FakeBuildableContext();
     ProjectFilesystem projectFilesystem = new FakeProjectFilesystem();
-
-    replayAll();
 
     BuildTarget buildTarget = BuildTargetFactory.newInstance("//foo:bar#dex");
     BuildRuleParams params = new FakeBuildRuleParamsBuilder(buildTarget)
@@ -196,18 +183,10 @@ public class DexProducedFromJavaLibraryThatContainsClassFilesTest extends EasyMo
     DexProducedFromJavaLibrary preDex =
         new DexProducedFromJavaLibrary(
             params,
-            new SourcePathResolver(
-                new BuildRuleResolver(
-                    TargetGraph.EMPTY,
-                    new DefaultTargetNodeToBuildRuleTransformer())),
             javaLibrary);
     List<Step> steps = preDex.getBuildSteps(context, buildableContext);
 
-    verifyAll();
-    resetAll();
-
     Path dexOutput = BuildTargets.getGenPath(projectFilesystem, buildTarget, "%s.dex.jar");
-    replayAll();
 
     ExecutionContext executionContext = TestExecutionContext
         .newBuilder()
@@ -221,47 +200,31 @@ public class DexProducedFromJavaLibraryThatContainsClassFilesTest extends EasyMo
         steps,
         executionContext);
 
-    verifyAll();
-    resetAll();
-
-    replayAll();
-
     Step recordArtifactAndMetadataStep = steps.get(2);
     assertThat(recordArtifactAndMetadataStep.getShortName(), startsWith("record_"));
     int exitCode = recordArtifactAndMetadataStep.execute(executionContext).getExitCode();
     assertEquals(0, exitCode);
-
-    verifyAll();
   }
 
   @Test
-  public void testObserverMethods() {
-    JavaLibrary accumulateClassNames = createMock(JavaLibrary.class);
-    expect(accumulateClassNames.getBuildTarget())
-        .andReturn(BuildTargetFactory.newInstance("//foo:bar"))
-        .anyTimes();
-    expect(accumulateClassNames.getClassNamesToHashes())
-        .andReturn(ImmutableSortedMap.of("com/example/Foo", HashCode.fromString("cafebabe")))
-        .anyTimes();
-
-    replayAll();
+  public void testObserverMethods() throws Exception {
+    BuildRuleResolver resolver =
+        new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+    DefaultJavaLibrary accumulateClassNames =
+        JavaLibraryBuilder.createBuilder("//foo:bar").build(resolver);
+    accumulateClassNames.getBuildOutputInitializer().setBuildOutput(new JavaLibrary.Data(
+        ImmutableSortedMap.of("com/example/Foo", HashCode.fromString("cafebabe"))));
 
     BuildTarget buildTarget = BuildTargetFactory.newInstance("//foo:bar");
     BuildRuleParams params = new FakeBuildRuleParamsBuilder(buildTarget).build();
     DexProducedFromJavaLibrary preDexWithClasses =
         new DexProducedFromJavaLibrary(
             params,
-            new SourcePathResolver(
-                new BuildRuleResolver(
-                    TargetGraph.EMPTY,
-                    new DefaultTargetNodeToBuildRuleTransformer())),
             accumulateClassNames);
-    assertNull(preDexWithClasses.getPathToOutput());
+    assertNull(preDexWithClasses.getSourcePathToOutput());
     assertEquals(
         BuildTargets.getGenPath(params.getProjectFilesystem(), buildTarget, "%s.dex.jar"),
         preDexWithClasses.getPathToDex());
-
-    verifyAll();
   }
 
   private static <T> void initialize(
@@ -277,17 +240,16 @@ public class DexProducedFromJavaLibraryThatContainsClassFilesTest extends EasyMo
   public void getOutputDoesNotAccessWrappedJavaLibrary() throws Exception {
     BuildRuleResolver ruleResolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver pathResolver = new SourcePathResolver(ruleResolver);
 
     JavaLibrary javaLibrary =
-        (JavaLibrary) JavaLibraryBuilder.createBuilder(BuildTargetFactory.newInstance("//:lib"))
+        JavaLibraryBuilder.createBuilder(BuildTargetFactory.newInstance("//:lib"))
             .build(ruleResolver);
 
     BuildRuleParams params =
         new FakeBuildRuleParamsBuilder(BuildTargetFactory.newInstance("//:target"))
             .build();
     DexProducedFromJavaLibrary dexProducedFromJavaLibrary =
-        new DexProducedFromJavaLibrary(params, pathResolver, javaLibrary);
+        new DexProducedFromJavaLibrary(params, javaLibrary);
 
     ObjectMapper mapper = ObjectMappers.newDefaultInstance();
     FakeOnDiskBuildInfo onDiskBuildInfo =

@@ -46,11 +46,13 @@ import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.NoopBuildRule;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.SourceWithFlags;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.args.RuleKeyAppendableFunction;
 import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
+import com.facebook.buck.rules.macros.StringWithMacros;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.base.Suppliers;
@@ -114,13 +116,14 @@ public class HalideLibraryDescription
       BuildRuleParams params,
       BuildRuleResolver ruleResolver,
       SourcePathResolver pathResolver,
+      SourcePathRuleFinder ruleFinder,
       CxxPlatform cxxPlatform,
       ImmutableSortedSet<SourceWithFlags> halideSources,
       ImmutableList<String> compilerFlags,
       PatternMatchedCollection<ImmutableList<String>> platformCompilerFlags,
       ImmutableMap<CxxSource.Type, ImmutableList<String>> langCompilerFlags,
-      ImmutableList<String> linkerFlags,
-      PatternMatchedCollection<ImmutableList<String>> platformLinkerFlags,
+      ImmutableList<StringWithMacros> linkerFlags,
+      PatternMatchedCollection<ImmutableList<StringWithMacros>> platformLinkerFlags,
       ImmutableList<String> includeDirs)
       throws NoSuchBuildTargetException {
 
@@ -146,6 +149,7 @@ public class HalideLibraryDescription
     ImmutableSortedSet<FrameworkPath> frameworks = ImmutableSortedSet.of();
     ImmutableSortedSet<FrameworkPath> libraries = ImmutableSortedSet.of();
     Optional<SourcePath> prefixHeader = Optional.empty();
+    Optional<SourcePath> precompiledHeader = Optional.empty();
     Optional<Linker.CxxRuntimeType> cxxRuntimeType = Optional.empty();
 
     CxxLinkAndCompileRules cxxLinkAndCompileRules =
@@ -156,6 +160,7 @@ public class HalideLibraryDescription
             cxxPlatform,
             srcs,
             /* headers */ ImmutableMap.of(),
+            params.getDeps(),
             flavoredStripStyle,
             flavoredLinkerMapMode,
             Linker.LinkableDepType.STATIC,
@@ -168,6 +173,7 @@ public class HalideLibraryDescription
             langCompilerFlags,
             platformCompilerFlags,
             prefixHeader,
+            precompiledHeader,
             linkerFlags,
             platformLinkerFlags,
             cxxRuntimeType,
@@ -177,9 +183,9 @@ public class HalideLibraryDescription
     params = CxxStrip.restoreStripStyleFlavorInParams(params, flavoredStripStyle);
     params = LinkerMapMode.restoreLinkerMapModeFlavorInParams(params, flavoredLinkerMapMode);
     CxxBinary cxxBinary = new CxxBinary(
-        params.appendExtraDeps(cxxLinkAndCompileRules.executable.getDeps(pathResolver)),
+        params.appendExtraDeps(cxxLinkAndCompileRules.executable.getDeps(ruleFinder)),
         ruleResolver,
-        pathResolver,
+        ruleFinder,
         cxxLinkAndCompileRules.getBinaryRule(),
         cxxLinkAndCompileRules.executable,
         ImmutableSortedSet.of(),
@@ -193,6 +199,7 @@ public class HalideLibraryDescription
       BuildRuleParams params,
       BuildRuleResolver ruleResolver,
       SourcePathResolver pathResolver,
+      SourcePathRuleFinder ruleFinder,
       CxxPlatform platform,
       Arg args) throws NoSuchBuildTargetException {
 
@@ -210,6 +217,7 @@ public class HalideLibraryDescription
         params.getBuildTarget(),
         params,
         pathResolver,
+        ruleFinder,
         platform,
         cxxBuckConfig.getArchiveContents(),
         CxxDescriptionEnhancer.getStaticLibraryPath(
@@ -246,7 +254,6 @@ public class HalideLibraryDescription
   private BuildRule createHalideCompile(
       BuildRuleParams params,
       BuildRuleResolver resolver,
-      SourcePathResolver pathResolver,
       CxxPlatform platform,
       Optional<ImmutableList<String>> compilerInvocationFlags,
       Optional<String> functionName) throws NoSuchBuildTargetException {
@@ -256,7 +263,6 @@ public class HalideLibraryDescription
     return new HalideCompile(
         params.copyWithExtraDeps(
             Suppliers.ofInstance(ImmutableSortedSet.of(halideCompiler))),
-        pathResolver,
         halideCompiler.getExecutableCommand(),
         halideBuckConfig.getHalideTargetForPlatform(platform),
         expandInvocationFlags(compilerInvocationFlags, platform),
@@ -269,6 +275,8 @@ public class HalideLibraryDescription
       BuildRuleParams params,
       BuildRuleResolver resolver,
       A args) throws NoSuchBuildTargetException {
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
     BuildTarget target = params.getBuildTarget();
     ImmutableSet<Flavor> flavors = ImmutableSet.copyOf(target.getFlavors());
     CxxPlatform cxxPlatform = cxxPlatforms.getValue(flavors).orElse(defaultCxxPlatform);
@@ -288,7 +296,6 @@ public class HalideLibraryDescription
       return CxxDescriptionEnhancer.createHeaderSymlinkTree(
           params,
           resolver,
-          new SourcePathResolver(resolver),
           cxxPlatform,
           headersBuilder.build(),
           HeaderVisibility.PUBLIC,
@@ -313,7 +320,8 @@ public class HalideLibraryDescription
               Suppliers.ofInstance(resolver.getAllRules(compilerDeps)),
               Suppliers.ofInstance(ImmutableSortedSet.of())),
           resolver,
-          new SourcePathResolver(resolver),
+          pathResolver,
+          ruleFinder,
           hostCxxPlatform,
           args.srcs,
           args.compilerFlags,
@@ -330,7 +338,8 @@ public class HalideLibraryDescription
       return createHalideStaticLibrary(
           params,
           resolver,
-          new SourcePathResolver(resolver),
+          pathResolver,
+          ruleFinder,
           cxxPlatform,
           args);
     } else if (flavors.contains(CxxDescriptionEnhancer.SHARED_FLAVOR)) {
@@ -345,7 +354,6 @@ public class HalideLibraryDescription
               Suppliers.ofInstance(
                   ImmutableSortedSet.of())),
           resolver,
-          new SourcePathResolver(resolver),
           cxxPlatform,
           Optional.of(args.compilerInvocationFlags),
           args.functionName);
@@ -354,7 +362,7 @@ public class HalideLibraryDescription
     return new HalideLibrary(
         params,
         resolver,
-        new SourcePathResolver(resolver),
+        pathResolver,
         args.supportedPlatformsRegex);
   }
 

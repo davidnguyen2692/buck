@@ -58,12 +58,16 @@ import com.facebook.buck.util.WatchmanWatcher;
 import com.facebook.buck.util.environment.Architecture;
 import com.facebook.buck.util.environment.CommandMode;
 import com.facebook.buck.util.environment.Platform;
+import com.facebook.buck.util.trace.ChromeTraceParser;
+import com.facebook.buck.util.trace.ChromeTraceParser.ChromeTraceEventMatcher;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.CharMatcher;
 import com.google.common.base.Charsets;
 import com.google.common.base.Function;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Splitter;
+import com.google.common.base.Supplier;
+import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -74,7 +78,6 @@ import org.hamcrest.Matchers;
 
 import java.io.BufferedOutputStream;
 import java.io.ByteArrayInputStream;
-import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -95,6 +98,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 import javax.annotation.Nullable;
 
@@ -145,34 +149,34 @@ public class ProjectWorkspace {
   private final Map<String, Map<String, String>> localConfigs = Maps.newHashMap();
   private final Path templatePath;
   private final Path destPath;
+  private final Supplier<ProjectFilesystemAndConfig> projectFilesystemAndConfig;
 
-  @VisibleForTesting
-  ProjectWorkspace(Path templateDir, Path targetFolder) {
-    this.templatePath = templateDir;
-    this.destPath = targetFolder;
+  private static class ProjectFilesystemAndConfig {
+    private final ProjectFilesystem projectFilesystem;
+    private final Config config;
+
+    private ProjectFilesystemAndConfig(ProjectFilesystem projectFilesystem, Config config) {
+      this.projectFilesystem = projectFilesystem;
+      this.config = config;
+    }
   }
 
-  /**
-   * Creates a new workspace by copying the contents of existingWorkspace to targetFolder when
-   * {@link #setUp()} is invoked. In general, prefer
-   * {@link TestDataHelper#createProjectWorkspaceForScenario(Object, String, TemporaryPaths)} to
-   * this method.
-   * <p>
-   * A valid reason to use this API is for performance reasons. Specifically, it may be expensive to
-   * put a workspace into a particular state. If you have various scenarios that you want to test
-   * based on that state, then it makes sense to create the initial state once in
-   * {@code @BeforeClass} and then use this method to create a new workspace for the scenario you
-   * are about to test in {@code @Before}.
-   *
-   * @param existingWorkspace The directory that contains the template version of the project.
-   * @param targetFolder The directory where the clone of the template directory should be
-   *     written. By requiring a {@link TemporaryPaths} rather than a {@link File}, we can ensure
-   *     that JUnit will clean up the test correctly.
-   */
-  public static ProjectWorkspace cloneExistingWorkspaceIntoNewFolder(
-      ProjectWorkspace existingWorkspace,
-      TemporaryPaths targetFolder) {
-    return new ProjectWorkspace(existingWorkspace.getDestPath(), targetFolder.getRoot());
+  @VisibleForTesting
+  ProjectWorkspace(Path templateDir, final Path targetFolder) {
+    this.templatePath = templateDir;
+    this.destPath = targetFolder;
+    this.projectFilesystemAndConfig = Suppliers.memoize(new Supplier<ProjectFilesystemAndConfig>() {
+      @Override
+      public ProjectFilesystemAndConfig get() {
+        Config config = null;
+        try {
+          config = Configs.createDefaultConfig(targetFolder);
+        } catch (IOException e) {
+          throw new RuntimeException(e);
+        }
+        return new ProjectFilesystemAndConfig(new ProjectFilesystem(targetFolder, config), config);
+      }
+    });
   }
 
   /**
@@ -530,6 +534,7 @@ public class ProjectWorkspace {
           sanizitedEnv,
           CommandMode.TEST,
           WatchmanWatcher.FreshInstanceAction.NONE,
+          System.nanoTime(),
           args);
     } catch (InterruptedException e) {
       e.printStackTrace(stderr);
@@ -541,6 +546,20 @@ public class ProjectWorkspace {
         exitCode,
         stdout.getContentsAsString(Charsets.UTF_8),
         stderr.getContentsAsString(Charsets.UTF_8));
+  }
+
+  /**
+   * Runs an event-driven parser on {@code buck-out/log/build.trace}, which is a symlink to the
+   * trace of the most recent invocation of Buck (which may not have been a {@code buck build}).
+   * @see ChromeTraceParser#parse(Path, Set)
+   */
+  public Map<ChromeTraceEventMatcher<?>, Object> parseTraceFromMostRecentBuckInvocation(
+      Set<ChromeTraceEventMatcher<?>> matchers) throws IOException {
+    ProjectFilesystem projectFilesystem = projectFilesystemAndConfig.get().projectFilesystem;
+    ChromeTraceParser parser = new ChromeTraceParser(projectFilesystem);
+    return parser.parse(
+        projectFilesystem.getBuckPaths().getLogDir().resolve("build.trace"),
+        matchers);
   }
 
   public Path getDestPath() {
@@ -658,9 +677,10 @@ public class ProjectWorkspace {
   }
 
   public Cell asCell() throws IOException, InterruptedException {
-    Config config = Configs.createDefaultConfig(getDestPath());
+    ProjectFilesystemAndConfig filesystemAndConfig = projectFilesystemAndConfig.get();
+    ProjectFilesystem filesystem = filesystemAndConfig.projectFilesystem;
+    Config config = filesystemAndConfig.config;
 
-    ProjectFilesystem filesystem = new ProjectFilesystem(getDestPath(), config);
     TestConsole console = new TestConsole();
     ImmutableMap<String, String> env = ImmutableMap.copyOf(System.getenv());
     DefaultAndroidDirectoryResolver directoryResolver = new DefaultAndroidDirectoryResolver(

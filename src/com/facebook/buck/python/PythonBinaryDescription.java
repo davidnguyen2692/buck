@@ -39,6 +39,7 @@ import com.facebook.buck.rules.Hint;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.SymlinkTree;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.Tool;
@@ -98,8 +99,7 @@ public class PythonBinaryDescription implements
 
   public static SourcePath createEmptyInitModule(
       BuildRuleParams params,
-      BuildRuleResolver resolver,
-      SourcePathResolver pathResolver) {
+      BuildRuleResolver resolver) {
     BuildTarget emptyInitTarget = getEmptyInitTarget(params.getBuildTarget());
     Path emptyInitPath =
         BuildTargets.getGenPath(
@@ -112,7 +112,6 @@ public class PythonBinaryDescription implements
                 emptyInitTarget,
                 Suppliers.ofInstance(ImmutableSortedSet.of()),
                 Suppliers.ofInstance(ImmutableSortedSet.of())),
-            pathResolver,
             "",
             emptyInitPath,
             /* executable */ false));
@@ -147,6 +146,7 @@ public class PythonBinaryDescription implements
   private PythonInPlaceBinary createInPlaceBinaryRule(
       BuildRuleParams params,
       BuildRuleResolver resolver,
+      SourcePathRuleFinder ruleFinder,
       SourcePathResolver pathResolver,
       PythonPlatform pythonPlatform,
       CxxPlatform cxxPlatform,
@@ -164,13 +164,13 @@ public class PythonBinaryDescription implements
     }
 
     // Add in any missing init modules into the python components.
-    SourcePath emptyInit = createEmptyInitModule(params, resolver, pathResolver);
+    SourcePath emptyInit = createEmptyInitModule(params, resolver);
     components = components.withModules(addMissingInitModules(components.getModules(), emptyInit));
 
     BuildTarget linkTreeTarget =
         params.getBuildTarget().withAppendedFlavors(ImmutableFlavor.of("link-tree"));
-    Path linkTreeRoot = params.getProjectFilesystem().resolve(
-        BuildTargets.getGenPath(params.getProjectFilesystem(), linkTreeTarget, "%s"));
+    Path linkTreeRoot =
+        BuildTargets.getGenPath(params.getProjectFilesystem(), linkTreeTarget, "%s");
     SymlinkTree linkTree =
         resolver.addToIndex(
             new SymlinkTree(
@@ -178,16 +178,17 @@ public class PythonBinaryDescription implements
                     linkTreeTarget,
                     Suppliers.ofInstance(ImmutableSortedSet.of()),
                     Suppliers.ofInstance(ImmutableSortedSet.of())),
-                pathResolver,
                 linkTreeRoot,
                 ImmutableMap.<Path, SourcePath>builder()
                     .putAll(components.getModules())
                     .putAll(components.getResources())
                     .putAll(components.getNativeLibraries())
-                    .build()));
+                    .build(),
+                ruleFinder));
 
     return new PythonInPlaceBinary(
         params,
+        ruleFinder,
         pathResolver,
         resolver,
         pythonPlatform,
@@ -205,6 +206,7 @@ public class PythonBinaryDescription implements
       BuildRuleParams params,
       BuildRuleResolver resolver,
       SourcePathResolver pathResolver,
+      SourcePathRuleFinder ruleFinder,
       PythonPlatform pythonPlatform,
       CxxPlatform cxxPlatform,
       String mainModule,
@@ -220,6 +222,7 @@ public class PythonBinaryDescription implements
         return createInPlaceBinaryRule(
             params,
             resolver,
+            ruleFinder,
             pathResolver,
             pythonPlatform,
             cxxPlatform,
@@ -230,15 +233,16 @@ public class PythonBinaryDescription implements
 
       case STANDALONE:
         ImmutableSortedSet<BuildRule> componentDeps =
-            PythonUtil.getDepsFromComponents(pathResolver, components);
+            PythonUtil.getDepsFromComponents(ruleFinder, components);
         Tool pexTool = pythonBuckConfig.getPexTool(resolver);
         return new PythonPackagedBinary(
             params.appendExtraDeps(
                 ImmutableSortedSet.<BuildRule>naturalOrder()
                     .addAll(componentDeps)
-                    .addAll(pexTool.getDeps(pathResolver))
+                    .addAll(pexTool.getDeps(ruleFinder))
                     .build()),
             pathResolver,
+            ruleFinder,
             pythonPlatform,
             pexTool,
             buildArgs,
@@ -273,7 +277,8 @@ public class PythonBinaryDescription implements
 
     String mainModule;
     ImmutableMap.Builder<Path, SourcePath> modules = ImmutableMap.builder();
-    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
 
     // If `main` is set, add it to the map of modules for this binary and also set it as the
     // `mainModule`, otherwise, use the explicitly set main module.
@@ -309,6 +314,7 @@ public class PythonBinaryDescription implements
             params,
             resolver,
             pathResolver,
+            ruleFinder,
             binaryPackageComponents,
             pythonPlatform,
             cxxBuckConfig,
@@ -326,6 +332,7 @@ public class PythonBinaryDescription implements
         params,
         resolver,
         pathResolver,
+        ruleFinder,
         pythonPlatform,
         cxxPlatform,
         mainModule,

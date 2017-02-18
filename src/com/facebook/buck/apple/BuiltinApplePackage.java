@@ -33,6 +33,7 @@ import com.facebook.buck.step.fs.RmStep;
 import com.facebook.buck.step.fs.WriteFileStep;
 import com.facebook.buck.zip.ZipCompressionLevel;
 import com.facebook.buck.zip.ZipStep;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.io.ByteSource;
@@ -48,9 +49,8 @@ public class BuiltinApplePackage extends AbstractBuildRule {
 
   public BuiltinApplePackage(
       BuildRuleParams params,
-      SourcePathResolver resolver,
       BuildRule bundle) {
-    super(params, resolver);
+    super(params);
     BuildTarget buildTarget = params.getBuildTarget();
     // TODO(ryu2): This will be different for Mac apps.
     this.pathToOutputFile = BuildTargets.getGenPath(getProjectFilesystem(), buildTarget, "%s.ipa");
@@ -64,7 +64,7 @@ public class BuiltinApplePackage extends AbstractBuildRule {
       BuildableContext buildableContext) {
     ImmutableList.Builder<Step> commands = ImmutableList.builder();
     // Remove the output .ipa file if it exists already
-    commands.add(new RmStep(getProjectFilesystem(), pathToOutputFile, /* force delete */ true));
+    commands.add(new RmStep(getProjectFilesystem(), pathToOutputFile));
 
     // Create temp folder to store the files going to be zipped
     commands.add(new MakeCleanDirectoryStep(getProjectFilesystem(), temp));
@@ -73,7 +73,8 @@ public class BuiltinApplePackage extends AbstractBuildRule {
     commands.add(new MkdirStep(getProjectFilesystem(), payloadDir));
 
     // Recursively copy the .app directory into the Payload folder
-    Path bundleOutputPath = bundle.getPathToOutput();
+    Path bundleOutputPath = context.getSourcePathResolver().getRelativePath(
+        Preconditions.checkNotNull(bundle.getSourcePathToOutput()));
 
     appendAdditionalAppleWatchSteps(commands);
 
@@ -83,7 +84,7 @@ public class BuiltinApplePackage extends AbstractBuildRule {
             payloadDir,
             CopyStep.DirectoryMode.DIRECTORY_AND_CONTENTS));
 
-    appendAdditionalSwiftSteps(commands);
+    appendAdditionalSwiftSteps(context.getSourcePathResolver(), commands);
 
     // do the zipping
     commands.add(new MkdirStep(getProjectFilesystem(), pathToOutputFile.getParent()));
@@ -96,12 +97,14 @@ public class BuiltinApplePackage extends AbstractBuildRule {
             ZipCompressionLevel.DEFAULT_COMPRESSION_LEVEL,
             temp));
 
-    buildableContext.recordArtifact(getPathToOutput());
+    buildableContext.recordArtifact(
+        context.getSourcePathResolver().getRelativePath(getSourcePathToOutput()));
 
     return commands.build();
   }
 
-  private void appendAdditionalSwiftSteps(ImmutableList.Builder<Step> commands) {
+  private void appendAdditionalSwiftSteps(
+      SourcePathResolver resolver, ImmutableList.Builder<Step> commands) {
     // For .ipas containing Swift code, Apple requires the following for App Store submissions:
     // 1. Copy the Swift standard libraries to SwiftSupport/{platform}
     if (bundle instanceof AppleBundle) {
@@ -110,6 +113,7 @@ public class BuiltinApplePackage extends AbstractBuildRule {
       Path swiftSupportDir = temp.resolve("SwiftSupport").resolve(appleBundle.getPlatformName());
 
       appleBundle.addSwiftStdlibStepIfNeeded(
+        resolver,
         swiftSupportDir,
         Optional.empty(),
         commands,

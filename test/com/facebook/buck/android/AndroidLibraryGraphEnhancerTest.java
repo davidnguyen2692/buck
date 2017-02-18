@@ -23,6 +23,7 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 
+import com.facebook.buck.jvm.java.AnnotationProcessingParams;
 import com.facebook.buck.jvm.java.JavacOptions;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
@@ -35,6 +36,7 @@ import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.util.DependencyMode;
 import com.facebook.buck.util.MoreCollectors;
@@ -93,17 +95,17 @@ public class AndroidLibraryGraphEnhancerTest {
     BuildTarget buildTarget = BuildTargetFactory.newInstance("//java/com/example:library");
     BuildRuleResolver ruleResolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver pathResolver = new SourcePathResolver(ruleResolver);
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(ruleResolver);
     BuildRule resourceRule1 = ruleResolver.addToIndex(
         AndroidResourceRuleBuilder.newBuilder()
-            .setResolver(pathResolver)
+            .setRuleFinder(ruleFinder)
             .setBuildTarget(BuildTargetFactory.newInstance("//android_res/com/example:res1"))
             .setRDotJavaPackage("com.facebook")
             .setRes(new FakeSourcePath("android_res/com/example/res1"))
             .build());
     BuildRule resourceRule2 = ruleResolver.addToIndex(
         AndroidResourceRuleBuilder.newBuilder()
-            .setResolver(pathResolver)
+            .setRuleFinder(ruleFinder)
             .setBuildTarget(BuildTargetFactory.newInstance("//android_res/com/example:res2"))
             .setRDotJavaPackage("com.facebook")
             .setRes(new FakeSourcePath("android_res/com/example/res2"))
@@ -147,17 +149,17 @@ public class AndroidLibraryGraphEnhancerTest {
     BuildTarget buildTarget = BuildTargetFactory.newInstance("//java/com/example:library");
     BuildRuleResolver ruleResolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver pathResolver = new SourcePathResolver(ruleResolver);
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(ruleResolver);
     BuildRule resourceRule1 = ruleResolver.addToIndex(
         AndroidResourceRuleBuilder.newBuilder()
-            .setResolver(pathResolver)
+            .setRuleFinder(ruleFinder)
             .setBuildTarget(BuildTargetFactory.newInstance("//android_res/com/example:res1"))
             .setRDotJavaPackage("com.facebook")
             .setRes(new FakeSourcePath("android_res/com/example/res1"))
             .build());
     BuildRule resourceRule2 = ruleResolver.addToIndex(
         AndroidResourceRuleBuilder.newBuilder()
-            .setResolver(pathResolver)
+            .setRuleFinder(ruleFinder)
             .setBuildTarget(BuildTargetFactory.newInstance("//android_res/com/example:res2"))
             .setRDotJavaPackage("com.facebook")
             .setRes(new FakeSourcePath("android_res/com/example/res2"))
@@ -171,6 +173,10 @@ public class AndroidLibraryGraphEnhancerTest {
         buildTarget,
         buildRuleParams,
         JavacOptions.builder(ANDROID_JAVAC_OPTIONS)
+            .setAnnotationProcessingParams(
+                new AnnotationProcessingParams.Builder()
+                    .setProcessOnly(true)
+                    .build())
             .setSourceLevel("7")
             .setTargetLevel("7")
                     .build(),
@@ -184,6 +190,7 @@ public class AndroidLibraryGraphEnhancerTest {
 
     assertTrue(dummyRDotJava.isPresent());
     JavacOptions javacOptions = dummyRDotJava.get().getJavacOptions();
+    assertFalse(javacOptions.getAnnotationProcessingParams().getProcessOnly());
     assertEquals("7", javacOptions.getSourceLevel());
   }
 
@@ -191,7 +198,7 @@ public class AndroidLibraryGraphEnhancerTest {
   public void testDummyRDotJavaRuleInheritsJavacOptionsDeps() {
     BuildRuleResolver resolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
     FakeBuildRule dep =
         resolver.addToIndex(
             new FakeBuildRule(BuildTargetFactory.newInstance("//:dep"), pathResolver));

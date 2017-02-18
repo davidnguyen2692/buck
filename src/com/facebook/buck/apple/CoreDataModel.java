@@ -25,7 +25,6 @@ import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.shell.ShellStep;
 import com.facebook.buck.step.Step;
@@ -64,11 +63,10 @@ public class CoreDataModel extends AbstractBuildRule {
 
   CoreDataModel(
       BuildRuleParams params,
-      final SourcePathResolver resolver,
       AppleCxxPlatform appleCxxPlatform,
       String moduleName,
       ImmutableSet<SourcePath> dataModelPaths) {
-    super(params, resolver);
+    super(params);
     this.moduleName = moduleName;
     this.dataModelPaths = dataModelPaths;
     String outputDirString =
@@ -91,15 +89,16 @@ public class CoreDataModel extends AbstractBuildRule {
       stepsBuilder.add(
           new ShellStep(getProjectFilesystem().getRootPath()) {
             @Override
-            protected ImmutableList<String> getShellCommandInternal(ExecutionContext context) {
+            protected ImmutableList<String> getShellCommandInternal(
+                ExecutionContext executionContext) {
               ImmutableList.Builder<String> commandBuilder = ImmutableList.builder();
 
-              commandBuilder.addAll(momc.getCommandPrefix(getResolver()));
+              commandBuilder.addAll(momc.getCommandPrefix(context.getSourcePathResolver()));
               commandBuilder.add(
                   "--sdkroot", sdkRoot.toString(),
                   "--" + sdkName + "-deployment-target", minOSVersion,
                   "--module", moduleName,
-                  getResolver().getAbsolutePath(dataModelPath).toString(),
+                  context.getSourcePathResolver().getAbsolutePath(dataModelPath).toString(),
                   getProjectFilesystem().resolve(outputDir).toString());
 
               return commandBuilder.build();

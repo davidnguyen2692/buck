@@ -22,7 +22,6 @@ import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.google.common.collect.ImmutableList;
@@ -43,13 +42,12 @@ public class JsonConcatenate extends AbstractBuildRule {
 
   public JsonConcatenate(
       BuildRuleParams buildRuleParams,
-      SourcePathResolver sourcePathResolver,
       ImmutableSortedSet<Path> inputs,
       String stepShortName,
       String stepDescription,
       String outputDirectoryPrefix,
       String outputName) {
-    super(buildRuleParams, sourcePathResolver);
+    super(buildRuleParams);
     this.inputs = inputs;
     this.outputDirectory =
         BuildTargets.getGenPath(

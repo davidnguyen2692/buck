@@ -32,7 +32,6 @@ import com.facebook.buck.rules.TargetGraphAndBuildTargets;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.concurrent.ConcurrencyLimit;
-import com.facebook.buck.versions.VersionBuckConfig;
 import com.facebook.buck.versions.VersionException;
 import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableList;
@@ -42,12 +41,12 @@ import com.google.common.collect.Maps;
 import org.kohsuke.args4j.Option;
 
 import java.io.IOException;
+import java.io.PrintStream;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.ForkJoinPool;
 
 import javax.annotation.Nullable;
 
@@ -188,10 +187,16 @@ public abstract class AbstractCommand implements Command {
     }
   }
 
+  protected void printUsage(PrintStream stream) {
+    stream.println("Options:");
+    new AdditionalOptionsCmdLineParser(this).printUsage(stream);
+    stream.println();
+  }
+
   @Override
   public final int run(CommandRunnerParams params) throws IOException, InterruptedException {
     if (showHelp()) {
-      new AdditionalOptionsCmdLineParser(this).printUsage(params.getConsole().getStdErr());
+      printUsage(params.getConsole().getStdErr());
       return 1;
     }
     if (params.getConsole().getAnsi().isAnsiTerminal()) {
@@ -268,15 +273,14 @@ public abstract class AbstractCommand implements Command {
         .build();
   }
 
-  public ConcurrencyLimit getConcurrencyLimit(BuckConfig buckConfig) {
-    Double loadLimit = this.loadLimit;
-    if (loadLimit == null) {
-      loadLimit = (double) buckConfig.getLoadLimit();
-    }
+  public double getLoadLimit(BuckConfig buckConfig) {
+    return this.loadLimit == null ? buckConfig.getLoadLimit() : this.loadLimit;
+  }
 
+  public ConcurrencyLimit getConcurrencyLimit(BuckConfig buckConfig) {
     return new ConcurrencyLimit(
         buckConfig.getNumThreads(),
-        loadLimit,
+        getLoadLimit(buckConfig),
         buckConfig.getResourceAllocationFairness(),
         buckConfig.getManagedThreadCount(),
         buckConfig.getDefaultResourceAmounts(),
@@ -319,12 +323,11 @@ public abstract class AbstractCommand implements Command {
       CommandRunnerParams params,
       TargetGraphAndBuildTargets targetGraphAndBuildTargets)
       throws VersionException, InterruptedException {
-    return params.getVersionedTargetGraphCache().getVersionedTargetGraph(
+    return params.getVersionedTargetGraphCache().toVersionedTargetGraph(
         params.getBuckEventBus(),
-        targetGraphAndBuildTargets,
-        new VersionBuckConfig(params.getBuckConfig()).getVersionUniverses(),
-        new ForkJoinPool(params.getBuckConfig().getNumThreads()))
-        .getTargetGraphAndBuildTargets();
+        params.getBuckConfig(),
+        targetGraphAndBuildTargets
+    );
   }
 
   @Override

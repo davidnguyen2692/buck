@@ -18,6 +18,7 @@ package com.facebook.buck.android;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
+import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.cxx.CxxLinkableEnhancer;
 import com.facebook.buck.cxx.CxxPlatformUtils;
@@ -40,6 +41,7 @@ import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.keys.DefaultRuleKeyFactory;
@@ -57,6 +59,7 @@ import org.hamcrest.Matchers;
 import org.junit.Rule;
 import org.junit.Test;
 
+import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Arrays;
@@ -79,7 +82,8 @@ public class NdkCxxPlatformTest {
       ImmutableMap<NdkCxxPlatforms.TargetCpuType, NdkCxxPlatform> cxxPlatforms) {
     BuildRuleResolver resolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
     String source = "source.cpp";
     DefaultRuleKeyFactory ruleKeyFactory =
         new DefaultRuleKeyFactory(
@@ -88,7 +92,8 @@ public class NdkCxxPlatformTest {
                 ImmutableMap.<String, String>builder()
                     .put("source.cpp", Strings.repeat("a", 40))
                     .build()),
-            pathResolver);
+            pathResolver,
+            ruleFinder);
     BuildTarget target = BuildTargetFactory.newInstance("//:target");
     ImmutableMap.Builder<NdkCxxPlatforms.TargetCpuType, RuleKey> ruleKeys =
         ImmutableMap.builder();
@@ -97,6 +102,7 @@ public class NdkCxxPlatformTest {
           .setParams(new FakeBuildRuleParamsBuilder(target).build())
           .setResolver(resolver)
           .setPathResolver(pathResolver)
+          .setRuleFinder(ruleFinder)
           .setCxxBuckConfig(CxxPlatformUtils.DEFAULT_CONFIG)
           .setCxxPlatform(entry.getValue().getCxxPlatform())
           .setPicType(CxxSourceRuleFactory.PicType.PIC)
@@ -135,7 +141,8 @@ public class NdkCxxPlatformTest {
       throws NoSuchBuildTargetException {
     BuildRuleResolver resolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
     DefaultRuleKeyFactory ruleKeyFactory =
         new DefaultRuleKeyFactory(
             0,
@@ -143,7 +150,8 @@ public class NdkCxxPlatformTest {
                 ImmutableMap.<String, String>builder()
                     .put("input.o", Strings.repeat("a", 40))
                     .build()),
-            pathResolver);
+            pathResolver,
+            ruleFinder);
     BuildTarget target = BuildTargetFactory.newInstance("//:target");
     ImmutableMap.Builder<NdkCxxPlatforms.TargetCpuType, RuleKey> ruleKeys =
         ImmutableMap.builder();
@@ -154,6 +162,7 @@ public class NdkCxxPlatformTest {
           new FakeBuildRuleParamsBuilder(target).build(),
           resolver,
           pathResolver,
+          ruleFinder,
           target,
           Linker.LinkType.EXECUTABLE,
           Optional.empty(),
@@ -255,6 +264,35 @@ public class NdkCxxPlatformTest {
           Matchers.hasSize(1));
     }
 
+  }
+
+  @Test
+  public void headerVerificationWhitelistsNdkRoot() throws IOException {
+    ProjectFilesystem filesystem = new ProjectFilesystem(tmp.getRoot());
+    String dir = "android-ndk-r9c";
+    Path root = tmp.newFolder(dir);
+    MoreFiles.writeLinesToFile(ImmutableList.of("r9c"), root.resolve("RELEASE.TXT"));
+    ImmutableMap<NdkCxxPlatforms.TargetCpuType, NdkCxxPlatform> platforms =
+        NdkCxxPlatforms.getPlatforms(
+            CxxPlatformUtils.DEFAULT_CONFIG,
+            filesystem,
+            root,
+            NdkCxxPlatformCompiler.builder()
+                .setType(NdkCxxPlatformCompiler.Type.GCC)
+                .setVersion("gcc-version")
+                .setGccVersion("clang-version")
+                .build(),
+            NdkCxxPlatforms.CxxRuntime.GNUSTL,
+            "target-app-platform",
+            ImmutableSet.of("x86"),
+            Platform.LINUX,
+            new AlwaysFoundExecutableFinder(),
+            /* strictToolchainPaths */ false);
+    for (NdkCxxPlatform ndkCxxPlatform : platforms.values()) {
+      assertTrue(
+          ndkCxxPlatform.getCxxPlatform().getHeaderVerification()
+              .isWhitelisted(root.resolve("test.h").toString()));
+    }
   }
 
 }

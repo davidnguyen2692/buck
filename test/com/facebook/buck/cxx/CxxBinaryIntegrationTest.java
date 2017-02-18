@@ -17,6 +17,7 @@
 package com.facebook.buck.cxx;
 
 import static com.facebook.buck.cxx.CxxFlavorSanitizer.sanitize;
+import static java.io.File.pathSeparator;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.is;
@@ -30,6 +31,8 @@ import static org.junit.Assume.assumeTrue;
 
 import com.facebook.buck.android.AssumeAndroidPlatform;
 import com.facebook.buck.cli.FakeBuckConfig;
+import com.facebook.buck.io.ExecutableFinder;
+import com.facebook.buck.io.MoreFiles;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
@@ -93,7 +96,7 @@ public class CxxBinaryIntegrationTest {
         this,
         tmp,
         Optional.empty());
-    workspace.enableDirCache(); // enable the cache
+    workspace.enableDirCache();
     workspace.setupCxxSandboxing(sandboxSources);
 
     CxxBuckConfig cxxBuckConfig =
@@ -175,7 +178,7 @@ public class CxxBinaryIntegrationTest {
         this,
         tmp,
         Optional.empty());
-    workspace.enableDirCache(); // enable the cache
+    workspace.enableDirCache();
     workspace.setupCxxSandboxing(sandboxSources);
 
     CxxBuckConfig cxxBuckConfig = new CxxBuckConfig(workspace.asCell().getBuckConfig());
@@ -760,7 +763,7 @@ public class CxxBinaryIntegrationTest {
         this,
         tmp,
         Optional.empty());
-    workspace.enableDirCache(); // enable the cache
+    workspace.enableDirCache();
     workspace.setupCxxSandboxing(sandboxSources);
     ProjectFilesystem filesystem = new ProjectFilesystem(workspace.getDestPath());
 
@@ -855,7 +858,7 @@ public class CxxBinaryIntegrationTest {
         this,
         tmp,
         Optional.empty());
-    workspace.enableDirCache(); // enable the cache
+    workspace.enableDirCache();
     workspace.setupCxxSandboxing(sandboxSources);
     ProjectFilesystem filesystem = new ProjectFilesystem(workspace.getDestPath());
 
@@ -928,7 +931,7 @@ public class CxxBinaryIntegrationTest {
         this,
         tmp,
         Optional.empty());
-    workspace.enableDirCache(); // enable the cache
+    workspace.enableDirCache();
     workspace.setupCxxSandboxing(sandboxSources);
     ProjectFilesystem filesystem = new ProjectFilesystem(workspace.getDestPath());
 
@@ -1014,7 +1017,7 @@ public class CxxBinaryIntegrationTest {
         this,
         tmp,
         Optional.empty());
-    workspace.enableDirCache(); // enable the cache
+    workspace.enableDirCache();
     workspace.setupCxxSandboxing(sandboxSources);
 
     BuildTarget inputBuildTarget = BuildTargetFactory.newInstance(
@@ -1250,7 +1253,7 @@ public class CxxBinaryIntegrationTest {
         this,
         tmp,
         Optional.empty());
-    workspace.enableDirCache(); // enable the cache
+    workspace.enableDirCache();
     workspace.setupCxxSandboxing(sandboxSources);
     ProjectFilesystem filesystem = new ProjectFilesystem(workspace.getDestPath());
 
@@ -1350,7 +1353,7 @@ public class CxxBinaryIntegrationTest {
         .toString();
     String out = workspace.getFileContents(specsPathList);
 
-    ImmutableList<Path> paths = FluentIterable.of(out.split("\n")).transform(
+    ImmutableList<Path> paths = FluentIterable.from(out.split("\n")).transform(
         input -> new File(input).toPath()).toList();
 
     assertSame("There must be 2 paths in total", paths.size(), 2);
@@ -1362,6 +1365,78 @@ public class CxxBinaryIntegrationTest {
   }
 
   @Test
+  public void testChangingCompilerPathForcesRebuild() throws Exception {
+    assumeTrue(Platform.detect() != Platform.WINDOWS);
+    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this, "simple", tmp);
+    workspace.setUp();
+    workspace.enableDirCache();
+    workspace.setupCxxSandboxing(sandboxSources);
+    ProjectFilesystem filesystem = new ProjectFilesystem(workspace.getDestPath());
+    BuildTarget target = BuildTargetFactory.newInstance("//foo:simple");
+    BuildTarget linkTarget = CxxDescriptionEnhancer.createCxxLinkTarget(target, Optional.empty());
+
+    // Get the real location of the compiler executable.
+    String executable = Platform.detect() == Platform.MACOS ? "clang++" : "g++";
+    Path executableLocation = new ExecutableFinder()
+        .getOptionalExecutable(Paths.get(executable), ImmutableMap.copyOf(System.getenv()))
+        .orElse(Paths.get("/usr/bin", executable));
+
+    // Write script as faux clang++/g++ binary
+    Path firstCompilerPath = tmp.newFolder("path1");
+    Path firstCompiler = firstCompilerPath.resolve(executable);
+    filesystem.writeContentsToPath(
+      "#!/bin/sh\n" +
+          "exec " + executableLocation.toString() + " \"$@\"\n",
+          firstCompiler);
+
+    // Write script as slightly different faux clang++/g++ binary
+    Path secondCompilerPath = tmp.newFolder("path2");
+    Path secondCompiler = secondCompilerPath.resolve(executable);
+    filesystem.writeContentsToPath(
+        "#!/bin/sh\n" +
+            "exec " + executableLocation.toString() + " \"$@\"\n" +
+            "# Comment to make hash different.\n",
+            secondCompiler);
+
+    // Make the second faux clang++/g++ binary executable
+    MoreFiles.makeExecutable(secondCompiler);
+
+    // Run two builds, each with different compiler "binaries".  In the first
+    // instance, both binaries are in the PATH but the first binary is not
+    // marked executable so is not picked up.
+    workspace.runBuckCommandWithEnvironmentOverridesAndContext(
+      workspace.getDestPath(),
+      Optional.empty(),
+      ImmutableMap.of("PATH",
+          firstCompilerPath.toString() + pathSeparator +
+          secondCompilerPath.toString() + pathSeparator +
+          System.getenv("PATH")),
+      "build",
+      target.getFullyQualifiedName()).assertSuccess();
+
+    workspace.resetBuildLogFile();
+
+    // Now, make the first faux clang++/g++ binary executable.  In this second
+    // instance, both binaries are still in the PATH but the first binary is
+    // now marked executable and so is picked up; causing a rebuild.
+    MoreFiles.makeExecutable(firstCompiler);
+
+    workspace.runBuckCommandWithEnvironmentOverridesAndContext(
+      workspace.getDestPath(),
+      Optional.empty(),
+      ImmutableMap.of("PATH",
+          firstCompilerPath.toString() + pathSeparator +
+          secondCompilerPath.toString() + pathSeparator +
+          System.getenv("PATH")),
+      "build",
+      target.getFullyQualifiedName()).assertSuccess();
+
+    // Make sure the binary change caused a rebuild.
+    workspace.getBuildLog().assertTargetBuiltLocally(linkTarget.toString());
+  }
+
+  @Test
   public void testLinkMapIsCached() throws Exception {
     // Currently we only support Apple platforms for generating link maps.
     assumeTrue(Platform.detect() == Platform.MACOS);
@@ -1369,7 +1444,7 @@ public class CxxBinaryIntegrationTest {
     ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
         this, "simple", tmp);
     workspace.setUp();
-    workspace.enableDirCache(); // enable the cache
+    workspace.enableDirCache();
     workspace.setupCxxSandboxing(sandboxSources);
     ProjectFilesystem filesystem = new ProjectFilesystem(workspace.getDestPath());
 
@@ -1480,7 +1555,6 @@ public class CxxBinaryIntegrationTest {
     assertThat(
         buildLog.getLogEntry(binaryTarget).getSuccessType().get(),
         Matchers.not(Matchers.equalTo(BuildRuleSuccessType.MATCHING_RULE_KEY)));
-    buildLog.assertTargetBuiltLocally(target.toString());
 
     // Clear for new build.
     workspace.resetBuildLogFile();
@@ -1592,7 +1666,6 @@ public class CxxBinaryIntegrationTest {
     assertThat(
         buildLog.getLogEntry(binaryTarget).getSuccessType().get(),
         Matchers.not(Matchers.equalTo(BuildRuleSuccessType.MATCHING_RULE_KEY)));
-    buildLog.assertTargetBuiltLocally(target.toString());
   }
 
   @Test
@@ -1744,7 +1817,6 @@ public class CxxBinaryIntegrationTest {
     assertThat(
         buildLog.getLogEntry(binaryTarget).getSuccessType().get(),
         Matchers.not(Matchers.equalTo(BuildRuleSuccessType.MATCHING_RULE_KEY)));
-    buildLog.assertTargetBuiltLocally(target.toString());
 
     // Clear for new build.
     workspace.resetBuildLogFile();
@@ -1779,7 +1851,6 @@ public class CxxBinaryIntegrationTest {
     buildLog.assertTargetHadMatchingRuleKey(depTarget.toString());
     buildLog.assertTargetHadMatchingRuleKey(compileTarget.toString());
     buildLog.assertTargetBuiltLocally(binaryTarget.toString());
-    buildLog.assertTargetBuiltLocally(target.toString());
   }
 
   @Test
@@ -2394,7 +2465,7 @@ public class CxxBinaryIntegrationTest {
     workspace.copyFile("bin.c.new", "bin.c");
     workspace.runBuckBuild("//:bin").assertSuccess();
     BuckBuildLog log = workspace.getBuildLog();
-    log.assertTargetBuiltLocally("//:bin");
+    log.assertTargetBuiltLocally("//:bin#binary");
   }
 
   private ImmutableSortedSet<Path> findFiles(Path root, final PathMatcher matcher)

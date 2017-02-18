@@ -37,8 +37,10 @@ import com.facebook.buck.jvm.java.PrebuiltJarBuilder;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
+import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.shell.GenruleBuilder;
@@ -105,7 +107,7 @@ public class IjModuleGraphTest {
     IjModule productModule = getModuleForTarget(moduleGraph, productTarget);
 
     assertEquals(
-        ImmutableMap.of(libraryModule, IjModuleGraph.DependencyType.PROD),
+        ImmutableMap.of(libraryModule, DependencyType.PROD),
         moduleGraph.getDependentModulesFor(productModule));
     assertTrue(moduleGraph.getDependentModulesFor(libraryModule).isEmpty());
   }
@@ -138,8 +140,8 @@ public class IjModuleGraphTest {
 
     assertEquals(
         ImmutableMap.of(
-            junitReflectModule, IjModuleGraph.DependencyType.PROD,
-            junitCoreModule, IjModuleGraph.DependencyType.PROD),
+            junitReflectModule, DependencyType.PROD,
+            junitCoreModule, DependencyType.PROD),
         moduleGraph.getDependentModulesFor(junitRuleModule));
   }
 
@@ -169,7 +171,7 @@ public class IjModuleGraphTest {
     IjModule reExporterModule = getModuleForTarget(moduleGraph, reExporter);
 
     assertEquals(
-        ImmutableMap.of(reExporterModule, IjModuleGraph.DependencyType.PROD),
+        ImmutableMap.of(reExporterModule, DependencyType.PROD),
         moduleGraph.getDependentModulesFor(libraryModule));
   }
 
@@ -236,14 +238,14 @@ public class IjModuleGraphTest {
         moduleGraph.getDependentModulesFor(guavaModule));
 
     assertEquals(ImmutableMap.of(
-            guavaModule, IjModuleGraph.DependencyType.PROD,
-            junitModule, IjModuleGraph.DependencyType.PROD,
-            hamcrestModule, IjModuleGraph.DependencyType.TEST),
+            guavaModule, DependencyType.PROD,
+            junitModule, DependencyType.PROD,
+            hamcrestModule, DependencyType.TEST),
         moduleGraph.getDependentModulesFor(codeModule));
 
     assertEquals(ImmutableMap.of(
-            codeModule, IjModuleGraph.DependencyType.TEST,
-            junitModule, IjModuleGraph.DependencyType.TEST),
+            codeModule, DependencyType.TEST,
+            junitModule, DependencyType.TEST),
         moduleGraph.getDependentModulesFor(testModule));
   }
 
@@ -264,7 +266,7 @@ public class IjModuleGraphTest {
     IjModule coreModule = getModuleForTarget(moduleGraph, coreTargetNode);
     IjLibrary guavaElement = getLibraryForTarget(moduleGraph, guavaTargetNode);
 
-    assertEquals(ImmutableMap.of(guavaElement, IjModuleGraph.DependencyType.PROD),
+    assertEquals(ImmutableMap.of(guavaElement, DependencyType.PROD),
         moduleGraph.getDepsFor(coreModule));
   }
 
@@ -295,8 +297,8 @@ public class IjModuleGraphTest {
     IjModule testModule = getModuleForTarget(moduleGraph, testTargetNode);
 
     assertEquals(ImmutableMap.of(
-            junitModule, IjModuleGraph.DependencyType.TEST,
-            testLibModule, IjModuleGraph.DependencyType.TEST),
+            junitModule, DependencyType.TEST,
+            testLibModule, DependencyType.TEST),
         moduleGraph.getDependentModulesFor(testModule));
   }
 
@@ -328,8 +330,8 @@ public class IjModuleGraphTest {
 
     assertEquals(
         ImmutableMap.of(
-            junitReflectModule, IjModuleGraph.DependencyType.PROD,
-            junitCoreModule, IjModuleGraph.DependencyType.PROD),
+            junitReflectModule, DependencyType.PROD,
+            junitCoreModule, DependencyType.PROD),
         moduleGraph.getDependentModulesFor(junitRuleModule));
   }
 
@@ -366,7 +368,7 @@ public class IjModuleGraphTest {
     IjModule testRuleModule = getModuleForTarget(moduleGraph, testRule);
 
     assertEquals(
-        ImmutableMap.of(junitRuleModule, IjModuleGraph.DependencyType.PROD),
+        ImmutableMap.of(junitRuleModule, DependencyType.PROD),
         moduleGraph.getDependentModulesFor(testRuleModule));
   }
 
@@ -395,7 +397,7 @@ public class IjModuleGraphTest {
     IjModule libraryModule = getModuleForTarget(moduleGraph, libraryJavaTarget);
     IjModule productModule = getModuleForTarget(moduleGraph, productTarget);
 
-    assertEquals(ImmutableMap.of(libraryModule, IjModuleGraph.DependencyType.PROD),
+    assertEquals(ImmutableMap.of(libraryModule, DependencyType.PROD),
         moduleGraph.getDependentModulesFor(productModule));
     assertEquals(2, moduleGraph.getModuleNodes().size());
   }
@@ -423,7 +425,7 @@ public class IjModuleGraphTest {
             productGenruleTarget,
             libraryJavaTarget,
             productTarget),
-        ImmutableMap.of(productTarget, Paths.get("buck-out/product.jar")),
+        ImmutableMap.of(productTarget, new FakeSourcePath("buck-out/product.jar")),
         Functions.constant(Optional.empty()));
 
     IjModule libraryModule = getModuleForTarget(moduleGraph, libraryJavaTarget);
@@ -432,8 +434,8 @@ public class IjModuleGraphTest {
 
     assertEquals(
         ImmutableMap.of(
-            libraryModule, IjModuleGraph.DependencyType.PROD,
-            productLibrary, IjModuleGraph.DependencyType.COMPILED_SHADOW),
+            libraryModule, DependencyType.PROD,
+            productLibrary, DependencyType.COMPILED_SHADOW),
         moduleGraph.getDepsFor(productModule));
   }
 
@@ -447,7 +449,7 @@ public class IjModuleGraphTest {
 
     IjModuleGraph moduleGraph = createModuleGraph(
         ImmutableSet.of(productTarget),
-        ImmutableMap.of(productTarget, Paths.get("buck-out/product.jar")),
+        ImmutableMap.of(productTarget, new FakeSourcePath("buck-out/product.jar")),
         input -> {
           if (input == productTarget) {
             return Optional.of(rDotJavaClassPath);
@@ -464,12 +466,12 @@ public class IjModuleGraphTest {
     assertEquals(ImmutableSet.of(rDotJavaClassPath), productModule.getExtraClassPathDependencies());
     assertEquals(ImmutableSet.of(rDotJavaClassPath), rDotJavaLibrary.getClassPaths());
     assertEquals(moduleGraph.getDependentLibrariesFor(productModule),
-        ImmutableMap.of(rDotJavaLibrary, IjModuleGraph.DependencyType.PROD));
+        ImmutableMap.of(rDotJavaLibrary, DependencyType.PROD));
   }
 
 
   public void doSingleAggregationModePathFunctionTest(
-      IjModuleGraph.AggregationMode aggregationMode,
+      AggregationMode aggregationMode,
       int graphSize,
       boolean expectTrimmed) {
 
@@ -504,37 +506,37 @@ public class IjModuleGraphTest {
   public void testAggregationModePathFunction() {
 
     doSingleAggregationModePathFunctionTest(
-        IjModuleGraph.AggregationMode.NONE,
+        AggregationMode.NONE,
         10,
         /* expectTrimmed */ false);
     doSingleAggregationModePathFunctionTest(
-        IjModuleGraph.AggregationMode.NONE,
+        AggregationMode.NONE,
         10000,
         /* expectTrimmed */ false);
 
     doSingleAggregationModePathFunctionTest(
-        IjModuleGraph.AggregationMode.SHALLOW,
+        AggregationMode.SHALLOW,
         10,
         /* expectTrimmed */ true);
     doSingleAggregationModePathFunctionTest(
-        IjModuleGraph.AggregationMode.SHALLOW,
+        AggregationMode.SHALLOW,
         10000,
         /* expectTrimmed */ true);
 
     doSingleAggregationModePathFunctionTest(
-        IjModuleGraph.AggregationMode.AUTO,
+        AggregationMode.AUTO,
         10,
         /* expectTrimmed */ false);
     doSingleAggregationModePathFunctionTest(
-        IjModuleGraph.AggregationMode.AUTO,
+        AggregationMode.AUTO,
         10000,
         /* expectTrimmed */ true);
   }
 
   @Test
   public void testCustomAggregationMode() {
-    IjModuleGraph.AggregationMode testAggregationMode =
-        new IjModuleGraph.AggregationMode(2);
+    AggregationMode testAggregationMode =
+        new AggregationMode(2);
 
     ImmutableList<Path> originalPaths = ImmutableList.of(
         Paths.get("a", "b", "c"),
@@ -560,7 +562,7 @@ public class IjModuleGraphTest {
 
   @Test(expected = HumanReadableException.class)
   public void testCustomAggregationModeAtZero() {
-    IjModuleGraph.AggregationMode.fromString("0");
+    AggregationMode.fromString("0");
     fail("Should not be able to construct an aggregator with zero minimum depth.");
   }
 
@@ -588,7 +590,7 @@ public class IjModuleGraphTest {
         ImmutableSet.of(guava, papaya, base, core),
         ImmutableMap.of(),
         Functions.constant(Optional.empty()),
-        IjModuleGraph.AggregationMode.SHALLOW);
+        AggregationMode.SHALLOW);
 
     IjModule guavaModule = getModuleForTarget(moduleGraph, guava);
     IjModule papayaModule = getModuleForTarget(moduleGraph, papaya);
@@ -601,9 +603,9 @@ public class IjModuleGraphTest {
         Matchers.equalTo(Paths.get("java", "com", "example")));
     assertThat(
         moduleGraph.getDepsFor(baseModule),
-        Matchers.equalTo(ImmutableMap.<IjProjectElement, IjModuleGraph.DependencyType>of(
-                papayaModule, IjModuleGraph.DependencyType.PROD,
-                guavaModule, IjModuleGraph.DependencyType.PROD)));
+        Matchers.equalTo(ImmutableMap.<IjProjectElement, DependencyType>of(
+                papayaModule, DependencyType.PROD,
+                guavaModule, DependencyType.PROD)));
   }
 
   @Test
@@ -628,7 +630,7 @@ public class IjModuleGraphTest {
         ImmutableSet.of(blah1, blah2, commonApp),
         ImmutableMap.of(),
         Functions.constant(Optional.empty()),
-        IjModuleGraph.AggregationMode.SHALLOW);
+        AggregationMode.SHALLOW);
 
     IjModule blah1Module = getModuleForTarget(moduleGraph, blah1);
     IjModule blah2Module = getModuleForTarget(moduleGraph, blah2);
@@ -661,7 +663,7 @@ public class IjModuleGraphTest {
         ImmutableSet.of(blah1, blah2, commonApp),
         ImmutableMap.of(),
         Functions.constant(Optional.empty()),
-        IjModuleGraph.AggregationMode.SHALLOW);
+        AggregationMode.SHALLOW);
 
     IjModule blah1Module = getModuleForTarget(moduleGraph, blah1);
     IjModule blah2Module = getModuleForTarget(moduleGraph, blah2);
@@ -777,31 +779,31 @@ public class IjModuleGraphTest {
 
   public static IjModuleGraph createModuleGraph(
       ImmutableSet<TargetNode<?, ?>> targets,
-      final ImmutableMap<TargetNode<?, ?>, Path> javaLibraryPaths,
+      final ImmutableMap<TargetNode<?, ?>, SourcePath> javaLibraryPaths,
       Function<? super TargetNode<?, ?>, Optional<Path>> rDotJavaClassPathResolver) {
     return createModuleGraph(targets,
         javaLibraryPaths,
         rDotJavaClassPathResolver,
-        IjModuleGraph.AggregationMode.AUTO);
+        AggregationMode.AUTO);
   }
 
   public static IjModuleGraph createModuleGraph(
       ImmutableSet<TargetNode<?, ?>> targets,
-      final ImmutableMap<TargetNode<?, ?>, Path> javaLibraryPaths,
+      final ImmutableMap<TargetNode<?, ?>, SourcePath> javaLibraryPaths,
       final Function<? super TargetNode<?, ?>, Optional<Path>> rDotJavaClassPathResolver,
-      IjModuleGraph.AggregationMode aggregationMode) {
-    final SourcePathResolver sourcePathResolver = new SourcePathResolver(
+      AggregationMode aggregationMode) {
+    final SourcePathResolver sourcePathResolver = new SourcePathResolver(new SourcePathRuleFinder(
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())
-    );
-    DefaultIjLibraryFactory.IjLibraryFactoryResolver sourceOnlyResolver =
-        new DefaultIjLibraryFactory.IjLibraryFactoryResolver() {
+    ));
+    IjLibraryFactoryResolver sourceOnlyResolver =
+        new IjLibraryFactoryResolver() {
           @Override
           public Path getPath(SourcePath path) {
             return sourcePathResolver.getAbsolutePath(path);
           }
 
           @Override
-          public Optional<Path> getPathIfJavaLibrary(TargetNode<?, ?> targetNode) {
+          public Optional<SourcePath> getPathIfJavaLibrary(TargetNode<?, ?> targetNode) {
             return Optional.ofNullable(javaLibraryPaths.get(targetNode));
           }
         };
@@ -809,7 +811,7 @@ public class IjModuleGraphTest {
     IjProjectConfig projectConfig = IjProjectBuckConfig.create(buckConfig);
     IjModuleFactory moduleFactory = new IjModuleFactory(
         new FakeProjectFilesystem(),
-        new IjModuleFactory.IjModuleFactoryResolver() {
+        new IjModuleFactoryResolver() {
           @Override
           public Optional<Path> getDummyRDotJavaPath(TargetNode<?, ?> targetNode) {
             return rDotJavaClassPathResolver.apply(targetNode);

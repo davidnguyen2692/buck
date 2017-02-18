@@ -21,11 +21,11 @@ import com.facebook.buck.jvm.java.JavaLibrary;
 import com.facebook.buck.jvm.java.JavacOptions;
 import com.facebook.buck.jvm.java.JavacOptionsAmender;
 import com.facebook.buck.jvm.java.JavacToJarStepFactory;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -48,13 +48,14 @@ class AndroidBuildConfigJavaLibrary extends DefaultJavaLibrary implements Androi
   AndroidBuildConfigJavaLibrary(
       BuildRuleParams params,
       SourcePathResolver resolver,
+      SourcePathRuleFinder ruleFinder,
       JavacOptions javacOptions,
-      BuildTarget abiJar,
       ImmutableSortedSet<SourcePath> abiInputs,
       AndroidBuildConfig androidBuildConfig) {
     super(
         params,
         resolver,
+        ruleFinder,
         /* srcs */ ImmutableSortedSet.of(
             new BuildTargetSourcePath(androidBuildConfig.getBuildTarget())),
         /* resources */ ImmutableSortedSet.of(),
@@ -63,7 +64,6 @@ class AndroidBuildConfigJavaLibrary extends DefaultJavaLibrary implements Androi
         /* postprocessClassesCommands */ ImmutableList.of(),
         /* exportedDeps */ ImmutableSortedSet.of(),
         /* providedDeps */ ImmutableSortedSet.of(),
-        abiJar,
         abiInputs,
         /* trackClassUsage */ javacOptions.trackClassUsage(),
         /* additionalClasspathEntries */ ImmutableSet.of(),

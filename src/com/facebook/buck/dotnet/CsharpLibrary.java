@@ -30,12 +30,10 @@ import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.google.common.base.Preconditions;
-import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableListMultimap;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedSet;
-import com.google.common.collect.Ordering;
 
 import java.nio.file.Path;
 import java.util.Map;
@@ -55,13 +53,12 @@ public class CsharpLibrary extends AbstractBuildRule {
 
   protected CsharpLibrary(
       BuildRuleParams params,
-      SourcePathResolver resolver,
       String dllName,
       ImmutableSortedSet<SourcePath> srcs,
       ImmutableList<Either<BuildRule, String>> refs,
       ImmutableMap<String, SourcePath> resources,
       FrameworkVersion version) {
-    super(params, resolver);
+    super(params);
 
     Preconditions.checkArgument(dllName.endsWith(".dll"));
 
@@ -82,16 +79,18 @@ public class CsharpLibrary extends AbstractBuildRule {
       BuildableContext buildableContext) {
     ProjectFilesystem filesystem = getProjectFilesystem();
 
-    ImmutableSortedSet<Path> sourceFiles = FluentIterable.from(srcs)
-        .transform(getResolver()::getAbsolutePath)
-        .toSortedSet(Ordering.natural());
+    ImmutableSortedSet<Path> sourceFiles =
+        context.getSourcePathResolver().getAllAbsolutePaths(srcs);
 
     ImmutableListMultimap.Builder<Path, String> resolvedResources = ImmutableListMultimap.builder();
     for (Map.Entry<String, SourcePath> resource : resources.entrySet()) {
-      resolvedResources.put(getResolver().getAbsolutePath(resource.getValue()), resource.getKey());
+      resolvedResources.put(
+          context.getSourcePathResolver().getAbsolutePath(resource.getValue()),
+          resource.getKey());
     }
 
-    ImmutableList<Either<Path, String>> references = resolveReferences(refs);
+    ImmutableList<Either<Path, String>> references =
+        resolveReferences(context.getSourcePathResolver(), refs);
 
     ImmutableList.Builder<Step> steps = ImmutableList.builder();
 
@@ -108,6 +107,7 @@ public class CsharpLibrary extends AbstractBuildRule {
   }
 
   private ImmutableList<Either<Path, String>> resolveReferences(
+      SourcePathResolver pathResolver,
       ImmutableList<Either<BuildRule, String>> refs) {
     ImmutableList.Builder<Either<Path, String>> resolved = ImmutableList.builder();
 
@@ -119,8 +119,8 @@ public class CsharpLibrary extends AbstractBuildRule {
             rule instanceof CsharpLibrary ||
             rule instanceof PrebuiltDotnetLibrary);
 
-        Path outputPath = Preconditions.checkNotNull(rule.getPathToOutput());
-        resolved.add(Either.ofLeft(rule.getProjectFilesystem().resolve(outputPath)));
+        SourcePath outputPath = Preconditions.checkNotNull(rule.getSourcePathToOutput());
+        resolved.add(Either.ofLeft(pathResolver.getAbsolutePath(outputPath)));
       } else {
         resolved.add(Either.ofRight(ref.getRight()));
       }

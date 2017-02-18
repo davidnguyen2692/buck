@@ -20,6 +20,7 @@ import static com.facebook.buck.ocaml.OcamlRuleBuilder.createOcamlLinkTarget;
 import static com.facebook.buck.ocaml.OcamlRuleBuilder.createStaticLibraryBuildTarget;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assume.assumeTrue;
 
@@ -49,6 +50,7 @@ import com.facebook.buck.util.environment.Platform;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 
+import org.hamcrest.Matchers;
 import org.junit.Before;
 import org.junit.Ignore;
 import org.junit.Rule;
@@ -184,6 +186,50 @@ public class OCamlIntegrationTest {
 
     buildLog.assertTargetBuiltLocally(target.toString());
     buildLog.assertTargetBuiltLocally(staticLib1.toString());
+  }
+
+  @Test
+  public void testNativePlugin() throws IOException, Exception {
+    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this, "ocaml", tmp);
+    workspace.setUp();
+
+    // Build the plugin
+    BuildTarget pluginTarget = BuildTargetFactory.newInstance(
+      workspace.getDestPath(),
+      "//ocaml_native_plugin:plugin"
+    );
+    workspace.runBuckCommand("build", pluginTarget.toString()).assertSuccess();
+
+    // Also build a test binary that we'll use to verify that the .cmxs file
+    // works
+    BuildTarget binTarget = BuildTargetFactory.newInstance(
+      workspace.getDestPath(),
+      "//ocaml_native_plugin:tester"
+    );
+    workspace.runBuckCommand("build", binTarget.toString()).assertSuccess();
+
+    Path ocamlNativePluginDir =
+      workspace.getDestPath()
+        .resolve("buck-out")
+        .resolve("gen")
+        .resolve("ocaml_native_plugin");
+
+    Path pluginCmxsFile = ocamlNativePluginDir
+      .resolve("plugin")
+      .resolve("libplugin.cmxs");
+
+    Path testerExecutableFile = ocamlNativePluginDir
+      .resolve("tester")
+      .resolve("tester");
+
+    // Run `./tester /path/to/plugin.cmxs`
+    String out = workspace.runCommand(
+      testerExecutableFile.toString(),
+      pluginCmxsFile.toString()
+    ).getStdout().get();
+
+    assertEquals("it works!\n", out);
   }
 
   @Test
@@ -444,9 +490,7 @@ public class OCamlIntegrationTest {
 
     workspace.runBuckCommand("build", target.toString()).assertSuccess();
     BuckBuildLog buildLog = workspace.getBuildLog();
-    buildLog.assertTargetBuiltLocally(target.toString());
     buildLog.assertTargetBuiltLocally(binary.toString());
-    buildLog.assertTargetBuiltLocally(libplus.toString());
     buildLog.assertTargetBuiltLocally(libplusStatic.toString());
     buildLog.assertTargetBuiltLocally(cclibbin.toString());
     buildLog.assertTargetBuiltLocally(ccObj.toString());
@@ -463,9 +507,7 @@ public class OCamlIntegrationTest {
     workspace.replaceFileContents("clib/cc/cc.cpp", "Hi there", "hi there");
     workspace.runBuckCommand("build", target.toString()).assertSuccess();
     buildLog = workspace.getBuildLog();
-    buildLog.assertTargetBuiltLocally(target.toString());
     buildLog.assertTargetBuiltLocally(binary.toString());
-    buildLog.assertTargetBuiltLocally(libplus.toString());
     buildLog.assertTargetBuiltLocally(libplusStatic.toString());
     buildLog.assertTargetBuiltLocally(cclibbin.toString());
     buildLog.assertTargetBuiltLocally(ccObj.toString());
@@ -524,7 +566,7 @@ public class OCamlIntegrationTest {
     // Points somewhere with no stdlib in it, so fails to find Pervasives
     workspace.runBuckCommand("build", target.toString()).assertFailure();
     BuckBuildLog buildLog = workspace.getBuildLog();
-    assertTrue(buildLog.getAllTargets().containsAll(targets));
+    assertThat(buildLog.getAllTargets(), Matchers.hasItems(targets.toArray(new BuildTarget[0])));
     buildLog.assertTargetCanceled(target.toString());
     buildLog.assertTargetCanceled(binary.toString());
 

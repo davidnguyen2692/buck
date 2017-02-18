@@ -17,56 +17,61 @@
 package com.facebook.buck.zip;
 
 import com.facebook.buck.model.BuildTargets;
+import com.facebook.buck.model.HasOutputName;
 import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.RmStep;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
 
 import java.nio.file.Path;
 
-public class Zip extends AbstractBuildRule {
+public class Zip extends AbstractBuildRule implements HasOutputName {
 
-  @AddToRuleKey(stringify = true)
-  private final Path output;
+  @AddToRuleKey
+  private final String name;
   @AddToRuleKey
   private final ImmutableSortedSet<SourcePath> sources;
-  private final Path scratchDir;
 
   public Zip(
       BuildRuleParams params,
-      SourcePathResolver resolver,
       String outputName,
       ImmutableSortedSet<SourcePath> sources) {
-    super(params, resolver);
-    this.sources = Preconditions.checkNotNull(sources);
+    super(params);
+    this.name = outputName;
+    this.sources = sources;
+  }
 
-    this.output = BuildTargets.getGenPath(getProjectFilesystem(), getBuildTarget(), outputName);
-    this.scratchDir =
-        BuildTargets.getScratchPath(getProjectFilesystem(), getBuildTarget(), "%s.zip.scratch");
+  private Path getOutput() {
+    return BuildTargets.getGenPath(getProjectFilesystem(), getBuildTarget(), "%s")
+        .resolve(this.name);
   }
 
   @Override
   public ImmutableList<Step> getBuildSteps(
       BuildContext context,
       BuildableContext buildableContext) {
+
+    Path output = getOutput();
+    Path scratchDir =
+        BuildTargets.getScratchPath(getProjectFilesystem(), getBuildTarget(), "%s.zip.scratch");
+
     ImmutableList.Builder<Step> steps = ImmutableList.builder();
 
-    steps.add(new RmStep(getProjectFilesystem(), output, true));
+    steps.add(new RmStep(getProjectFilesystem(), output));
     steps.add(new MkdirStep(getProjectFilesystem(), output.getParent()));
     steps.add(new MakeCleanDirectoryStep(getProjectFilesystem(), scratchDir));
 
     SrcZipAwareFileBundler bundler = new SrcZipAwareFileBundler(getBuildTarget());
-    bundler.copy(getProjectFilesystem(), getResolver(), steps, scratchDir, sources);
+    bundler.copy(
+        getProjectFilesystem(), context.getSourcePathResolver(), steps, scratchDir, sources);
 
     steps.add(
         new ZipStep(
@@ -84,6 +89,12 @@ public class Zip extends AbstractBuildRule {
 
   @Override
   public Path getPathToOutput() {
-    return output;
+    return getOutput();
   }
+
+  @Override
+  public String getOutputName() {
+    return name;
+  }
+
 }

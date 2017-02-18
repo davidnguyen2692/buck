@@ -37,6 +37,7 @@ import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.RuleKeyObjectSink;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.args.RuleKeyAppendableFunction;
@@ -47,7 +48,6 @@ import com.facebook.buck.step.TestExecutionContext;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
 import org.junit.Test;
@@ -70,7 +70,7 @@ public class CxxCollectAndLogInferDependenciesStepTest {
       SourcePathResolver sourcePathResolver,
       ProjectFilesystem filesystem,
       InferBuckConfig inferBuckConfig
-  ) {
+  ) throws Exception {
     RuleKeyAppendableFunction<FrameworkPath, Path> defaultFrameworkPathSearchPathFunction =
         new RuleKeyAppendableFunction<FrameworkPath, Path>() {
           @Override
@@ -93,17 +93,16 @@ public class CxxCollectAndLogInferDependenciesStepTest {
     PreprocessorDelegate preprocessorDelegate = new PreprocessorDelegate(
         sourcePathResolver,
         CxxPlatformUtils.DEFAULT_COMPILER_DEBUG_PATH_SANITIZER,
-        CxxPlatformUtils.DEFAULT_CONFIG.getHeaderVerification(),
+        CxxPlatformUtils.DEFAULT_PLATFORM.getHeaderVerification(),
         Paths.get("whatever"),
-        new DefaultPreprocessor(preprocessorTool),
+        new GccPreprocessor(preprocessorTool),
         PreprocessorFlags.builder().build(),
         defaultFrameworkPathSearchPathFunction,
-        ImmutableList.of(),
-        Optional.empty());
+        Optional.empty(),
+        /* leadingIncludePaths */ Optional.empty());
 
     return new CxxInferCapture(
         buildRuleParams,
-        sourcePathResolver,
         CxxToolFlags.of(),
         CxxToolFlags.of(),
         new FakeSourcePath("src.c"),
@@ -136,10 +135,6 @@ public class CxxCollectAndLogInferDependenciesStepTest {
         .setProjectFilesystem(filesystem)
         .build();
 
-    BuildRuleResolver testBuildRuleResolver =
-        new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver testSourcePathResolver = new SourcePathResolver(testBuildRuleResolver);
-
     InferBuckConfig inferBuckConfig = new InferBuckConfig(FakeBuckConfig.builder().build());
 
     CxxInferCaptureAndAggregatingRules<CxxInferAnalyze> captureAndAggregatingRules =
@@ -149,7 +144,6 @@ public class CxxCollectAndLogInferDependenciesStepTest {
 
     CxxInferAnalyze analyzeRule = new CxxInferAnalyze(
         testBuildRuleParams,
-        testSourcePathResolver,
         inferBuckConfig,
         captureAndAggregatingRules);
 
@@ -194,10 +188,6 @@ public class CxxCollectAndLogInferDependenciesStepTest {
         .setProjectFilesystem(filesystem)
         .build();
 
-    BuildRuleResolver testBuildRuleResolver =
-        new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver testSourcePathResolver = new SourcePathResolver(testBuildRuleResolver);
-
     InferBuckConfig inferBuckConfig = new InferBuckConfig(FakeBuckConfig.builder().build());
 
     CxxInferCaptureAndAggregatingRules<CxxInferAnalyze> captureAndAggregatingRules =
@@ -207,7 +197,6 @@ public class CxxCollectAndLogInferDependenciesStepTest {
 
     CxxInferAnalyze analyzeRule = new CxxInferAnalyze(
         testBuildRuleParams,
-        testSourcePathResolver,
         inferBuckConfig,
         captureAndAggregatingRules);
 
@@ -230,7 +219,7 @@ public class CxxCollectAndLogInferDependenciesStepTest {
   }
 
   @Test
-  public void testStepWritesTwoCellTokensInFile() throws IOException, InterruptedException {
+  public void testStepWritesTwoCellTokensInFile() throws Exception {
     assumeThat(Platform.detect(), is(not(WINDOWS)));
 
     // filesystem, buildTarget and buildRuleParams for first cell (analysis)
@@ -268,7 +257,8 @@ public class CxxCollectAndLogInferDependenciesStepTest {
 
     BuildRuleResolver testBuildRuleResolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver testSourcePathResolver = new SourcePathResolver(testBuildRuleResolver);
+    SourcePathResolver testSourcePathResolver =
+        new SourcePathResolver(new SourcePathRuleFinder(testBuildRuleResolver));
 
     InferBuckConfig inferBuckConfig = new InferBuckConfig(FakeBuckConfig.builder().build());
 
@@ -282,7 +272,6 @@ public class CxxCollectAndLogInferDependenciesStepTest {
 
     CxxInferAnalyze analyzeRule = new CxxInferAnalyze(
         buildRuleParams1,
-        testSourcePathResolver,
         inferBuckConfig,
         captureAndAggregatingRules);
 
@@ -307,8 +296,7 @@ public class CxxCollectAndLogInferDependenciesStepTest {
   }
 
   @Test
-  public void testStepWritesOneCellTokenInFileWhenOneCellIsAbsent()
-      throws IOException, InterruptedException {
+  public void testStepWritesOneCellTokenInFileWhenOneCellIsAbsent() throws Exception {
     assumeThat(Platform.detect(), is(not(WINDOWS)));
 
     // filesystem, buildTarget and buildRuleParams for first, unnamed cell (analysis)
@@ -346,7 +334,8 @@ public class CxxCollectAndLogInferDependenciesStepTest {
 
     BuildRuleResolver testBuildRuleResolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver testSourcePathResolver = new SourcePathResolver(testBuildRuleResolver);
+    SourcePathResolver testSourcePathResolver =
+        new SourcePathResolver(new SourcePathRuleFinder(testBuildRuleResolver));
 
     InferBuckConfig inferBuckConfig = new InferBuckConfig(FakeBuckConfig.builder().build());
 
@@ -360,7 +349,6 @@ public class CxxCollectAndLogInferDependenciesStepTest {
 
     CxxInferAnalyze analyzeRule = new CxxInferAnalyze(
         buildRuleParams1,
-        testSourcePathResolver,
         inferBuckConfig,
         captureAndAggregatingRules);
 

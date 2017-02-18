@@ -16,6 +16,7 @@
 
 package com.facebook.buck.cxx;
 
+import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.ImmutableFlavor;
@@ -65,74 +66,85 @@ public class DefaultCxxPlatforms {
     LinkerProvider.Type linkerType;
     Archiver archiver;
     DebugPathSanitizer compilerSanitizer;
+    Optional<String> binaryExtension;
+    ImmutableMap<String, String> env = config.getEnvironment();
     switch (platform) {
       case LINUX:
         sharedLibraryExtension = "so";
         sharedLibraryVersionedExtensionFormat = "so.%s";
         staticLibraryExtension = "a";
         objectFileExtension = "o";
-        defaultCFrontend = DEFAULT_C_FRONTEND;
-        defaultCxxFrontend = DEFAULT_CXX_FRONTEND;
+        defaultCFrontend = getExecutablePath("gcc", DEFAULT_C_FRONTEND, env);
+        defaultCxxFrontend = getExecutablePath("g++", DEFAULT_CXX_FRONTEND, env);
         linkerType = LinkerProvider.Type.GNU;
-        archiver = new GnuArchiver(new HashedFileTool(DEFAULT_AR));
+        archiver = new GnuArchiver(new HashedFileTool(getExecutablePath("ar", DEFAULT_AR, env)));
         compilerSanitizer = new PrefixMapDebugPathSanitizer(
             config.getDebugPathSanitizerLimit(),
             File.separatorChar,
             Paths.get("."),
             ImmutableBiMap.of(),
             filesystem.getRootPath().toAbsolutePath(),
-            CxxToolProvider.Type.GCC);
+            CxxToolProvider.Type.GCC,
+            filesystem);
+        binaryExtension = Optional.empty();
         break;
       case MACOS:
         sharedLibraryExtension = "dylib";
         sharedLibraryVersionedExtensionFormat = ".%s.dylib";
         staticLibraryExtension = "a";
         objectFileExtension = "o";
-        defaultCFrontend = DEFAULT_OSX_C_FRONTEND;
-        defaultCxxFrontend = DEFAULT_OSX_CXX_FRONTEND;
+        defaultCFrontend = getExecutablePath("clang", DEFAULT_OSX_C_FRONTEND, env);
+        defaultCxxFrontend = getExecutablePath("clang++", DEFAULT_OSX_CXX_FRONTEND, env);
         linkerType = LinkerProvider.Type.DARWIN;
-        archiver = new BsdArchiver(new HashedFileTool(DEFAULT_AR));
+        archiver = new BsdArchiver(new HashedFileTool(getExecutablePath("ar", DEFAULT_AR, env)));
         compilerSanitizer = new PrefixMapDebugPathSanitizer(
             config.getDebugPathSanitizerLimit(),
             File.separatorChar,
             Paths.get("."),
             ImmutableBiMap.of(),
             filesystem.getRootPath().toAbsolutePath(),
-            CxxToolProvider.Type.CLANG);
+            CxxToolProvider.Type.CLANG,
+            filesystem);
+        binaryExtension = Optional.empty();
         break;
       case WINDOWS:
         sharedLibraryExtension = "dll";
         sharedLibraryVersionedExtensionFormat = "dll";
         staticLibraryExtension = "lib";
         objectFileExtension = "obj";
-        defaultCFrontend = DEFAULT_C_FRONTEND;
-        defaultCxxFrontend = DEFAULT_CXX_FRONTEND;
+        defaultCFrontend = getExecutablePath("gcc", DEFAULT_C_FRONTEND, env);
+        defaultCxxFrontend = getExecutablePath("g++", DEFAULT_CXX_FRONTEND, env);
         linkerType = LinkerProvider.Type.WINDOWS;
-        archiver = new WindowsArchiver(new HashedFileTool(DEFAULT_AR));
+        archiver = new WindowsArchiver(new HashedFileTool(
+            getExecutablePath("ar", DEFAULT_AR, env)));
         compilerSanitizer = new PrefixMapDebugPathSanitizer(
             config.getDebugPathSanitizerLimit(),
             File.separatorChar,
             Paths.get("."),
             ImmutableBiMap.of(),
             filesystem.getRootPath().toAbsolutePath(),
-            CxxToolProvider.Type.GCC);
+            CxxToolProvider.Type.GCC,
+            filesystem);
+        binaryExtension = Optional.of("exe");
         break;
       case FREEBSD:
         sharedLibraryExtension = "so";
         sharedLibraryVersionedExtensionFormat = "so.%s";
         staticLibraryExtension = "a";
         objectFileExtension = "o";
-        defaultCFrontend = DEFAULT_C_FRONTEND;
-        defaultCxxFrontend = DEFAULT_CXX_FRONTEND;
+        defaultCFrontend = getExecutablePath("gcc", DEFAULT_C_FRONTEND, env);
+        defaultCxxFrontend = getExecutablePath("g++", DEFAULT_CXX_FRONTEND, env);
         linkerType = LinkerProvider.Type.GNU;
-        archiver = new BsdArchiver(new HashedFileTool(DEFAULT_AR));
+        archiver = new BsdArchiver(new HashedFileTool(getExecutablePath("ar", DEFAULT_AR, env)));
         compilerSanitizer = new PrefixMapDebugPathSanitizer(
             config.getDebugPathSanitizerLimit(),
             File.separatorChar,
             Paths.get("."),
             ImmutableBiMap.of(),
             filesystem.getRootPath().toAbsolutePath(),
-            CxxToolProvider.Type.GCC);
+            CxxToolProvider.Type.GCC,
+            filesystem);
+        binaryExtension = Optional.empty();
         break;
       //$CASES-OMITTED$
       default:
@@ -167,6 +179,7 @@ public class DefaultCxxPlatforms {
 
     return CxxPlatforms.build(
         FLAVOR,
+        platform,
         config,
         as,
         aspp,
@@ -178,10 +191,10 @@ public class DefaultCxxPlatforms {
             linkerType,
             new ConstantToolProvider(new HashedFileTool(defaultCxxFrontend))),
         ImmutableList.of(),
-        new HashedFileTool(DEFAULT_STRIP),
+        new HashedFileTool(getExecutablePath("strip", DEFAULT_STRIP, env)),
         archiver,
-        new HashedFileTool(DEFAULT_RANLIB),
-        new PosixNmSymbolNameTool(new HashedFileTool(DEFAULT_NM)),
+        new HashedFileTool(getExecutablePath("ranlib", DEFAULT_RANLIB, env)),
+        new PosixNmSymbolNameTool(new HashedFileTool(getExecutablePath("nm", DEFAULT_NM, env))),
         ImmutableList.of(),
         ImmutableList.of(),
         ImmutableList.of(),
@@ -196,7 +209,17 @@ public class DefaultCxxPlatforms {
             File.separatorChar,
             Paths.get("."),
             ImmutableBiMap.of()),
-        ImmutableMap.of());
+        ImmutableMap.of(),
+        binaryExtension,
+        config.getHeaderVerification());
   }
 
+  private static Path getExecutablePath(
+      String executableName,
+      Path unresolvedLocation,
+      ImmutableMap<String, String> env) {
+    return new ExecutableFinder()
+        .getOptionalExecutable(Paths.get(executableName), env)
+        .orElse(unresolvedLocation);
+  }
 }

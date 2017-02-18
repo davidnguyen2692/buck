@@ -22,7 +22,6 @@ import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.google.common.collect.ImmutableList;
@@ -44,9 +43,8 @@ public class OcamlClean extends AbstractBuildRule {
 
   public OcamlClean(
       BuildRuleParams params,
-      SourcePathResolver resolver,
       OcamlBuildContext ocamlContext) {
-    super(params, resolver);
+    super(params);
     this.ocamlContext = ocamlContext;
   }
 

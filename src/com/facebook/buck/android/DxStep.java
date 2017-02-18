@@ -65,6 +65,11 @@ public class DxStep extends ShellStep {
      * This only works with custom dx.
      */
     RUN_IN_PROCESS,
+
+    /**
+     * Run DX with the --no-locals flag.
+     */
+    NO_LOCALS,
     ;
   }
 
@@ -143,6 +148,11 @@ public class DxStep extends ShellStep {
       builder.add("--force-jumbo");
     }
 
+    // --no-locals flag, if appropriate.
+    if (options.contains(Option.NO_LOCALS)) {
+      builder.add("--no-locals");
+    }
+
     // verbose flag, if appropriate.
     if (context.getVerbosity().shouldUseVerbosityFlagIfAvailable()) {
       builder.add("--verbose");
@@ -179,12 +189,13 @@ public class DxStep extends ShellStep {
     ByteArrayOutputStream stderr = new ByteArrayOutputStream();
     PrintStream stderrStream = new PrintStream(stderr);
     try {
-      com.android.dx.command.dexer.Main dexer = new com.android.dx.command.dexer.Main();
-      int returncode = dexer.run(
-          args.toArray(new String[args.size()]),
-          context.getStdOut(),
-          stderrStream
-      );
+      com.android.dx.command.dexer.DxContext dxContext =
+          new com.android.dx.command.dexer.DxContext(context.getStdOut(), stderrStream);
+      com.android.dx.command.dexer.Main.Arguments arguments =
+          new com.android.dx.command.dexer.Main.Arguments();
+      com.android.dx.command.dexer.Main dexer = new com.android.dx.command.dexer.Main(dxContext);
+      arguments.parseCommandLine(args.toArray(new String[args.size()]), dxContext);
+      int returncode = dexer.run(arguments);
       String stdErrOutput = stderr.toString();
       if (!stdErrOutput.isEmpty()) {
         context.postEvent(ConsoleEvent.warning("%s", stdErrOutput));

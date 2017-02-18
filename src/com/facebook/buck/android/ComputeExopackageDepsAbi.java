@@ -59,28 +59,21 @@ public class ComputeExopackageDepsAbi extends AbstractBuildRule {
 
   private final EnumSet<ExopackageMode> exopackageModes;
   private final AndroidPackageableCollection packageableCollection;
-  private final AaptPackageResources aaptPackageResources;
   private final Optional<ImmutableMap<APKModule, CopyNativeLibraries>> copyNativeLibraries;
-  private final Optional<PackageStringAssets> packageStringAssets;
   private final Optional<PreDexMerge> preDexMerge;
   private final Path abiPath;
 
   public ComputeExopackageDepsAbi(
       BuildRuleParams params,
-      SourcePathResolver resolver,
       EnumSet<ExopackageMode> exopackageModes,
       AndroidPackageableCollection packageableCollection,
-      AaptPackageResources aaptPackageResources,
       Optional<ImmutableMap<APKModule, CopyNativeLibraries>> copyNativeLibraries,
-      Optional<PackageStringAssets> packageStringAssets,
       Optional<PreDexMerge> preDexMerge) {
-    super(params, resolver);
+    super(params);
     Preconditions.checkArgument(!exopackageModes.isEmpty());
     this.exopackageModes = exopackageModes;
     this.packageableCollection = packageableCollection;
-    this.aaptPackageResources = aaptPackageResources;
     this.copyNativeLibraries = copyNativeLibraries;
-    this.packageStringAssets = packageStringAssets;
     this.preDexMerge = preDexMerge;
     this.abiPath = BuildTargets.getGenPath(
         getProjectFilesystem(), getBuildTarget(), "%s/exopackage.abi");
@@ -96,7 +89,7 @@ public class ComputeExopackageDepsAbi extends AbstractBuildRule {
     return ImmutableList.of(
         new AbstractExecutionStep("compute_android_binary_deps_abi") {
           @Override
-          public StepExecutionResult execute(ExecutionContext context) {
+          public StepExecutionResult execute(ExecutionContext executionContext) {
             try {
               // TODO(cjhopman): Rather than calculate this hash ourselves, we should be able to
               // just add all these files to the AndroidBinary's rulekey and rely on the input-based
@@ -105,23 +98,12 @@ public class ComputeExopackageDepsAbi extends AbstractBuildRule {
               // For exopackages, the only significant thing android_binary does is apkbuilder,
               // so we need to include all of the apkbuilder inputs in the ABI key.
               final Hasher hasher = Hashing.sha1().newHasher();
-              // The first input to apkbuilder is the ap_ produced by aapt package.
-              // Get its hash from the buildable that created it.
-              Sha1HashCode resourceApkHash = aaptPackageResources.getResourcePackageHash();
-              LOG.verbose("resource apk = %s", resourceApkHash.getHash());
-              resourceApkHash.update(hasher);
-              // Next is the primary dex.  Same plan.
+
+              // The primary dex is always added.
               Sha1HashCode primaryDexHash = Preconditions.checkNotNull(
                   preDexMerge.get().getPrimaryDexHash());
               LOG.verbose("primary dex = %s", primaryDexHash);
               primaryDexHash.update(hasher);
-              // Non-english strings packaged as assets.
-              if (packageStringAssets.isPresent()) {
-                Sha1HashCode stringAssetsHash =
-                    packageStringAssets.get().getStringAssetsZipHash();
-                LOG.verbose("string assets = %s", stringAssetsHash.getHash());
-                stringAssetsHash.update(hasher);
-              }
 
               // We currently don't use any resource directories, so nothing to add there.
 
@@ -184,7 +166,7 @@ public class ComputeExopackageDepsAbi extends AbstractBuildRule {
                 // and so they may not exist, but we could go and do some path manipulation to
                 // figure out where they are. Since we'll have to do the work anyway, let's just
                 // handle things ourselves.
-                final Path root = getResolver().getAbsolutePath(libDir);
+                final Path root = context.getSourcePathResolver().getAbsolutePath(libDir);
 
                 Files.walkFileTree(
                     root,
@@ -204,7 +186,7 @@ public class ComputeExopackageDepsAbi extends AbstractBuildRule {
               // Resources get copied from third-party JARs, so hash them.
               for (SourcePath jar :
                   ImmutableSortedSet.copyOf(packageableCollection.getPathsToThirdPartyJars())) {
-                addToHash(hasher, "third-party jar", jar);
+                addToHash(context.getSourcePathResolver(), hasher, "third-party jar", jar);
               }
 
               String abiHash = hasher.hash().toString();
@@ -214,19 +196,24 @@ public class ComputeExopackageDepsAbi extends AbstractBuildRule {
               buildableContext.recordArtifact(abiPath);
               return StepExecutionResult.SUCCESS;
             } catch (IOException e) {
-              context.logError(e, "Error computing ABI hash.");
+              executionContext.logError(e, "Error computing ABI hash.");
               return StepExecutionResult.ERROR;
             }
           }
         });
   }
 
-  private void addToHash(Hasher hasher, String role, SourcePath path) throws IOException {
+  private void addToHash(
+      SourcePathResolver resolver,
+      Hasher hasher,
+      String role,
+      SourcePath path)
+      throws IOException {
     addToHash(
         hasher,
         role,
-        getResolver().getAbsolutePath(path),
-        getResolver().getRelativePath(path));
+        resolver.getAbsolutePath(path),
+        resolver.getRelativePath(path));
   }
 
   private void addToHash(Hasher hasher, String role, Path path) throws IOException {

@@ -37,6 +37,7 @@ import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.DefaultOnDiskBuildInfo;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.testutil.TestConsole;
@@ -61,8 +62,6 @@ import org.hamcrest.Matchers;
 import org.hamcrest.collection.IsIn;
 import org.junit.Assert;
 import org.junit.Before;
-import org.junit.BeforeClass;
-import org.junit.ClassRule;
 import org.junit.Rule;
 import org.junit.Test;
 
@@ -87,11 +86,6 @@ import java.util.zip.ZipInputStream;
 
 public class AndroidBinaryIntegrationTest {
 
-  @ClassRule
-  public static TemporaryPaths projectFolderWithPrebuiltTargets = new TemporaryPaths();
-
-  private static ProjectWorkspace workspaceWithPrebuiltTargets;
-
   @Rule
   public TemporaryPaths tmpFolder = new TemporaryPaths();
 
@@ -102,24 +96,16 @@ public class AndroidBinaryIntegrationTest {
   private static final String SIMPLE_TARGET = "//apps/multidex:app";
   private static final String RAW_DEX_TARGET = "//apps/multidex:app-art";
 
-  @BeforeClass
-  public static void setUpOnce() throws IOException {
-    AssumeAndroidPlatform.assumeSdkIsAvailable();
-    AssumeAndroidPlatform.assumeNdkIsAvailable();
-    workspaceWithPrebuiltTargets = TestDataHelper.createProjectWorkspaceForScenario(
-        new AndroidBinaryIntegrationTest(),
-        "android_project",
-        projectFolderWithPrebuiltTargets);
-    workspaceWithPrebuiltTargets.setUp();
-    workspaceWithPrebuiltTargets.runBuckBuild(SIMPLE_TARGET).assertSuccess();
-  }
-
   @Before
   public void setUp() throws IOException {
-    workspace = ProjectWorkspace.cloneExistingWorkspaceIntoNewFolder(
-        workspaceWithPrebuiltTargets,
+    AssumeAndroidPlatform.assumeSdkIsAvailable();
+    AssumeAndroidPlatform.assumeNdkIsAvailable();
+    workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        new AndroidBinaryIntegrationTest(),
+        "android_project",
         tmpFolder);
     workspace.setUp();
+    workspace.runBuckBuild(SIMPLE_TARGET).assertSuccess();
     filesystem = new ProjectFilesystem(workspace.getDestPath());
   }
 
@@ -399,9 +385,9 @@ public class AndroidBinaryIntegrationTest {
   @Test
   public void testNativeLibraryMerging() throws IOException, InterruptedException {
     NdkCxxPlatform platform = getNdkCxxPlatform();
-    SourcePathResolver pathResolver = new SourcePathResolver(
+    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())
-    );
+    ));
     Path tmpDir = tmpFolder.newFolder("merging_tmp");
     SymbolGetter syms =
         new SymbolGetter(
@@ -551,9 +537,9 @@ public class AndroidBinaryIntegrationTest {
   @Test
   public void testNativeRelinker() throws IOException, InterruptedException {
     NdkCxxPlatform platform = getNdkCxxPlatform();
-    SourcePathResolver pathResolver = new SourcePathResolver(
+    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())
-    );
+    ));
     Path tmpDir = tmpFolder.newFolder("xdso");
     SymbolGetter syms =
         new SymbolGetter(

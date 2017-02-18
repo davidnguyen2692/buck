@@ -19,8 +19,8 @@ package com.facebook.buck.ocaml;
 import com.facebook.buck.cxx.CxxPlatforms;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
-import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.AbstractDescriptionArg;
+import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CellPathResolver;
@@ -28,6 +28,7 @@ import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.coercer.OcamlSource;
+import com.facebook.buck.versions.VersionPropagator;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
@@ -36,7 +37,8 @@ import java.util.Optional;
 
 public class OcamlLibraryDescription implements
     Description<OcamlLibraryDescription.Arg>,
-    ImplicitDepsInferringDescription<OcamlLibraryDescription.Arg> {
+    ImplicitDepsInferringDescription<OcamlLibraryDescription.Arg>,
+    VersionPropagator<OcamlLibraryDescription.Arg> {
 
   private final OcamlBuckConfig ocamlBuckConfig;
 
@@ -50,7 +52,7 @@ public class OcamlLibraryDescription implements
   }
 
   @Override
-  public <A extends Arg> AbstractBuildRule createBuildRule(
+  public <A extends Arg> BuildRule createBuildRule(
       TargetGraph targetGraph,
       BuildRuleParams params,
       BuildRuleResolver resolver,
@@ -66,15 +68,20 @@ public class OcamlLibraryDescription implements
           args.warningsFlags.orElse(""));
     }
     ImmutableList<String> linkerflags = args.linkerFlags;
+
+    boolean bytecodeOnly = args.bytecodeOnly.orElse(false);
+    boolean nativePlugin = !bytecodeOnly && args.nativePlugin.orElse(false);
+
     return OcamlRuleBuilder.createBuildRule(
         ocamlBuckConfig,
         params,
         resolver,
         srcs,
         /*isLibrary*/ true,
-        args.bytecodeOnly.orElse(false),
+        bytecodeOnly,
         flags.build(),
-        linkerflags);
+        linkerflags,
+        nativePlugin);
   }
 
   @Override
@@ -93,6 +100,7 @@ public class OcamlLibraryDescription implements
     public ImmutableList<String> linkerFlags = ImmutableList.of();
     public Optional<String> warningsFlags;
     public Optional<Boolean> bytecodeOnly;
+    public Optional<Boolean> nativePlugin;
   }
 
 }

@@ -4,6 +4,7 @@
 {template .soyweb}
   {call buck.page}
     {param title: 'android_binary()' /}
+    {param navid: 'rule_android_binary' /}
     {param prettify: true /}
     {param description}
       A rule that generates an Android APK.
@@ -226,6 +227,16 @@ An <code>android_binary()</code> rule is used to generate an Android APK.
   by the framework.  More recent versions of Android have a LinearAlloc limit of 8MB or 16MB, so
   if the APK is only targeted for versions newer than 2.3, a 7MB limit is safe to use.
   </p>
+  {/param}
+{/call}
+
+{call buck.arg}
+  {param name : 'skip_proguard' /}
+  {param default : 'False' /}
+  {param desc}
+  To produce a release build without running ProGuard set the
+  <code>skip_proguard</code> flag to <code>True</code>. This will still cause ProGuard
+  configuration files to be generated for use by other optimizers like Redex.
   {/param}
 {/call}
 

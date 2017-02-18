@@ -29,7 +29,7 @@ import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
@@ -38,6 +38,7 @@ import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
 
 import java.nio.file.Path;
@@ -91,7 +92,7 @@ public class AndroidAarDescription implements Description<AndroidAarDescription.
 
     UnflavoredBuildTarget originalBuildTarget =
         originalBuildRuleParams.getBuildTarget().checkUnflavored();
-    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
     ImmutableList.Builder<BuildRule> aarExtraDepsBuilder = ImmutableList.<BuildRule>builder()
         .addAll(originalBuildRuleParams.getExtraDeps().get());
 
@@ -143,7 +144,6 @@ public class AndroidAarDescription implements Description<AndroidAarDescription.
         packageableCollection.getAssetsDirectories();
     AssembleDirectories assembleAssetsDirectories = new AssembleDirectories(
         assembleAssetsParams,
-        pathResolver,
         assetsDirectories);
     aarExtraDepsBuilder.add(resolver.addToIndex(assembleAssetsDirectories));
 
@@ -155,7 +155,6 @@ public class AndroidAarDescription implements Description<AndroidAarDescription.
         packageableCollection.getResourceDetails().getResourceDirectories();
     MergeAndroidResourceSources assembleResourceDirectories = new MergeAndroidResourceSources(
         assembleResourceParams,
-        pathResolver,
         resDirectories);
     aarExtraDepsBuilder.add(resolver.addToIndex(assembleResourceDirectories));
 
@@ -171,19 +170,17 @@ public class AndroidAarDescription implements Description<AndroidAarDescription.
 
     AndroidResource androidResource = new AndroidResource(
         androidResourceParams,
-        pathResolver,
+        ruleFinder,
         /* deps */ ImmutableSortedSet.<BuildRule>naturalOrder()
         .add(assembleAssetsDirectories)
         .add(assembleResourceDirectories)
         .addAll(originalBuildRuleParams.getDeclaredDeps().get())
         .build(),
         new BuildTargetSourcePath(assembleResourceDirectories.getBuildTarget()),
-        /* resSrcs */ ImmutableSortedSet.of(),
-        Optional.empty(),
+        /* resSrcs */ ImmutableSortedMap.of(),
         /* rDotJavaPackage */ null,
         new BuildTargetSourcePath(assembleAssetsDirectories.getBuildTarget()),
-        /* assetsSrcs */ ImmutableSortedSet.of(),
-        Optional.empty(),
+        /* assetsSrcs */ ImmutableSortedMap.of(),
         new BuildTargetSourcePath(manifest.getBuildTarget()),
         /* hasWhitelistedStrings */ false);
     aarExtraDepsBuilder.add(resolver.addToIndex(androidResource));
@@ -222,11 +219,10 @@ public class AndroidAarDescription implements Description<AndroidAarDescription.
         Suppliers.ofInstance(ImmutableSortedSet.copyOf(aarExtraDepsBuilder.build())));
     return new AndroidAar(
         androidAarParams,
-        pathResolver,
         manifest,
         androidResource,
-        assembleResourceDirectories.getPathToOutput(),
-        assembleAssetsDirectories.getPathToOutput(),
+        assembleResourceDirectories.getSourcePathToOutput(),
+        assembleAssetsDirectories.getSourcePathToOutput(),
         assembledNativeLibsDir,
         ImmutableSet.copyOf(packageableCollection.getNativeLibAssetsDirectories().values()));
   }

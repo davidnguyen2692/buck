@@ -34,6 +34,7 @@ import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Suppliers;
@@ -61,6 +62,7 @@ public class AndroidNativeLibsPackageableGraphEnhancer {
   private final BuildRuleParams buildRuleParams;
   private final BuildRuleResolver ruleResolver;
   private final SourcePathResolver pathResolver;
+  private final SourcePathRuleFinder ruleFinder;
   private final ImmutableSet<NdkCxxPlatforms.TargetCpuType> cpuFilters;
   private final CxxBuckConfig cxxBuckConfig;
   private final Optional<Map<String, List<Pattern>>> nativeLibraryMergeMap;
@@ -85,7 +87,8 @@ public class AndroidNativeLibsPackageableGraphEnhancer {
       RelinkerMode relinkerMode,
       APKModuleGraph apkModuleGraph) {
     this.originalBuildTarget = originalParams.getBuildTarget();
-    this.pathResolver = new SourcePathResolver(ruleResolver);
+    this.ruleFinder = new SourcePathRuleFinder(ruleResolver);
+    this.pathResolver = new SourcePathResolver(ruleFinder);
     this.buildRuleParams = originalParams;
     this.ruleResolver = ruleResolver;
     this.nativePlatforms = nativePlatforms;
@@ -146,6 +149,7 @@ public class AndroidNativeLibsPackageableGraphEnhancer {
           cxxBuckConfig,
           ruleResolver,
           pathResolver,
+          ruleFinder,
           buildRuleParams,
           nativePlatforms,
           nativeLibraryMergeMap.get(),
@@ -226,7 +230,7 @@ public class AndroidNativeLibsPackageableGraphEnhancer {
                     cxxRuntime.getSoname()),
                 new PathSourcePath(
                     buildRuleParams.getProjectFilesystem(),
-                    platform.getCxxSharedRuntimePath()));
+                    platform.getCxxSharedRuntimePath().get()));
           }
         }
       }
@@ -251,12 +255,13 @@ public class AndroidNativeLibsPackageableGraphEnhancer {
                     Suppliers.ofInstance(
                         ImmutableSortedSet.<BuildRule>naturalOrder()
                             .addAll(
-                                pathResolver.filterBuildRuleInputs(nativeLinkableLibs.values()))
+                                ruleFinder.filterBuildRuleInputs(nativeLinkableLibs.values()))
                             .addAll(
-                                pathResolver.filterBuildRuleInputs(
+                                ruleFinder.filterBuildRuleInputs(
                                     nativeLinkableLibsAssets.values()))
                             .build())),
                 pathResolver,
+                ruleFinder,
                 cxxBuckConfig,
                 nativePlatforms,
                 nativeLinkableLibs,
@@ -272,7 +277,7 @@ public class AndroidNativeLibsPackageableGraphEnhancer {
       ImmutableMap<StripLinkable, StrippedObjectDescription> strippedLibsMap =
           generateStripRules(
               buildRuleParams,
-              pathResolver,
+              ruleFinder,
               ruleResolver,
               originalBuildTarget,
               nativePlatforms,
@@ -280,7 +285,7 @@ public class AndroidNativeLibsPackageableGraphEnhancer {
       ImmutableMap<StripLinkable, StrippedObjectDescription> strippedLibsAssetsMap =
           generateStripRules(
               buildRuleParams,
-              pathResolver,
+              ruleFinder,
               ruleResolver,
               originalBuildTarget,
               nativePlatforms,
@@ -299,7 +304,7 @@ public class AndroidNativeLibsPackageableGraphEnhancer {
               ImmutableSortedSet.<BuildRule>naturalOrder()
                   .addAll(nativeLibsRules)
                   .addAll(
-                      pathResolver.filterBuildRuleInputs(
+                      ruleFinder.filterBuildRuleInputs(
                           packageableCollection.getNativeLibsDirectories().get(module)))
                   .addAll(strippedLibsMap.keySet())
                   .addAll(strippedLibsAssetsMap.keySet())
@@ -309,7 +314,6 @@ public class AndroidNativeLibsPackageableGraphEnhancer {
           module,
           new CopyNativeLibraries(
               paramsForCopyNativeLibraries,
-              pathResolver,
               ImmutableSet.copyOf(packageableCollection.getNativeLibsDirectories().get(module)),
               ImmutableSet.copyOf(strippedLibsMap.values()),
               ImmutableSet.copyOf(strippedLibsAssetsMap.values()),
@@ -330,7 +334,7 @@ public class AndroidNativeLibsPackageableGraphEnhancer {
   // so be careful not to let information about this particular app slip into the definitions.
   private static ImmutableMap<StripLinkable, StrippedObjectDescription> generateStripRules(
       BuildRuleParams buildRuleParams,
-      SourcePathResolver pathResolver,
+      SourcePathRuleFinder ruleFinder,
       BuildRuleResolver ruleResolver,
       BuildTarget appRuleTarget,
       ImmutableMap<NdkCxxPlatforms.TargetCpuType, NdkCxxPlatform> nativePlatforms,
@@ -371,13 +375,12 @@ public class AndroidNativeLibsPackageableGraphEnhancer {
             targetForStripRule,
             Suppliers.ofInstance(
                 ImmutableSortedSet.<BuildRule>naturalOrder()
-                    .addAll(pathResolver.filterBuildRuleInputs(ImmutableList.of(sourcePath)))
+                    .addAll(ruleFinder.filterBuildRuleInputs(ImmutableList.of(sourcePath)))
                     .build()),
             /* extraDeps */ Suppliers.ofInstance(ImmutableSortedSet.of()));
 
         stripLinkable = new StripLinkable(
             paramsForStripLinkable,
-            pathResolver,
             platform.getCxxPlatform().getStrip(),
             sourcePath,
             sharedLibrarySoName);

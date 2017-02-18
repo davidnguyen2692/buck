@@ -152,6 +152,14 @@
 {/template}
 
 /***/
+{template .cxx_gtest_dep}
+{call .entry_link}
+  {param section: 'cxx' /}
+  {param entry: 'gtest_dep' /}
+{/call}
+{/template}
+
+/***/
 {template .lua_cxx_library}
 {call .entry_link}
     {param section: 'lua' /}
@@ -228,6 +236,21 @@
 {call buckconfig.entry_link}
   {param section: 'tools' /}
   {param entry: 'java_jar' /}
+{/call}
+{/template}
+
+/***/
+{template .alias}
+{call .section_link}
+  {param section: 'alias' /}
+{/call}
+{/template}
+
+/***/
+{template .java_src_roots}
+{call .entry_link}
+    {param section: 'java' /}
+    {param entry: 'src_roots' /}
 {/call}
 {/template}
 

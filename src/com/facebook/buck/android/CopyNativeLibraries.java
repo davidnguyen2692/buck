@@ -77,13 +77,12 @@ public class CopyNativeLibraries extends AbstractBuildRule {
 
   protected CopyNativeLibraries(
       BuildRuleParams buildRuleParams,
-      SourcePathResolver resolver,
       ImmutableSet<SourcePath> nativeLibDirectories,
       ImmutableSet<StrippedObjectDescription> stripLibRules,
       ImmutableSet<StrippedObjectDescription> stripLibAssetRules,
       ImmutableSet<TargetCpuType> cpuFilters,
       String moduleName) {
-    super(buildRuleParams, resolver);
+    super(buildRuleParams);
     this.nativeLibDirectories = nativeLibDirectories;
     this.stripLibRules = stripLibRules;
     this.stripLibAssetRules = stripLibAssetRules;
@@ -137,6 +136,7 @@ public class CopyNativeLibraries extends AbstractBuildRule {
   }
 
   private void addStepsForCopyingStrippedNativeLibrariesOrAssets(
+      SourcePathResolver resolver,
       ProjectFilesystem filesystem,
       ImmutableSet<StrippedObjectDescription> strippedNativeLibrariesOrAssets,
       Path destinationRootDir,
@@ -155,7 +155,7 @@ public class CopyNativeLibraries extends AbstractBuildRule {
       steps.add(
           CopyStep.forFile(
               filesystem,
-              getResolver().getAbsolutePath(strippedObject.getSourcePath()),
+              resolver.getAbsolutePath(strippedObject.getSourcePath()),
               destination));
     }
   }
@@ -177,17 +177,25 @@ public class CopyNativeLibraries extends AbstractBuildRule {
     for (SourcePath nativeLibDir : nativeLibDirectories.asList().reverse()) {
       copyNativeLibrary(
           getProjectFilesystem(),
-          getResolver().getAbsolutePath(nativeLibDir),
+          context.getSourcePathResolver().getAbsolutePath(nativeLibDir),
           pathToNativeLibs,
           cpuFilters,
           steps);
     }
 
     addStepsForCopyingStrippedNativeLibrariesOrAssets(
-        getProjectFilesystem(), stripLibRules, pathToNativeLibs, steps);
+        context.getSourcePathResolver(),
+        getProjectFilesystem(),
+        stripLibRules,
+        pathToNativeLibs,
+        steps);
 
     addStepsForCopyingStrippedNativeLibrariesOrAssets(
-        getProjectFilesystem(), stripLibAssetRules, pathToNativeLibsAssets, steps);
+        context.getSourcePathResolver(),
+        getProjectFilesystem(),
+        stripLibAssetRules,
+        pathToNativeLibsAssets,
+        steps);
 
     final Path pathToMetadataTxt = getPathToMetadataTxt();
     steps.add(

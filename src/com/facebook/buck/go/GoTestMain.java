@@ -23,7 +23,6 @@ import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MkdirStep;
@@ -46,11 +45,10 @@ public class GoTestMain extends AbstractBuildRule {
 
   public GoTestMain(
       BuildRuleParams buildRuleParams,
-      SourcePathResolver resolver,
       Tool testMainGen,
       ImmutableSet<SourcePath> testSources,
       Path testPackage) {
-    super(buildRuleParams, resolver);
+    super(buildRuleParams);
     this.testMainGen = testMainGen;
     this.testSources = testSources;
     this.testPackage = testPackage;
@@ -70,12 +68,12 @@ public class GoTestMain extends AbstractBuildRule {
         new GoTestMainStep(
             getProjectFilesystem().getRootPath(),
             testMainGen.getEnvironment(),
-            testMainGen.getCommandPrefix(getResolver()),
+            testMainGen.getCommandPrefix(context.getSourcePathResolver()),
             /* coverageMode */ "",
             /* coverageVariables */ ImmutableMap.of(),
             testPackage,
             testSources.stream()
-                .map(getResolver()::getAbsolutePath)
+                .map(context.getSourcePathResolver()::getAbsolutePath)
                 .collect(MoreCollectors.toImmutableList()),
             output
         )

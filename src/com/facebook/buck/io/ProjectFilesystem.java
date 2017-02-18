@@ -19,6 +19,7 @@ package com.facebook.buck.io;
 import com.facebook.buck.config.Config;
 import com.facebook.buck.event.EventBus;
 import com.facebook.buck.util.BuckConstant;
+import com.facebook.buck.util.autosparse.AutoSparseConfig;
 import com.facebook.buck.util.environment.Platform;
 import com.facebook.buck.util.sha1.Sha1HashCode;
 import com.facebook.buck.zip.CustomZipEntry;
@@ -36,7 +37,6 @@ import com.google.common.collect.Collections2;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
@@ -49,7 +49,6 @@ import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
-import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
@@ -57,7 +56,6 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.io.OutputStreamWriter;
-import java.io.Reader;
 import java.io.Writer;
 import java.nio.channels.Channels;
 import java.nio.file.CopyOption;
@@ -85,7 +83,6 @@ import java.util.Collection;
 import java.util.Comparator;
 import java.util.EnumSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Properties;
@@ -154,9 +151,9 @@ public class ProjectFilesystem {
 
   /**
    * This constructor is restricted to {@code protected} because it is generally best to let
-   * {@link ProjectFilesystemDelegateFactory#newInstance(Path, String, boolean, ImmutableList,
-   * Optional)} create an appropriate delegate. Currently, the only case in which we need to
-   * override this behavior is in unit tests.
+   * {@link ProjectFilesystemDelegateFactory#newInstance(Path, String, AutoSparseConfig)}
+   * create an appropriate delegate. Currently, the only case in which we need to override this
+   * behavior is in unit tests.
    */
   protected ProjectFilesystem(Path root, ProjectFilesystemDelegate delegate) {
     this(
@@ -176,9 +173,7 @@ public class ProjectFilesystem {
         ProjectFilesystemDelegateFactory.newInstance(
             root,
             config.getValue("version_control", "hg_cmd").orElse("hg"),
-            config.getBooleanValue("project", "enable_autosparse", false),
-            config.getListWithoutComments("autosparse", "ignore"),
-            config.getValue("autosparse", "baseprofile")
+            AutoSparseConfig.of(config)
         )
     );
   }
@@ -370,16 +365,6 @@ public class ProjectFilesystem {
    */
   public ImmutableSet<PathOrGlobMatcher> getIgnorePaths() {
     return blackListedDirectories;
-  }
-
-  /**
-   * // @deprecated Prefer operating on {@code Path}s directly, replaced by
-   *    {@link #getPathForRelativePath(java.nio.file.Path)}.
-   */
-  public File getFileForRelativePath(String pathRelativeToProjectRoot) {
-    return pathRelativeToProjectRoot.isEmpty()
-        ? projectRoot.toFile()
-        : getPathForRelativePath(pathRelativeToProjectRoot).toFile();
   }
 
   public Path getPathForRelativePath(Path pathRelativeToProjectRoot) {
@@ -849,25 +834,6 @@ public class ProjectFilesystem {
   }
 
   /**
-   * Attempts to open the file for future read access. Returns {@link Optional#empty()} if the file
-   * does not exist.
-   */
-  public Optional<Reader> getReaderIfFileExists(Path pathRelativeToProjectRoot) {
-    Path fileToRead = getPathForRelativePath(pathRelativeToProjectRoot);
-    if (Files.isRegularFile(fileToRead)) {
-      try {
-        return Optional.of(
-            (Reader) new BufferedReader(
-                new InputStreamReader(newFileInputStream(pathRelativeToProjectRoot))));
-      } catch (Exception e) {
-        throw new RuntimeException("Error reading " + pathRelativeToProjectRoot, e);
-      }
-    } else {
-      return Optional.empty();
-    }
-  }
-
-  /**
    * Attempts to read the first line of the file specified by the relative path. If the file does
    * not exist, is empty, or encounters an error while being read, {@link Optional#empty()} is
    * returned. Otherwise, an {@link Optional} with the first line of the file will be returned.
@@ -1014,18 +980,6 @@ public class ProjectFilesystem {
    * with the contents and structure that matches that of the specified paths.
    */
   public void createZip(Collection<Path> pathsToIncludeInZip, Path out) throws IOException {
-    createZip(pathsToIncludeInZip, out, ImmutableMap.of());
-  }
-
-  /**
-   * Similar to {@link #createZip(Collection, Path)}, but also takes a list of additional files to
-   * write in the zip, including their contents, as a map. It's assumed only paths that should not
-   * be ignored are passed to this method.
-   */
-  public void createZip(
-      Collection<Path> pathsToIncludeInZip,
-      Path out,
-      ImmutableMap<Path, String> additionalFileContents) throws IOException {
     try (CustomZipOutputStream zip = ZipOutputStreams.newOutputStream(out)) {
       for (Path path : pathsToIncludeInZip) {
         boolean isDirectory = isDirectory(path);
@@ -1041,18 +995,6 @@ public class ProjectFilesystem {
           try (InputStream input = newFileInputStream(path)) {
             ByteStreams.copy(input, zip);
           }
-        }
-        zip.closeEntry();
-      }
-
-      for (Map.Entry<Path, String> fileContentsEntry : additionalFileContents.entrySet()) {
-        CustomZipEntry entry = new CustomZipEntry(fileContentsEntry.getKey());
-        // We want deterministic ZIPs, so avoid mtimes.
-        entry.setFakeTime();
-        zip.putNextEntry(entry);
-        try (InputStream stream =
-                 new ByteArrayInputStream(fileContentsEntry.getValue().getBytes(Charsets.UTF_8))) {
-          ByteStreams.copy(stream, zip);
         }
         zip.closeEntry();
       }
@@ -1079,6 +1021,8 @@ public class ProjectFilesystem {
 
     if (isDirectory(path)) {
       mode |= MoreFiles.S_IFDIR;
+    } else if (isFile(path)) {
+      mode |= MoreFiles.S_IFREG;
     }
 
     // Propagate any additional permissions
@@ -1175,6 +1119,15 @@ public class ProjectFilesystem {
     } else {
       createNewFile(fileToTouch);
     }
+  }
+
+  /**
+   * Converts a path string (or sequence of strings) to a Path with the same VFS as this instance.
+   *
+   * @see FileSystem#getPath(String, String...)
+   */
+  public Path getPath(String first, String... rest) {
+    return getRootPath().getFileSystem().getPath(first, rest);
   }
 
   /**

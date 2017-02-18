@@ -19,25 +19,30 @@ package com.facebook.buck.cxx;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.AddToRuleKey;
+import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildableContext;
-import com.facebook.buck.rules.RuleKeyAppendable;
+import com.facebook.buck.rules.keys.SupportsDependencyFileRuleKey;
+import com.facebook.buck.rules.keys.SupportsInputBasedRuleKey;
 import com.facebook.buck.rules.RuleKeyObjectSink;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.keys.SupportsDependencyFileRuleKey;
-import com.facebook.buck.rules.keys.SupportsInputBasedRuleKey;
-import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.MkdirStep;
+import com.facebook.buck.step.Step;
+import com.facebook.buck.util.HumanReadableException;
+import com.facebook.buck.util.RichStream;
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Throwables;
+import com.google.common.cache.Cache;
+import com.google.common.cache.CacheBuilder;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSet;
-
+import com.google.common.util.concurrent.UncheckedExecutionException;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.concurrent.ExecutionException;
+import java.util.function.Predicate;
 import java.util.Iterator;
 import java.util.Optional;
 
@@ -67,7 +72,7 @@ import java.util.Optional;
  */
 public class CxxPrecompiledHeader
     extends AbstractBuildRule
-    implements RuleKeyAppendable, SupportsDependencyFileRuleKey, SupportsInputBasedRuleKey {
+    implements SupportsDependencyFileRuleKey, SupportsInputBasedRuleKey {
 
   private final Path output;
 
@@ -81,13 +86,18 @@ public class CxxPrecompiledHeader
   @AddToRuleKey
   private final CxxSource.Type inputType;
 
+  /**
+   * Cache the loading and processing of the depfile. This data can always be reloaded from disk, so
+   * only cache it weakly.
+   */
+  private final Cache<BuildContext, ImmutableList<Path>> depFileCache =
+      CacheBuilder.newBuilder().weakKeys().weakValues().build();
+
   private final DebugPathSanitizer compilerSanitizer;
   private final DebugPathSanitizer assemblerSanitizer;
-  protected final boolean pchIlogEnabled;
 
   public CxxPrecompiledHeader(
       BuildRuleParams buildRuleParams,
-      SourcePathResolver resolver,
       Path output,
       PreprocessorDelegate preprocessorDelegate,
       CompilerDelegate compilerDelegate,
@@ -95,9 +105,8 @@ public class CxxPrecompiledHeader
       SourcePath input,
       CxxSource.Type inputType,
       DebugPathSanitizer compilerSanitizer,
-      DebugPathSanitizer assemblerSanitizer,
-      boolean pchIlogEnabled) {
-    super(buildRuleParams, resolver);
+      DebugPathSanitizer assemblerSanitizer) {
+    super(buildRuleParams);
     this.preprocessorDelegate = preprocessorDelegate;
     this.compilerDelegate = compilerDelegate;
     this.compilerFlags = compilerFlags;
@@ -106,7 +115,6 @@ public class CxxPrecompiledHeader
     this.inputType = inputType;
     this.compilerSanitizer = compilerSanitizer;
     this.assemblerSanitizer = assemblerSanitizer;
-    this.pchIlogEnabled = pchIlogEnabled;
   }
 
   @Override
@@ -129,7 +137,11 @@ public class CxxPrecompiledHeader
     return ImmutableList.of(
         new MkdirStep(getProjectFilesystem(), output.getParent()),
         new MakeCleanDirectoryStep(getProjectFilesystem(), scratchDir),
-        makeMainStep(scratchDir));
+        makeMainStep(context.getSourcePathResolver(), scratchDir));
+  }
+
+  public SourcePath getInput() {
+    return input;
   }
 
   @Override
@@ -137,8 +149,18 @@ public class CxxPrecompiledHeader
     return output;
   }
 
-  private Path getSuffixedOutput(String suffix) {
-    return Paths.get(getPathToOutput().toString() + suffix);
+  private Path getSuffixedOutput(SourcePathResolver pathResolver, String suffix) {
+    return Paths.get(pathResolver.getRelativePath(getSourcePathToOutput()).toString() + suffix);
+  }
+
+  public CxxIncludePaths getCxxIncludePaths() {
+    return CxxIncludePaths.concat(
+        RichStream.from(this.getDeps())
+            .filter(CxxPreprocessAndCompile.class)
+            .map(CxxPreprocessAndCompile::getPreprocessorDelegate)
+            .filter(Optional::isPresent)
+            .map(ppDelegate -> ppDelegate.get().getCxxIncludePaths())
+            .iterator());
   }
 
   @Override
@@ -147,16 +169,26 @@ public class CxxPrecompiledHeader
   }
 
   @Override
-  public Optional<ImmutableSet<SourcePath>> getPossibleInputSourcePaths() {
-    return preprocessorDelegate.getPossibleInputSourcePaths();
+  public Predicate<SourcePath> getCoveredByDepFilePredicate() {
+    return preprocessorDelegate.getCoveredByDepFilePredicate();
   }
 
   @Override
-  public ImmutableList<SourcePath> getInputsAfterBuildingLocally() throws IOException {
-    return ImmutableList.<SourcePath>builder()
-        .addAll(preprocessorDelegate.getInputsAfterBuildingLocally(readDepFileLines()))
-        .add(input)
-        .build();
+  public Predicate<SourcePath> getExistenceOfInterestPredicate() {
+    return (SourcePath path) -> false;
+  }
+
+  @Override
+  public ImmutableList<SourcePath> getInputsAfterBuildingLocally(BuildContext context)
+      throws IOException {
+    try {
+      return ImmutableList.<SourcePath>builder()
+          .addAll(preprocessorDelegate.getInputsAfterBuildingLocally(readDepFileLines(context)))
+          .add(input)
+          .build();
+    } catch (Depfiles.HeaderVerificationException e) {
+      throw new HumanReadableException(e);
+    }
   }
 
   @Override
@@ -164,49 +196,63 @@ public class CxxPrecompiledHeader
     return false;
   }
 
-  private Path getDepFilePath() {
-    return getSuffixedOutput(".dep");
+  private Path getDepFilePath(SourcePathResolver pathResolver) {
+    return getSuffixedOutput(pathResolver, ".dep");
   }
 
-  public ImmutableList<String> readDepFileLines() throws IOException {
-    return ImmutableList.copyOf(getProjectFilesystem().readLines(getDepFilePath()));
-  }
-
-  private Path getIncludeLogPath() {
-    return getSuffixedOutput(".ilog");
-  }
-
-  public IncludeLog getIncludeLog() throws IOException {
-    return IncludeLog.read(getIncludeLogPath());
+  public ImmutableList<Path> readDepFileLines(BuildContext context)
+      throws IOException, Depfiles.HeaderVerificationException {
+    try {
+      return depFileCache.get(context, () ->
+          Depfiles.parseAndOutputBuckCompatibleDepfile(
+              context.getEventBus(),
+              getProjectFilesystem(),
+              preprocessorDelegate.getHeaderPathNormalizer(),
+              preprocessorDelegate.getHeaderVerification(),
+              getDepFilePath(context.getSourcePathResolver()),
+              // TODO(10194465): This uses relative path so as to get relative paths in the dep file
+              context.getSourcePathResolver().getRelativePath(input),
+              output));
+    } catch (ExecutionException e) {
+      // Unwrap and re-throw the loader's Exception.
+      Throwables.throwIfInstanceOf(e.getCause(), IOException.class);
+      Throwables.throwIfInstanceOf(e.getCause(), Depfiles.HeaderVerificationException.class);
+      throw new IllegalStateException("Unexpected cause for ExecutionException: ", e);
+    } catch (UncheckedExecutionException e) {
+      Throwables.throwIfUnchecked(e.getCause());
+      throw e;
+    }
   }
 
   @VisibleForTesting
-  private CxxPreprocessAndCompileStep makeMainStep(Path scratchDir) {
-    try {
-      preprocessorDelegate.checkForConflictingHeaders();
-    } catch (PreprocessorDelegate.ConflictingHeadersException e) {
-      throw e.getHumanReadableExceptionForBuildTarget(getBuildTarget());
-    }
+  CxxPreprocessAndCompileStep makeMainStep(SourcePathResolver resolver, Path scratchDir) {
     return new CxxPreprocessAndCompileStep(
         getProjectFilesystem(),
         CxxPreprocessAndCompileStep.Operation.GENERATE_PCH,
-        getPathToOutput(),
-        getDepFilePath(),
+        resolver.getRelativePath(getSourcePathToOutput()),
+        getDepFilePath(resolver),
         // TODO(10194465): This uses relative path so as to get relative paths in the dep file
-        getResolver().getRelativePath(input),
+        resolver.getRelativePath(input),
         inputType,
         Optional.of(
             new CxxPreprocessAndCompileStep.ToolCommand(
                 preprocessorDelegate.getCommandPrefix(),
-                preprocessorDelegate.getArguments(compilerFlags, /* no pch */Optional.empty()),
+                ImmutableList.copyOf(
+                    CxxToolFlags.explicitBuilder()
+                        .addAllRuleFlags(getCxxIncludePaths().getFlags(
+                            resolver,
+                            preprocessorDelegate.getPreprocessor()))
+                        .addAllRuleFlags(preprocessorDelegate.getArguments(
+                            compilerFlags,
+                            /* no pch */ Optional.empty()))
+                        .build()
+                        .getAllFlags()),
                 preprocessorDelegate.getEnvironment(),
                 preprocessorDelegate.getFlagsForColorDiagnostics())),
         Optional.empty(),
-        Optional.of(this),
         preprocessorDelegate.getHeaderPathNormalizer(),
         compilerSanitizer,
         assemblerSanitizer,
-        preprocessorDelegate.getHeaderVerification(),
         scratchDir,
         /* useArgFile*/ true,
         compilerDelegate.getCompiler());
@@ -234,6 +280,9 @@ public class CxxPrecompiledHeader
       ImmutableList.Builder<String> iDirsBuilder,
       ImmutableList.Builder<String> iSystemDirsBuilder,
       ImmutableList.Builder<String> nonIncludeFlagsBuilder) {
+
+    // TODO(elsteveogrande): unused?
+
     Iterator<String> it = flags.iterator();
     while (it.hasNext()) {
       String flag = it.next();

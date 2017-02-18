@@ -21,7 +21,6 @@ import com.facebook.buck.cxx.CxxLibraryDescription;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.Flavor;
-import com.facebook.buck.model.HasBuildTarget;
 import com.facebook.buck.model.ImmutableFlavor;
 import com.facebook.buck.model.UnflavoredBuildTarget;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
@@ -31,6 +30,7 @@ import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.SourceWithFlags;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.coercer.SourceList;
@@ -223,7 +223,7 @@ public class ThriftCxxEnhancer implements ThriftLanguageSpecificEnhancer {
       ImmutableMap<String, ThriftSource> sources,
       ImmutableSortedSet<BuildRule> deps) throws NoSuchBuildTargetException {
 
-    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
 
     // Grab all the sources and headers generated from the passed in thrift sources.
     CxxHeadersAndSources spec = getThriftHeaderSourceSpec(params, args, sources);
@@ -286,7 +286,7 @@ public class ThriftCxxEnhancer implements ThriftLanguageSpecificEnhancer {
     // Since thrift generated C/C++ code uses lots of templates, just use exported deps throughout.
     langArgs.exportedDeps =
         FluentIterable.from(allDeps)
-            .transform(HasBuildTarget::getBuildTarget)
+            .transform(BuildRule::getBuildTarget)
             .toSortedSet(Ordering.natural());
 
     return cxxLibraryDescription.createBuildRule(targetGraph, langParams, resolver, langArgs);

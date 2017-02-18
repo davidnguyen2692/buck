@@ -22,7 +22,6 @@ import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.step.Step;
@@ -51,6 +50,8 @@ public class OcamlLink extends AbstractBuildRule {
   private final Optional<String> stdlib;
   @AddToRuleKey(stringify = true)
   private final Path outputRelativePath;
+  @AddToRuleKey(stringify = true)
+  private final Path outputNativePluginPath;
   @AddToRuleKey
   private final ImmutableList<Arg> depInput;
   @AddToRuleKey
@@ -59,10 +60,11 @@ public class OcamlLink extends AbstractBuildRule {
   private final boolean isLibrary;
   @AddToRuleKey
   private final boolean isBytecode;
+  @AddToRuleKey
+  private final boolean buildNativePlugin;
 
   public OcamlLink(
       BuildRuleParams params,
-      SourcePathResolver resolver,
       ImmutableList<SourcePath> inputs,
       ImmutableMap<String, String> cxxCompilerEnvironment,
       ImmutableList<String> cxxCompiler,
@@ -70,11 +72,13 @@ public class OcamlLink extends AbstractBuildRule {
       ImmutableList<String> flags,
       Optional<String> stdlib,
       Path outputRelativePath,
+      Path outputNativePluginPath,
       ImmutableList<Arg> depInput,
       ImmutableList<Arg> cDepInput,
       boolean isLibrary,
-      boolean isBytecode) {
-    super(params, resolver);
+      boolean isBytecode,
+      boolean buildNativePlugin) {
+    super(params);
 
     this.inputs = inputs;
     this.cxxCompilerEnvironment = cxxCompilerEnvironment;
@@ -83,10 +87,12 @@ public class OcamlLink extends AbstractBuildRule {
     this.flags = flags;
     this.stdlib = stdlib;
     this.outputRelativePath = outputRelativePath;
+    this.outputNativePluginPath = outputNativePluginPath;
     this.depInput = depInput;
     this.cDepInput = cDepInput;
     this.isLibrary = isLibrary;
     this.isBytecode = isBytecode;
+    this.buildNativePlugin = buildNativePlugin;
   }
 
   @Override
@@ -97,24 +103,40 @@ public class OcamlLink extends AbstractBuildRule {
       buildableContext.recordArtifact(artifact);
     }
 
-    return ImmutableList.of(
-        new MkdirStep(getProjectFilesystem(), outputRelativePath.getParent()),
-        new OcamlLinkStep(
+    ImmutableList.Builder<Step> steps = ImmutableList.<Step>builder()
+        .add(new MkdirStep(getProjectFilesystem(), outputRelativePath.getParent()))
+        .add(new OcamlLinkStep(
             getProjectFilesystem().getRootPath(),
             cxxCompilerEnvironment,
             cxxCompiler,
-            ocamlCompiler.getCommandPrefix(getResolver()),
+            ocamlCompiler.getCommandPrefix(context.getSourcePathResolver()),
             flags,
             stdlib,
             getProjectFilesystem().resolve(outputRelativePath),
             depInput,
             cDepInput,
             inputs.stream()
-                .map(getResolver()::getAbsolutePath)
+                .map(context.getSourcePathResolver()::getAbsolutePath)
                 .collect(MoreCollectors.toImmutableList()),
             isLibrary,
-            isBytecode)
-    );
+            isBytecode));
+    if (isLibrary && buildNativePlugin) {
+        steps.add(new OcamlNativePluginStep(
+            getProjectFilesystem().getRootPath(),
+            cxxCompilerEnvironment,
+            cxxCompiler,
+            ocamlCompiler.getCommandPrefix(context.getSourcePathResolver()),
+            flags,
+            stdlib,
+            getProjectFilesystem().resolve(outputNativePluginPath),
+            depInput,
+            cDepInput,
+            inputs.stream()
+                .map(context.getSourcePathResolver()::getAbsolutePath)
+                .collect(MoreCollectors.toImmutableList())
+        ));
+    }
+    return steps.build();
   }
 
   private ImmutableSet<Path> getAllOutputs() {

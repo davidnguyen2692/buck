@@ -45,7 +45,6 @@ import com.facebook.buck.jvm.java.JavaLibrary;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetException;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.model.HasBuildTarget;
 import com.facebook.buck.model.ImmutableFlavor;
 import com.facebook.buck.model.UnflavoredBuildTarget;
 import com.facebook.buck.rules.ActionGraphCache;
@@ -53,6 +52,7 @@ import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.Cell;
 import com.facebook.buck.rules.ConstructorArgMarshaller;
+import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.TestCellBuilder;
@@ -1752,7 +1752,9 @@ public class ParserTest {
       BuildRuleResolver resolver = buildActionGraph(eventBus, targetGraph);
 
       JavaLibrary libRule = (JavaLibrary) resolver.requireRule(libTarget);
-      assertEquals(ImmutableSet.of(Paths.get("foo/bar/Bar.java")), libRule.getJavaSrcs());
+      assertEquals(
+          ImmutableSortedSet.of(new PathSourcePath(filesystem, Paths.get("foo/bar/Bar.java"))),
+              libRule.getJavaSrcs());
     }
 
     tempDir.newFile("bar/Baz.java");
@@ -1772,7 +1774,9 @@ public class ParserTest {
 
       JavaLibrary libRule = (JavaLibrary) resolver.requireRule(libTarget);
       assertEquals(
-          ImmutableSet.of(Paths.get("foo/bar/Bar.java"), Paths.get("foo/bar/Baz.java")),
+          ImmutableSet.of(
+              new PathSourcePath(filesystem, Paths.get("foo/bar/Bar.java")),
+              new PathSourcePath(filesystem, Paths.get("foo/bar/Baz.java"))),
           libRule.getJavaSrcs());
     }
   }
@@ -1811,7 +1815,9 @@ public class ParserTest {
       JavaLibrary libRule = (JavaLibrary) resolver.requireRule(libTarget);
 
       assertEquals(
-          ImmutableSortedSet.of(Paths.get("foo/bar/Bar.java"), Paths.get("foo/bar/Baz.java")),
+          ImmutableSortedSet.of(
+              new PathSourcePath(filesystem, Paths.get("foo/bar/Bar.java")),
+              new PathSourcePath(filesystem, Paths.get("foo/bar/Baz.java"))),
           libRule.getJavaSrcs());
     }
 
@@ -1832,7 +1838,7 @@ public class ParserTest {
 
       JavaLibrary libRule = (JavaLibrary) resolver.requireRule(libTarget);
       assertEquals(
-          ImmutableSet.of(Paths.get("foo/bar/Bar.java")),
+          ImmutableSortedSet.of(new PathSourcePath(filesystem, Paths.get("foo/bar/Bar.java"))),
           libRule.getJavaSrcs());
     }
   }
@@ -2677,7 +2683,7 @@ public class ParserTest {
                 /* ignoreBuckAutodepsFiles */ false)
                 .getTargetGraph().getNodes())
         .filter(filter)
-        .transform(HasBuildTarget::getBuildTarget)
+        .transform(TargetNode::getBuildTarget)
         .toSet();
   }
 

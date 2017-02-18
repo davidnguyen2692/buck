@@ -17,98 +17,88 @@
 package com.facebook.buck.rules.keys;
 
 import com.facebook.buck.hashing.FileHashLoader;
-import com.facebook.buck.rules.ArchiveMemberSourcePath;
 import com.facebook.buck.rules.BuildRule;
+import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.DependencyAggregation;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.RuleKeyAppendable;
-import com.facebook.buck.rules.RuleKeyBuilder;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.util.OptionalCompat;
+import com.facebook.buck.rules.SourcePathRuleFinder;
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
-import com.google.common.cache.CacheBuilder;
-import com.google.common.cache.CacheLoader;
-import com.google.common.cache.LoadingCache;
+import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 
 import java.io.IOException;
 import java.nio.file.Path;
-import java.util.Collections;
-import java.util.Optional;
-
-import javax.annotation.Nonnull;
-import javax.annotation.Nullable;
 
 /**
  * A factory for generating input-based {@link RuleKey}s.
  *
  * @see SupportsInputBasedRuleKey
  */
-public class InputBasedRuleKeyFactory
-    extends ReflectiveRuleKeyFactory<
-            InputBasedRuleKeyFactory.Builder,
-            Optional<RuleKey>> {
+public final class InputBasedRuleKeyFactory implements RuleKeyFactory<RuleKey> {
 
+  private final RuleKeyFieldLoader ruleKeyFieldLoader;
   private final FileHashLoader fileHashLoader;
   private final SourcePathResolver pathResolver;
-  private final ArchiveHandling archiveHandling;
-  private final InputHandling inputHandling;
-  private final LoadingCache<RuleKeyAppendable, Result> cache;
+  private final SourcePathRuleFinder ruleFinder;
   private final long inputSizeLimit;
 
-  protected InputBasedRuleKeyFactory(
-      int seed,
+  private final SingleBuildRuleKeyCache<Result> ruleKeyCache = new SingleBuildRuleKeyCache<>();
+
+  public InputBasedRuleKeyFactory(
+      RuleKeyFieldLoader ruleKeyFieldLoader,
       FileHashLoader hashLoader,
       SourcePathResolver pathResolver,
-      InputHandling inputHandling,
-      ArchiveHandling archiveHandling,
+      SourcePathRuleFinder ruleFinder,
       long inputSizeLimit) {
-    super(seed);
+    this.ruleKeyFieldLoader = ruleKeyFieldLoader;
     this.fileHashLoader = hashLoader;
     this.pathResolver = pathResolver;
-    this.inputHandling = inputHandling;
-    this.archiveHandling = archiveHandling;
+    this.ruleFinder = ruleFinder;
     this.inputSizeLimit = inputSizeLimit;
-
-    // Build the cache around the sub-rule-keys and their dep lists.
-    cache = CacheBuilder.newBuilder().weakKeys().build(
-        new CacheLoader<RuleKeyAppendable, Result>() {
-          @Override
-          public Result load(
-              @Nonnull RuleKeyAppendable appendable) {
-            Builder subKeyBuilder = new Builder();
-            appendable.appendToRuleKey(subKeyBuilder);
-            return subKeyBuilder.buildResult();
-          }
-        });
   }
 
+  @VisibleForTesting
   public InputBasedRuleKeyFactory(
       int seed,
       FileHashLoader hashLoader,
       SourcePathResolver pathResolver,
-      long inputSizeLimit) {
-    this(
-        seed,
-        hashLoader,
-        pathResolver,
-        InputHandling.HASH,
-        ArchiveHandling.ARCHIVES,
-        inputSizeLimit);
+      SourcePathRuleFinder ruleFinder) {
+    this(new RuleKeyFieldLoader(seed), hashLoader, pathResolver, ruleFinder, Long.MAX_VALUE);
   }
 
-  public InputBasedRuleKeyFactory(
-      int seed,
-      FileHashLoader hashLoader,
-      SourcePathResolver pathResolver) {
-    this(seed, hashLoader, pathResolver, Long.MAX_VALUE);
+  private Result calculateBuildRuleKey(BuildRule buildRule) {
+    Builder builder = newVerifyingBuilder(buildRule);
+    ruleKeyFieldLoader.setFields(buildRule, builder);
+    return builder.build();
   }
 
   @Override
-  protected Builder newBuilder(final BuildRule rule) {
+  public RuleKey build(BuildRule buildRule) {
+    try {
+      return ruleKeyCache.get(buildRule, this::calculateBuildRuleKey).getRuleKey();
+    } catch (RuntimeException e) {
+      propagateIfSizeLimitException(e);
+      throw e;
+    }
+  }
+
+  private void propagateIfSizeLimitException(Throwable throwable) {
+    // At the moment, it is difficult to make SizeLimitException be a checked exception. Due to how
+    // exceptions are currently handled (e.g. LoadingCache wraps them with ExecutionException),
+    // we need to iterate through the cause chain to check if a SizeLimitException is wrapped.
+    Throwables.getCausalChain(throwable).stream()
+        .filter(t -> t instanceof SizeLimiter.SizeLimitException)
+        .findFirst()
+        .ifPresent(Throwables::throwIfUnchecked);
+  }
+
+  private Builder newVerifyingBuilder(final BuildRule rule) {
     final Iterable<DependencyAggregation> aggregatedRules =
         Iterables.filter(rule.getDeps(), DependencyAggregation.class);
     return new Builder() {
@@ -124,8 +114,8 @@ public class InputBasedRuleKeyFactory
       // Construct the rule key, verifying that all the deps we saw when constructing it
       // are explicit dependencies of the rule.
       @Override
-      public Optional<RuleKey> build() {
-        Result result = buildResult();
+      public Result build() {
+        Result result = super.build();
         for (BuildRule usedDep : result.getDeps()) {
           Preconditions.checkState(
               rule.getDeps().contains(usedDep) || hasEffectiveDirectDep(usedDep),
@@ -134,79 +124,41 @@ public class InputBasedRuleKeyFactory
               usedDep.getBuildTarget(),
               rule.getDeps());
         }
-        return result.getRuleKey();
+        return result;
       }
-
     };
   }
 
-  public class Builder extends RuleKeyBuilder<Optional<RuleKey>> {
+  /* package */ class Builder extends RuleKeyBuilder<Result> {
 
     private final ImmutableList.Builder<Iterable<BuildRule>> deps = ImmutableList.builder();
-    private final ImmutableList.Builder<Iterable<SourcePath>> inputs = ImmutableList.builder();
-
-    private long inputSize = 0;
-    private boolean inputSizeLimitExceeded = false;
+    private final SizeLimiter sizeLimiter = new SizeLimiter(inputSizeLimit);
 
     private Builder() {
-      super(pathResolver, fileHashLoader);
+      super(ruleFinder, pathResolver, fileHashLoader);
+    }
+
+    private Result calculateRuleKeyAppendableKey(RuleKeyAppendable appendable) {
+      Builder subKeyBuilder = new Builder();
+      appendable.appendToRuleKey(subKeyBuilder);
+      return subKeyBuilder.build();
     }
 
     @Override
-    public Builder setAppendableRuleKey(String key, RuleKeyAppendable appendable) {
-      if (inputSizeLimitExceeded) {
-        return this;
-      }
-
-      Result result = cache.getUnchecked(appendable);
-      Optional<RuleKey> ruleKey = result.getRuleKey();
-      if (!ruleKey.isPresent()) {
-        inputSizeLimitExceeded = true;
-        return this;
-      }
+    protected Builder setAppendableRuleKey(RuleKeyAppendable appendable) {
+      Result result = ruleKeyCache.get(appendable, this::calculateRuleKeyAppendableKey);
       deps.add(result.getDeps());
-      inputs.add(result.getInputs());
-      setAppendableRuleKey(key, ruleKey.get());
-      return this;
-    }
-
-    @Override
-    public Builder setReflectively(String key, @Nullable Object val) {
-      if (inputSizeLimitExceeded) {
-        return this;
-      }
-      if (val instanceof ArchiveDependencySupplier &&
-          archiveHandling == ArchiveHandling.MEMBERS) {
-        super.setReflectively(
-            key,
-            ((ArchiveDependencySupplier) val).getArchiveMembers(pathResolver));
-      } else {
-        super.setReflectively(key, val);
-      }
-
+      setAppendableRuleKey(result.getRuleKey());
       return this;
     }
 
     @Override
     public Builder setPath(Path absolutePath, Path ideallyRelative) throws IOException {
-
-      // Input size limit handling.
+      // TODO(plamenko): this check should not be necessary, but otherwise some tests fail due to
+      // FileHashLoader throwing NoSuchFileException which doesn't get correctly propagated.
       if (inputSizeLimit != Long.MAX_VALUE) {
-
-        // Initially, check if we've already exceeded the size limit, and return early if so.
-        if (inputSizeLimitExceeded) {
-          return this;
-        }
-
-        // Otherwise, update the size limit with the size of current path, and bail out if this
-        // pushed us over the limit.
-        inputSize += fileHashLoader.getSize(absolutePath);
-        if (inputSize > inputSizeLimit) {
-          inputSizeLimitExceeded = true;
-          return this;
-        }
+        sizeLimiter.add(fileHashLoader.getSize(absolutePath));
       }
-
       super.setPath(absolutePath, ideallyRelative);
       return this;
     }
@@ -215,25 +167,12 @@ public class InputBasedRuleKeyFactory
     // disk, and so we can always resolve the `Path` packaged in a `SourcePath`.  We hash this,
     // rather than the rule key from it's `BuildRule`.
     @Override
-    protected Builder setSourcePath(SourcePath sourcePath) {
-      if (inputHandling == InputHandling.HASH) {
-        deps.add(OptionalCompat.asSet(pathResolver.getRule(sourcePath)));
-
-        try {
-          if (sourcePath instanceof ArchiveMemberSourcePath) {
-            setArchiveMemberPath(
-                pathResolver.getAbsoluteArchiveMemberPath(sourcePath),
-                pathResolver.getRelativeArchiveMemberPath(sourcePath));
-          } else {
-            setPath(
-                pathResolver.getAbsolutePath(sourcePath),
-                pathResolver.getRelativePath(sourcePath));
-          }
-        } catch (IOException e) {
-          throw new RuntimeException(e);
-        }
+    protected Builder setSourcePath(SourcePath sourcePath) throws IOException {
+      if (sourcePath instanceof BuildTargetSourcePath) {
+        deps.add(ImmutableSet.of(ruleFinder.getRuleOrThrow((BuildTargetSourcePath) sourcePath)));
+        // fall through and call setSourcePathDirectly as well
       }
-      inputs.add(Collections.singleton(sourcePath));
+      super.setSourcePathDirectly(sourcePath);
       return this;
     }
 
@@ -249,102 +188,32 @@ public class InputBasedRuleKeyFactory
               rule));
     }
 
-    protected ImmutableSet<SourcePath> getInputsSoFar() {
-      return ImmutableSet.copyOf(Iterables.concat(inputs.build()));
-    }
-
-    protected Iterable<SourcePath> getIterableInputsSoFar() {
-      return Iterables.concat(inputs.build());
-    }
-
-    // Build the rule key and the list of deps found from this builder.
-    protected Result buildResult() {
-      if (inputSizeLimitExceeded) {
-        return new Result(
-            Optional.empty(),
-            Collections.emptyList(),
-            Collections.emptyList());
-      } else {
-        return new Result(
-            Optional.of(buildRuleKey()),
-            Iterables.concat(deps.build()),
-            Iterables.concat(inputs.build()));
-      }
-    }
-
     @Override
-    public Optional<RuleKey> build() {
-      if (inputSizeLimitExceeded) {
-        return Optional.empty();
-      }
-
-      return Optional.of(buildRuleKey());
+    public Result build() {
+      return new Result(buildRuleKey(), Iterables.concat(deps.build()));
     }
 
-  }
-
-  /**
-   * How to handle adding {@link SourcePath}s to the {@link RuleKey}.
-   */
-  protected enum InputHandling {
-
-    /**
-     * Hash the contents of {@link SourcePath}s.
-     */
-    HASH,
-
-    /**
-     * Ignore {@link SourcePath}s.  This is useful for implementing handling for dependency files,
-     * where the list of inputs will be provided explicitly.
-     */
-    IGNORE,
-
-  }
-
-  /**
-   * How to handle adding {@link ArchiveDependencySupplier}s to the {@link RuleKey}.
-   */
-  protected enum ArchiveHandling {
-
-    /**
-     * Add the archives (call {@link ArchiveDependencySupplier#get()}).
-     */
-    ARCHIVES,
-
-    /**
-     * Add all the members of the archives
-     * (call {@link ArchiveDependencySupplier#getArchiveMembers(SourcePathResolver)}).
-     */
-    MEMBERS,
   }
 
   protected static class Result {
 
-    private final Optional<RuleKey> ruleKey;
+    private final RuleKey ruleKey;
     private final Iterable<BuildRule> deps;
-    private final Iterable<SourcePath> inputs;
 
     public Result(
-        Optional<RuleKey> ruleKey,
-        Iterable<BuildRule> deps,
-        Iterable<SourcePath> inputs) {
+        RuleKey ruleKey,
+        Iterable<BuildRule> deps) {
       this.ruleKey = ruleKey;
       this.deps = deps;
-      this.inputs = inputs;
     }
 
-    public Optional<RuleKey> getRuleKey() {
+    public RuleKey getRuleKey() {
       return ruleKey;
     }
 
     public Iterable<BuildRule> getDeps() {
       return deps;
     }
-
-    public Iterable<SourcePath> getInputs() {
-      return inputs;
-    }
-
   }
 
 }

@@ -28,12 +28,14 @@ import com.facebook.buck.jvm.java.JavaLibraryBuilder;
 import com.facebook.buck.jvm.java.JavaLibraryDescription;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
+import com.facebook.buck.parser.BuildTargetPatternParser;
 import com.facebook.buck.query.QueryBuildTarget;
 import com.facebook.buck.query.QueryTarget;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.testutil.TargetGraphFactory;
@@ -72,7 +74,7 @@ public class GraphEnhancementQueryEnvironmentTest {
         Optional.of(createMock(BuildRuleResolver.class)),
         Optional.of(createMock(TargetGraph.class)),
         cellRoots,
-        target,
+        BuildTargetPatternParser.forBaseName(target.getBaseName()),
         ImmutableSet.of());
     expect(cellRoots.getCellPath(Optional.empty()))
         .andReturn(ROOT)
@@ -105,7 +107,7 @@ public class GraphEnhancementQueryEnvironmentTest {
         Optional.of(createMock(BuildRuleResolver.class)),
         Optional.of(createMock(TargetGraph.class)),
         cellRoots,
-        target,
+        BuildTargetPatternParser.forBaseName(target.getBaseName()),
         ImmutableSet.of(dep1, dep2));
     expect(cellRoots.getCellPath(Optional.empty()))
         .andReturn(ROOT)
@@ -143,7 +145,8 @@ public class GraphEnhancementQueryEnvironmentTest {
     BuildRuleResolver realResolver = new BuildRuleResolver(
         targetGraph,
         new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver pathResolver = new SourcePathResolver(realResolver);
+    SourcePathResolver pathResolver =
+        new SourcePathResolver(new SourcePathRuleFinder(realResolver));
 
     FakeJavaLibrary bottomRule = realResolver.addToIndex(
         new FakeJavaLibrary(bottomNode.getBuildTarget(), pathResolver));
@@ -166,7 +169,7 @@ public class GraphEnhancementQueryEnvironmentTest {
         Optional.of(realResolver),
         Optional.of(targetGraph),
         cellRoots,
-        libNode.getBuildTarget(),
+        BuildTargetPatternParser.forBaseName(libNode.getBuildTarget().getBaseName()),
         ImmutableSet.of(sublibNode.getBuildTarget()));
   }
 

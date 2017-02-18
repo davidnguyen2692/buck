@@ -18,15 +18,16 @@ package com.facebook.buck.jvm.kotlin;
 
 import com.facebook.buck.jvm.common.ResourceValidator;
 import com.facebook.buck.jvm.java.CalculateAbi;
-import com.facebook.buck.jvm.java.DefaultJavaLibrary;
 import com.facebook.buck.jvm.java.ForkMode;
 import com.facebook.buck.jvm.java.JavaLibrary;
 import com.facebook.buck.jvm.java.JavaLibraryRules;
 import com.facebook.buck.jvm.java.JavaOptions;
 import com.facebook.buck.jvm.java.JavaTest;
 import com.facebook.buck.jvm.java.JavacOptions;
+import com.facebook.buck.jvm.java.JavacOptionsFactory;
 import com.facebook.buck.jvm.java.TestType;
 import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.model.Either;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
@@ -34,8 +35,9 @@ import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRules;
 import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.Label;
+import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.base.Suppliers;
@@ -45,6 +47,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
 
+import java.nio.file.Path;
 import java.util.Optional;
 import java.util.logging.Level;
 
@@ -52,17 +55,17 @@ public class KotlinTestDescription implements Description<KotlinTestDescription.
 
   private final KotlinBuckConfig kotlinBuckConfig;
   private final JavaOptions javaOptions;
-  private final JavacOptions defaultJavacOptions;
+  private final JavacOptions templateJavacOptions;
   private final Optional<Long> defaultTestRuleTimeoutMs;
 
   public KotlinTestDescription(
       KotlinBuckConfig kotlinBuckConfig,
       JavaOptions javaOptions,
-      JavacOptions defaultJavacOptions,
+      JavacOptions templateOptions,
       Optional<Long> defaultTestRuleTimeoutMs) {
     this.kotlinBuckConfig = kotlinBuckConfig;
     this.javaOptions = javaOptions;
-    this.defaultJavacOptions = defaultJavacOptions;
+    this.templateJavacOptions = templateOptions;
     this.defaultTestRuleTimeoutMs = defaultTestRuleTimeoutMs;
   }
 
@@ -77,77 +80,88 @@ public class KotlinTestDescription implements Description<KotlinTestDescription.
       BuildRuleParams params,
       BuildRuleResolver resolver,
       A args) throws NoSuchBuildTargetException {
-    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
 
-    if (params.getBuildTarget().getFlavors().contains(CalculateAbi.FLAVOR)) {
-      BuildTarget testTarget = params.getBuildTarget().withoutFlavors(CalculateAbi.FLAVOR);
+    if (CalculateAbi.isAbiTarget(params.getBuildTarget())) {
+      BuildTarget testTarget = CalculateAbi.getLibraryTarget(params.getBuildTarget());
       resolver.requireRule(testTarget);
       return CalculateAbi.of(
           testTarget,
-          pathResolver,
+          ruleFinder,
           params,
           new BuildTargetSourcePath(testTarget));
     }
 
-    BuildTarget abiJarTarget =
-        BuildTarget.builder(params.getBuildTarget())
-            .addFlavors(CalculateAbi.FLAVOR)
-            .build();
+    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
+
+    JavacOptions javacOptions =
+        JavacOptionsFactory.create(
+            templateJavacOptions,
+            params,
+            resolver,
+            ruleFinder,
+            args
+        );
 
     KotlincToJarStepFactory stepFactory = new KotlincToJarStepFactory(
         kotlinBuckConfig.getKotlinCompiler().get(),
         args.extraKotlincArguments);
 
-    BuildRuleParams testsLibraryParams =
-        params.appendExtraDeps(
-            Iterables.concat(
-                BuildRules.getExportedRules(
+    BuildRuleParams testsLibraryParams = params.copyWithDeps(
+        Suppliers.ofInstance(
+            ImmutableSortedSet.<BuildRule>naturalOrder()
+                .addAll(params.getDeclaredDeps().get())
+                .addAll(BuildRules.getExportedRules(
                     Iterables.concat(
                         params.getDeclaredDeps().get(),
-                        resolver.getAllRules(args.providedDeps))),
-                pathResolver.filterBuildRuleInputs(
-                    defaultJavacOptions.getInputs(pathResolver))))
-            .withFlavor(JavaTest.COMPILED_TESTS_LIBRARY_FLAVOR);
-    JavaLibrary testsLibrary =
+                        resolver.getAllRules(args.providedDeps))))
+                .addAll(ruleFinder.filterBuildRuleInputs(
+                    javacOptions.getInputs(ruleFinder)))
+                .build()
+            ),
+            params.getExtraDeps())
+         .withFlavor(JavaTest.COMPILED_TESTS_LIBRARY_FLAVOR);
+
+        JavaLibrary testsLibrary =
         resolver.addToIndex(
-            new DefaultJavaLibrary(
+            new DefaultKotlinLibrary(
                 testsLibraryParams,
                 pathResolver,
+                ruleFinder,
                 args.srcs,
                 ResourceValidator.validateResources(
                     pathResolver,
                     params.getProjectFilesystem(),
                     args.resources),
-                defaultJavacOptions.getGeneratedSourceFolderName(),
-                /* proguardConfig */ Optional.empty(),
-                /* postprocessClassesCommands */ ImmutableList.of(),
-                /* exportDeps */ ImmutableSortedSet.of(),
-                /* providedDeps */ ImmutableSortedSet.of(),
-                abiJarTarget,
+                templateJavacOptions.getGeneratedSourceFolderName(),
+                Optional.empty(),        /* proguardConfig */
+                ImmutableList.of(),      /* postprocessClassesCommands */
+                ImmutableSortedSet.of(), /* exportedDeps */
+                ImmutableSortedSet.of(), /* providedDeps */
                 JavaLibraryRules.getAbiInputs(resolver, testsLibraryParams.getDeps()),
-                /* trackClassUsage */ false,
-                /* additionalClasspathEntries */ ImmutableSet.of(),
+                false,                   /* trackClassUsage */
+                ImmutableSet.of(),       /* additionalClasspathEntries */
                 stepFactory,
-                /* resourcesRoot */ Optional.empty(),
-                /* manifest file */ Optional.empty(),
-                /* mavenCoords */ Optional.empty(),
-                /* tests */ ImmutableSortedSet.of(),
-                /* classesToRemoveFromJar */ ImmutableSet.of()
+                args.resourcesRoot,
+                args.manifestFile,
+                args.mavenCoords,
+                ImmutableSortedSet.of(), /* tests */
+                ImmutableSet.of()        /* classesToRemoveFromJar */
             ));
 
-    return new JavaTest(
+    return new KotlinTest(
         params.copyWithDeps(
             Suppliers.ofInstance(ImmutableSortedSet.of(testsLibrary)),
             Suppliers.ofInstance(ImmutableSortedSet.of())),
         pathResolver,
         testsLibrary,
-        /* additionalClasspathEntries */ ImmutableSet.of(),
+        ImmutableSet.<Either<SourcePath, Path>>of(kotlinBuckConfig.getPathToRuntimeJar()),
         args.labels,
         args.contacts,
         args.testType.orElse(TestType.JUNIT),
         javaOptions.getJavaRuntimeLauncher(),
         args.vmArgs,
-        /* nativeLibsEnvironment */ ImmutableMap.of(),
+        ImmutableMap.of(), /* nativeLibsEnvironment */
         args.testRuleTimeoutMs.map(Optional::of).orElse(defaultTestRuleTimeoutMs),
         args.testCaseTimeoutMs,
         args.env,
@@ -160,7 +174,6 @@ public class KotlinTestDescription implements Description<KotlinTestDescription.
   @SuppressFieldNotInitialized
   public static class Arg extends KotlinLibraryDescription.Arg {
     public ImmutableSortedSet<String> contacts = ImmutableSortedSet.of();
-    public ImmutableSortedSet<Label> labels = ImmutableSortedSet.of();
     public ImmutableList<String> vmArgs = ImmutableList.of();
     public Optional<TestType> testType;
     public Optional<Boolean> runTestSeparately;

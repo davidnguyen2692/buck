@@ -26,7 +26,7 @@ import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.google.common.collect.ImmutableList;
@@ -44,12 +44,14 @@ public class GwtModule extends AbstractBuildRule {
   private final Path outputFile;
   @AddToRuleKey
   private final ImmutableSortedSet<SourcePath> filesForGwtModule;
+  private final SourcePathRuleFinder ruleFinder;
 
   GwtModule(
       BuildRuleParams params,
-      SourcePathResolver resolver,
+      SourcePathRuleFinder ruleFinder,
       ImmutableSortedSet<SourcePath> filesForGwtModule) {
-    super(params, resolver);
+    super(params);
+    this.ruleFinder = ruleFinder;
     BuildTarget target = params.getBuildTarget();
     this.outputFile = BuildTargets.getGenPath(
         getProjectFilesystem(),
@@ -75,7 +77,8 @@ public class GwtModule extends AbstractBuildRule {
     steps.add(
         new CopyResourcesStep(
             getProjectFilesystem(),
-            getResolver(),
+            context.getSourcePathResolver(),
+            ruleFinder,
             getBuildTarget(),
             filesForGwtModule,
             tempJarFolder,

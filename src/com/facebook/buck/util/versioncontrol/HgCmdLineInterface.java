@@ -83,9 +83,6 @@ public class HgCmdLineInterface implements VersionControlCmdLineInterface {
   private static final ImmutableList<String> ROOT_COMMAND =
       ImmutableList.of(HG_CMD_TEMPLATE, "root");
 
-  private static final ImmutableList<String> HG_ROOT_COMMAND =
-      ImmutableList.of(HG_CMD_TEMPLATE, "root");
-
   private static final ImmutableList<String> CURRENT_REVISION_ID_COMMAND =
       ImmutableList.of(HG_CMD_TEMPLATE, "log", "-l", "1", "--template", "{node|short}");
 
@@ -96,8 +93,8 @@ public class HgCmdLineInterface implements VersionControlCmdLineInterface {
   private static final ImmutableList<String> CHANGED_FILES_COMMAND =
       ImmutableList.of(HG_CMD_TEMPLATE, "status", "-mardu", "-0", "--rev", REVISION_ID_TEMPLATE);
 
-  private static final ImmutableList<String> SPARSE_REFRESH_COMMAND =
-      ImmutableList.of(HG_CMD_TEMPLATE, "sparse", "--refresh");
+  private static final ImmutableList<String> SPARSE_IMPORT_COMMAND =
+      ImmutableList.of(HG_CMD_TEMPLATE, "sparse", "--import-rules", PATH_TEMPLATE, "--traceback");
 
   private static final ImmutableList<String> RAW_MANIFEST_COMMAND =
       ImmutableList.of(HG_CMD_TEMPLATE, "--config",
@@ -205,18 +202,41 @@ public class HgCmdLineInterface implements VersionControlCmdLineInterface {
   }
 
   @Override
-  public String diffBetweenRevisions(String revisionIdOne, String revisionIdTwo)
+  public String diffBetweenRevisions(String baseRevision, String tipRevision)
       throws VersionControlCommandFailedException, InterruptedException {
-    validateRevisionId(revisionIdOne);
-    validateRevisionId(revisionIdTwo);
-    return executeCommand(
-        ImmutableList.of(
-            HG_CMD_TEMPLATE,
-            "diff",
-            "--rev",
-            revisionIdOne,
-            "--rev",
-            revisionIdTwo));
+    validateRevisionId(baseRevision);
+    validateRevisionId(tipRevision);
+
+    File temp = null;
+    try {
+      temp = File.createTempFile("diff", ".tmp");
+      // Command: hg export -r "base::tip - base"
+      executeCommand(
+          ImmutableList.of(
+              HG_CMD_TEMPLATE,
+              "export",
+              "-o",
+              temp.toString(),
+              "--rev",
+              baseRevision + "::" + tipRevision + " - " + baseRevision));
+      return new String(Files.readAllBytes(temp.toPath()));
+    } catch (IOException e) {
+      throw new VersionControlCommandFailedException("Command failed. Reason: " + e.getMessage());
+    } finally {
+      if (temp != null) {
+        temp.delete();
+      }
+    }
+  }
+
+  @Override
+  public Optional<String> diffBetweenRevisionsOrAbsent(String baseRevision, String tipRevision)
+      throws InterruptedException {
+    try {
+      return Optional.of(diffBetweenRevisions(baseRevision, tipRevision));
+    } catch (VersionControlCommandFailedException e) {
+      return Optional.empty();
+    }
   }
 
   @Override
@@ -240,7 +260,7 @@ public class HgCmdLineInterface implements VersionControlCmdLineInterface {
         CHANGED_FILES_COMMAND,
         REVISION_ID_TEMPLATE,
         fromRevisionId));
-    return FluentIterable.of(hgChangedFilesString.split("\0"))
+    return FluentIterable.from(hgChangedFilesString.split("\0"))
         .filter(input -> !Strings.isNullOrEmpty(input))
         .toSet();
   }
@@ -248,10 +268,7 @@ public class HgCmdLineInterface implements VersionControlCmdLineInterface {
   @Override
   public ImmutableMap<String, String> bookmarksRevisionsId(ImmutableSet<String> bookmarks)
       throws InterruptedException, VersionControlCommandFailedException {
-    Path remoteNames = Paths.get(
-        executeCommand(HG_ROOT_COMMAND),
-        HG_ROOT_PATH,
-        REMOTE_NAMES_FILENAME);
+    Path remoteNames = Paths.get(executeCommand(ROOT_COMMAND), HG_ROOT_PATH, REMOTE_NAMES_FILENAME);
 
     ImmutableMap.Builder<String, String> bookmarksRevisions = ImmutableMap.builder();
     try {
@@ -293,9 +310,14 @@ public class HgCmdLineInterface implements VersionControlCmdLineInterface {
     return hgRoot.get();
   }
 
-  public void refreshHgSparse()
+  public void exportHgSparseRules(Path exportFile)
       throws VersionControlCommandFailedException, InterruptedException {
-    executeCommand(SPARSE_REFRESH_COMMAND);
+    executeCommand(
+        replaceTemplateValue(
+          SPARSE_IMPORT_COMMAND,
+          PATH_TEMPLATE,
+          exportFile.toString()
+    ));
   }
 
   private String executeCommand(Iterable<String> command)

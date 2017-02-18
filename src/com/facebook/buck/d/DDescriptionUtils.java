@@ -36,6 +36,7 @@ import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.SymlinkTree;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.args.SourcePathArg;
@@ -127,13 +128,15 @@ abstract class DDescriptionUtils {
       throws NoSuchBuildTargetException {
 
     BuildTarget buildTarget = params.getBuildTarget();
-    SourcePathResolver sourcePathResolver = new SourcePathResolver(buildRuleResolver);
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(buildRuleResolver);
+    SourcePathResolver sourcePathResolver = new SourcePathResolver(ruleFinder);
 
     ImmutableList<SourcePath> sourcePaths =
         sourcePathsForCompiledSources(
             params,
             buildRuleResolver,
             sourcePathResolver,
+            ruleFinder,
             cxxPlatform,
             dBuckConfig,
             compilerFlags,
@@ -148,6 +151,7 @@ abstract class DDescriptionUtils {
         params,
         buildRuleResolver,
         sourcePathResolver,
+        ruleFinder,
         buildTarget,
         Linker.LinkType.EXECUTABLE,
         Optional.empty(),
@@ -177,6 +181,7 @@ abstract class DDescriptionUtils {
   public static SymlinkTree createSourceSymlinkTree(
       BuildTarget target,
       BuildRuleParams baseParams,
+      SourcePathRuleFinder ruleFinder,
       SourcePathResolver pathResolver,
       SourceList sources) {
     Preconditions.checkState(target.getFlavors().contains(SOURCE_LINK_TREE));
@@ -185,17 +190,17 @@ abstract class DDescriptionUtils {
             target,
             Suppliers.ofInstance(ImmutableSortedSet.of()),
             Suppliers.ofInstance(ImmutableSortedSet.of())),
-        pathResolver,
-        baseParams.getProjectFilesystem().resolve(
-            BuildTargets.getGenPath(
-                baseParams.getProjectFilesystem(),
-                baseParams.getBuildTarget(), "%s")),
+        BuildTargets.getGenPath(
+            baseParams.getProjectFilesystem(),
+            baseParams.getBuildTarget(),
+            "%s"),
         MoreMaps.transformKeys(
             sources.toNameMap(
                 baseParams.getBuildTarget(),
                 pathResolver,
                 "srcs"),
-            MorePaths.toPathFn(baseParams.getProjectFilesystem().getRootPath().getFileSystem())));
+            MorePaths.toPathFn(baseParams.getProjectFilesystem().getRootPath().getFileSystem())),
+        ruleFinder);
   }
 
   private static ImmutableMap<BuildTarget, DLibrary> getTransitiveDLibraryRules(
@@ -219,7 +224,6 @@ abstract class DDescriptionUtils {
    * if neccesary.
    * @param baseParams build parameters for the rule
    * @param buildRuleResolver BuildRuleResolver the rule should be in
-   * @param sourcePathResolver used to resolve source paths
    * @param src the source file to be compiled
    * @param compilerFlags flags to pass to the compiler
    * @param compileTarget the target the rule should be for
@@ -230,7 +234,7 @@ abstract class DDescriptionUtils {
       BuildTarget compileTarget,
       BuildRuleParams baseParams,
       BuildRuleResolver buildRuleResolver,
-      SourcePathResolver sourcePathResolver,
+      SourcePathRuleFinder ruleFinder,
       DBuckConfig dBuckConfig,
       ImmutableList<String> compilerFlags,
       String name,
@@ -251,10 +255,10 @@ abstract class DDescriptionUtils {
       }
 
       ImmutableSortedSet.Builder<BuildRule> depsBuilder = ImmutableSortedSet.naturalOrder();
-      depsBuilder.addAll(compiler.getDeps(sourcePathResolver));
-      depsBuilder.addAll(sourcePathResolver.filterBuildRuleInputs(src));
+      depsBuilder.addAll(compiler.getDeps(ruleFinder));
+      depsBuilder.addAll(ruleFinder.filterBuildRuleInputs(src));
       for (DIncludes dIncludes : transitiveIncludes.values()) {
-        depsBuilder.addAll(dIncludes.getDeps(sourcePathResolver));
+        depsBuilder.addAll(dIncludes.getDeps(ruleFinder));
       }
       ImmutableSortedSet<BuildRule> deps = depsBuilder.build();
 
@@ -264,7 +268,6 @@ abstract class DDescriptionUtils {
                   compileTarget,
                   Suppliers.ofInstance(deps),
                   Suppliers.ofInstance(ImmutableSortedSet.of())),
-              sourcePathResolver,
               compiler,
               ImmutableList.<String>builder()
                   .addAll(dBuckConfig.getBaseCompilerFlags())
@@ -292,6 +295,7 @@ abstract class DDescriptionUtils {
       BuildRuleParams baseParams,
       BuildRuleResolver buildRuleResolver,
       SourcePathResolver sourcePathResolver,
+      SourcePathRuleFinder ruleFinder,
       CxxPlatform cxxPlatform,
       DBuckConfig dBuckConfig,
       ImmutableList<String> compilerFlags,
@@ -310,7 +314,7 @@ abstract class DDescriptionUtils {
           compileTarget,
           baseParams,
           buildRuleResolver,
-          sourcePathResolver,
+          ruleFinder,
           dBuckConfig,
           compilerFlags,
           source.getKey(),

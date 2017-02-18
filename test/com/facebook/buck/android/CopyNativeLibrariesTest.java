@@ -29,6 +29,7 @@ import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.FakeBuildableContext;
 import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
@@ -109,13 +110,13 @@ public class CopyNativeLibrariesTest {
   @Test
   public void testCopyNativeLibrariesCopiesLibDirsInReverseTopoOrder() {
     BuildTarget target = BuildTargetFactory.newInstance("//:test");
+    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(
+        new BuildRuleResolver(
+            TargetGraph.EMPTY,
+            new DefaultTargetNodeToBuildRuleTransformer())));
     CopyNativeLibraries copyNativeLibraries =
         new CopyNativeLibraries(
             new FakeBuildRuleParamsBuilder(target).build(),
-            new SourcePathResolver(
-                new BuildRuleResolver(
-                    TargetGraph.EMPTY,
-                    new DefaultTargetNodeToBuildRuleTransformer())),
             ImmutableSet.of(new FakeSourcePath("lib1"), new FakeSourcePath("lib2")),
             ImmutableSet.of(),
             ImmutableSet.of(),
@@ -124,7 +125,7 @@ public class CopyNativeLibrariesTest {
 
     ImmutableList<Step> steps =
         copyNativeLibraries.getBuildSteps(
-            FakeBuildContext.NOOP_CONTEXT,
+            FakeBuildContext.withSourcePathResolver(pathResolver),
             new FakeBuildableContext());
 
     Iterable<String> descriptions =

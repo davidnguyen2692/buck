@@ -21,12 +21,12 @@ import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildOutputInitializer;
+import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.InitializableFromDisk;
 import com.facebook.buck.rules.OnDiskBuildInfo;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.AbstractExecutionStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
@@ -39,6 +39,7 @@ import com.google.common.collect.ImmutableSet;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Optional;
 
 import javax.annotation.Nullable;
 
@@ -103,13 +104,12 @@ public class ResourcesFilter extends AbstractBuildRule
 
   public ResourcesFilter(
       BuildRuleParams params,
-      SourcePathResolver resolver,
       ImmutableList<SourcePath> resDirectories,
       ImmutableSet<SourcePath> whitelistedStringDirs,
       ImmutableSet<String> locales,
       ResourceCompressionMode resourceCompressionMode,
       FilterResourcesStep.ResourceFilter resourceFilter) {
-    super(params, resolver);
+    super(params);
     this.resDirectories = resDirectories;
     this.whitelistedStringDirs = whitelistedStringDirs;
     this.locales = locales;
@@ -129,15 +129,23 @@ public class ResourcesFilter extends AbstractBuildRule
   }
 
   @Override
+  public Optional<BuildRule> getResourceFilterRule() {
+    return Optional.of(this);
+  }
+
+  @Override
   public ImmutableList<Step> getBuildSteps(
       BuildContext context,
       final BuildableContext buildableContext) {
     ImmutableList.Builder<Step> steps = ImmutableList.builder();
 
     final ImmutableList.Builder<Path> filteredResDirectoriesBuilder = ImmutableList.builder();
-    ImmutableSet<Path> whitelistedStringPaths =
-        ImmutableSet.copyOf(getResolver().deprecatedAllPaths(whitelistedStringDirs));
-    ImmutableList<Path> resPaths = getResolver().deprecatedAllPaths(resDirectories);
+    ImmutableSet<Path> whitelistedStringPaths = whitelistedStringDirs.stream()
+        .map(context.getSourcePathResolver()::getRelativePath)
+        .collect(MoreCollectors.toImmutableSet());
+    ImmutableList<Path> resPaths = resDirectories.stream()
+        .map(context.getSourcePathResolver()::getRelativePath)
+        .collect(MoreCollectors.toImmutableList());
     final FilterResourcesStep filterResourcesStep = createFilterResourcesStep(
         resPaths,
         whitelistedStringPaths,

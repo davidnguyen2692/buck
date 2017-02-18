@@ -28,7 +28,6 @@ import com.facebook.buck.query.QueryExpression;
 import com.facebook.buck.query.QueryTarget;
 import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.util.HumanReadableException;
-import com.facebook.buck.util.MoreExceptions;
 import com.facebook.buck.util.PatternsMatcher;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.annotations.VisibleForTesting;
@@ -67,6 +66,10 @@ public class QueryCommand extends AbstractCommand {
       usage = "Print result as Dot graph")
   private boolean generateDotOutput;
 
+  @Option(name = "--bfs",
+      usage = "Sort the dot output in bfs order")
+  private boolean generateBFSOutput;
+
   @Option(name = "--json",
       usage = "Output in JSON format")
   private boolean generateJsonOutput;
@@ -85,6 +88,10 @@ public class QueryCommand extends AbstractCommand {
 
   public boolean shouldGenerateDotOutput() {
     return generateDotOutput;
+  }
+
+  public boolean shouldGenerateBFSOutput() {
+    return generateBFSOutput;
   }
 
   public boolean shouldOutputAttributes() {
@@ -122,10 +129,8 @@ public class QueryCommand extends AbstractCommand {
           BuckQueryEnvironment.from(params, parserState, getEnableParserProfiling());
       ListeningExecutorService executor = pool.getExecutor();
       return formatAndRunQuery(params, env, executor);
-    } catch (Exception e) {
-      params.getBuckEventBus().post(ConsoleEvent.severe(
-          MoreExceptions.getHumanReadableOrLocalizedMessage(e)));
-      return 1;
+    } catch (QueryException | BuildFileParseException e) {
+      throw new HumanReadableException(e);
     }
   }
 
@@ -254,7 +259,8 @@ public class QueryCommand extends AbstractCommand {
         "result_graph",
         env.getNodesFromQueryTargets(queryResult),
         targetNode -> "\"" + targetNode.getBuildTarget().getFullyQualifiedName() + "\"",
-        params.getConsole().getStdOut());
+        params.getConsole().getStdOut(),
+        shouldGenerateBFSOutput());
   }
 
   private void collectAndPrintAttributes(

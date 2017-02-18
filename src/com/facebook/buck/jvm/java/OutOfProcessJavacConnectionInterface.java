@@ -40,8 +40,8 @@ public interface OutOfProcessJavacConnectionInterface {
       Map<String, Object> serializedJavacExecutionContext,
       String invokingRuleBuildTargetAsString,
       List<String> options,
-      List<String> setOfSafeAnnotationProcessorsAsList,
       List<String> sortedSetOfJavaSourceFilePathsAsStringsAsList,
       String pathToSrcsListAsString,
-      String workingDirectory);
+      String workingDirectory,
+      JavacOptions.AbiGenerationMode abiGenerationMode);
 }

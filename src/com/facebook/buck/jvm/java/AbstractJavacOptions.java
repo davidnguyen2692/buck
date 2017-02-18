@@ -16,19 +16,21 @@
 
 package com.facebook.buck.jvm.java;
 
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.Either;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.RuleKeyAppendable;
 import com.facebook.buck.rules.RuleKeyObjectSink;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.SourcePaths;
 import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
 import com.google.common.base.Joiner;
-import com.google.common.collect.FluentIterable;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 
@@ -37,12 +39,16 @@ import org.immutables.value.Value;
 import java.io.File;
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.net.URL;
 import java.nio.file.Path;
+import java.util.Arrays;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 /**
  * Represents the command line options that should be passed to javac. Note that the options do not
@@ -95,6 +101,15 @@ abstract class AbstractJavacOptions implements RuleKeyAppendable {
      * Delegate compilation into separate process.
      */
     OUT_OF_PROCESS,
+  }
+
+  public enum AbiGenerationMode {
+    /** Generate ABIs by stripping .class files */
+    CLASS,
+    /** Output warnings for things that aren't legal when generating ABIs from source */
+    MIGRATING_TO_SOURCE,
+    /** Generate ABIs by parsing .java files (has some limitations) */
+    SOURCE,
   }
 
   protected abstract Optional<Either<Path, SourcePath>> getJavacPath();
@@ -169,6 +184,11 @@ abstract class AbstractJavacOptions implements RuleKeyAppendable {
     return JavacLocation.IN_PROCESS;
   }
 
+  @Value.Default
+  public AbiGenerationMode getAbiGenerationMode() {
+    return AbiGenerationMode.CLASS;
+  }
+
   @Value.Lazy
   public Javac getJavac() {
     final JavacSource javacSource = getJavacSource();
@@ -217,7 +237,8 @@ abstract class AbstractJavacOptions implements RuleKeyAppendable {
 
   public void appendOptionsTo(
       OptionsConsumer optionsConsumer,
-      final Function<Path, Path> pathRelativizer) {
+      SourcePathResolver pathResolver,
+      ProjectFilesystem filesystem) {
 
     // Add some standard options.
     optionsConsumer.addOptionValue("source", getSourceLevel());
@@ -245,34 +266,42 @@ abstract class AbstractJavacOptions implements RuleKeyAppendable {
     }
 
     // Add annotation processors.
-    if (!getAnnotationProcessingParams().isEmpty()) {
+    AnnotationProcessingParams annotationProcessingParams = getAnnotationProcessingParams();
+    if (!annotationProcessingParams.isEmpty()) {
       // Specify where to generate sources so IntelliJ can pick them up.
-      Path generateTo = getAnnotationProcessingParams().getGeneratedSourceFolderName();
+      Path generateTo = annotationProcessingParams.getGeneratedSourceFolderName();
       if (generateTo != null) {
         //noinspection ConstantConditions
-        optionsConsumer.addOptionValue("s", pathRelativizer.apply(generateTo).toString());
+        optionsConsumer.addOptionValue("s", filesystem.resolve(generateTo).toString());
       }
+
+      ImmutableList<ResolvedJavacPluginProperties> annotationProcessors =
+          annotationProcessingParams.getAnnotationProcessors(filesystem, pathResolver);
 
       // Specify processorpath to search for processors.
-      optionsConsumer.addOptionValue("processorpath",
-          Joiner.on(File.pathSeparator).join(
-              FluentIterable.from(getAnnotationProcessingParams().getSearchPathElements())
-                  .transform(pathRelativizer)
-                  .transform(Object::toString)));
+      optionsConsumer.addOptionValue(
+          "processorpath",
+          annotationProcessors.stream()
+              .map(ResolvedJavacPluginProperties::getClasspath)
+              .flatMap(Arrays::stream)
+              .distinct()
+              .map(URL::toString)
+              .collect(Collectors.joining(File.pathSeparator)));
 
       // Specify names of processors.
-      if (!getAnnotationProcessingParams().getNames().isEmpty()) {
-        optionsConsumer.addOptionValue(
-            "processor",
-            Joiner.on(',').join(getAnnotationProcessingParams().getNames()));
-      }
+      optionsConsumer.addOptionValue(
+          "processor",
+          annotationProcessors.stream()
+              .map(ResolvedJavacPluginProperties::getProcessorNames)
+              .flatMap(Collection::stream)
+              .collect(Collectors.joining(",")));
 
       // Add processor parameters.
-      for (String parameter : getAnnotationProcessingParams().getParameters()) {
+      for (String parameter : annotationProcessingParams.getParameters()) {
         optionsConsumer.addFlag("A" + parameter);
       }
 
-      if (getAnnotationProcessingParams().getProcessOnly()) {
+      if (annotationProcessingParams.getProcessOnly()) {
         optionsConsumer.addFlag("proc:only");
       }
     }
@@ -291,10 +320,11 @@ abstract class AbstractJavacOptions implements RuleKeyAppendable {
         .setReflectively("javac", getJavac())
         .setReflectively("annotationProcessingParams", getAnnotationProcessingParams())
         .setReflectively("spoolMode", getSpoolMode())
-        .setReflectively("trackClassUsage", trackClassUsage());
+        .setReflectively("trackClassUsage", trackClassUsage())
+        .setReflectively("abiGenerationMode", getAbiGenerationMode());
   }
 
-  public ImmutableSortedSet<SourcePath> getInputs(SourcePathResolver resolver) {
+  public ImmutableSortedSet<SourcePath> getInputs(SourcePathRuleFinder ruleFinder) {
     ImmutableSortedSet.Builder<SourcePath> builder = ImmutableSortedSet.<SourcePath>naturalOrder()
         .addAll(getAnnotationProcessingParams().getInputs());
 
@@ -305,7 +335,7 @@ abstract class AbstractJavacOptions implements RuleKeyAppendable {
       // Add the original rule regardless of what happens next.
       builder.add(sourcePath);
 
-      Optional<BuildRule> possibleRule = resolver.getRule(sourcePath);
+      Optional<BuildRule> possibleRule = ruleFinder.getRule(sourcePath);
 
       if (possibleRule.isPresent()) {
         BuildRule rule = possibleRule.get();

@@ -37,7 +37,6 @@ import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.Flavored;
-import com.facebook.buck.model.HasBuildTarget;
 import com.facebook.buck.model.HasTests;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.AbstractDescriptionArg;
@@ -47,7 +46,7 @@ import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.Hint;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.coercer.BuildConfigFields;
 import com.facebook.buck.rules.coercer.ManifestEntries;
@@ -55,6 +54,7 @@ import com.facebook.buck.rules.macros.ExecutableMacroExpander;
 import com.facebook.buck.rules.macros.LocationMacroExpander;
 import com.facebook.buck.rules.macros.MacroHandler;
 import com.facebook.buck.util.HumanReadableException;
+import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.RichStream;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.base.Preconditions;
@@ -63,6 +63,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
+import com.google.common.collect.Ordering;
 import com.google.common.util.concurrent.ListeningExecutorService;
 
 import java.util.EnumSet;
@@ -200,20 +201,12 @@ public class AndroidBinaryDescription
       ResourceFilter resourceFilter =
         new ResourceFilter(args.resourceFilter);
 
-      Set<RType> bannedDuplicateTypesArgs = args.bannedDuplicateResourceTypes;
-      EnumSet<RType> bannedDuplicateResourceTypes;
-      if (!bannedDuplicateTypesArgs.isEmpty()) {
-        bannedDuplicateResourceTypes = EnumSet.copyOf(bannedDuplicateTypesArgs);
-      } else {
-        bannedDuplicateResourceTypes = EnumSet.noneOf(RType.class);
-      }
-
       AndroidBinaryGraphEnhancer graphEnhancer = new AndroidBinaryGraphEnhancer(
           params,
           resolver,
           compressionMode,
           resourceFilter,
-          bannedDuplicateResourceTypes,
+          args.getBannedDuplicateResourceTypes(),
           args.resourceUnionPackage,
           addFallbackLocales(args.locales),
           args.manifest,
@@ -267,17 +260,17 @@ public class AndroidBinaryDescription
       ImmutableSortedSet<JavaLibrary> rulesToExcludeFromDex =
           RichStream.from(buildRulesToExcludeFromDex)
               .filter(JavaLibrary.class)
-              .toImmutableSortedSet(HasBuildTarget.BUILD_TARGET_COMPARATOR);
+              .collect(MoreCollectors.toImmutableSortedSet(Ordering.natural()));
 
-      SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+      SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
       return new AndroidBinary(
           params
               .copyWithExtraDeps(Suppliers.ofInstance(result.getFinalDeps()))
               .appendExtraDeps(
-                  pathResolver.filterBuildRuleInputs(
+                  ruleFinder.filterBuildRuleInputs(
                       result.getPackageableCollection().getProguardConfigs()))
               .appendExtraDeps(rulesToExcludeFromDex),
-          pathResolver,
+          ruleFinder,
           proGuardConfig.getProguardJarOverride(),
           proGuardConfig.getProguardMaxHeapSize(),
           Optional.of(args.proguardJvmArgs),
@@ -289,6 +282,7 @@ public class AndroidBinaryDescription
           androidSdkProguardConfig,
           args.optimizationPasses,
           args.proguardConfig,
+          args.skipProguard,
           compressionMode,
           args.cpuFilters,
           resourceFilter,
@@ -400,7 +394,21 @@ public class AndroidBinaryDescription
     public Set<BuildTarget> applicationModuleTargets = ImmutableSet.of();
     public Optional<Long> linearAllocHardLimit;
     public List<String> resourceFilter = ImmutableList.of();
+
+    // Do not inspect these directly, use getBannedDuplicateResourceTypes.
+    // Ideally these should be private, but Arg-population doesn't allow that.
+    //
+    // If set to ALLOW_BY_DEFAULT, bannedDuplicateResourceTypes is used and setting
+    // allowedDuplicateResourceTypes is an error.
+    //
+    // If set to BAN_BY_DEFAULT, allowedDuplicateResourceTypes is used and setting
+    // bannedDuplicateResourceTypes is an error.
+    // This only exists to enable migration from allowing by default to banning by default.
+    public DuplicateResourceBehaviour duplicateResourceBehavior =
+        DuplicateResourceBehaviour.ALLOW_BY_DEFAULT;
     public Set<RType> bannedDuplicateResourceTypes = ImmutableSet.of();
+    public Set<RType> allowedDuplicateResourceTypes = ImmutableSet.of();
+
     public Optional<Boolean> trimResourceIds;
     public Optional<String> keepResourcePattern;
     public Optional<String> resourceUnionPackage;
@@ -422,6 +430,7 @@ public class AndroidBinaryDescription
     public ManifestEntries manifestEntries = ManifestEntries.empty();
     public BuildConfigFields buildConfigValues = BuildConfigFields.empty();
     public Optional<SourcePath> buildConfigValuesFile;
+    public Optional<Boolean> skipProguard;
     public ImmutableSortedSet<BuildTarget> deps = ImmutableSortedSet.of();
     @Hint(isDep = false) public ImmutableSortedSet<BuildTarget> tests = ImmutableSortedSet.of();
 
@@ -430,5 +439,36 @@ public class AndroidBinaryDescription
       return tests;
     }
 
+    public EnumSet<RType> getBannedDuplicateResourceTypes() {
+      if (duplicateResourceBehavior == Arg.DuplicateResourceBehaviour.ALLOW_BY_DEFAULT) {
+        if (!allowedDuplicateResourceTypes.isEmpty()) {
+          throw new IllegalArgumentException("Cannot set allowed_duplicate_resource_types if " +
+              "duplicate_resource_behaviour is allow_by_default");
+        }
+        if (!bannedDuplicateResourceTypes.isEmpty()) {
+          return EnumSet.copyOf(bannedDuplicateResourceTypes);
+        } else {
+          return EnumSet.noneOf(RType.class);
+        }
+      } else if (duplicateResourceBehavior == Arg.DuplicateResourceBehaviour.BAN_BY_DEFAULT) {
+        if (!bannedDuplicateResourceTypes.isEmpty()) {
+          throw new IllegalArgumentException("Cannot set banned_duplicate_resource_types if " +
+              "duplicate_resource_behaviour is ban_by_default");
+        }
+        if (!allowedDuplicateResourceTypes.isEmpty()) {
+          return EnumSet.complementOf(EnumSet.copyOf(allowedDuplicateResourceTypes));
+        } else {
+          return EnumSet.allOf(RType.class);
+        }
+      } else {
+        throw new IllegalArgumentException(
+            "Unrecognized duplicate_resource_behavior: " + duplicateResourceBehavior);
+      }
+    }
+
+    public enum DuplicateResourceBehaviour {
+      ALLOW_BY_DEFAULT,
+      BAN_BY_DEFAULT
+    }
   }
 }

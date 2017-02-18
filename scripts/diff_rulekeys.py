@@ -13,7 +13,7 @@ import re
 
 RULE_LINE_REGEX = re.compile(r'.*(\[[^\]+]\])*\s+RuleKey\s+(.*)')
 PATH_VALUE_REGEX = re.compile(r'path\(([^:]+):\w+\)')
-LOGGER_NAME = 'com.facebook.buck.rules.RuleKeyBuilder'
+LOGGER_NAME = 'com.facebook.buck.rules.keys.RuleKeyBuilder'
 TAG_NAME = 'RuleKey'
 
 
@@ -176,8 +176,8 @@ class RuleKeyStructureInfo(object):
     @staticmethod
     def _nameFromStruct(structure):
         name = None
-        if 'name' in structure and 'buck.type' in structure:
-            name = list(structure['name'])[0]
+        if '.name' in structure and '.type' in structure:
+            name = list(structure['.name'])[0]
             if name.startswith('string("'):
                 name = name[8:-2]
         return name
@@ -231,7 +231,6 @@ class RuleKeyStructureInfo(object):
                 last_key = e[4:-1]
             else:
                 appendValue(structure_map, last_key, e)
-                last_key = None
 
         return (top_key, structure_map)
 
@@ -406,6 +405,7 @@ def diff(name,
          check_paths=False):
     left_key = left_info.getKeyForName(name)
     right_key = right_info.getKeyForName(name)
+    keys_match = left_key == right_key
     if left_key is None:
         raise Exception('Left log does not contain ' + name + '. Did you ' +
                         'forget to enable logging? (see help).')
@@ -436,6 +436,9 @@ def diff(name,
             queue.append(e)
 
         result += report
+    if not result and not keys_match:
+        result.append("I don't know why RuleKeys for {} do not match.".format(
+            name))
     return result
 
 

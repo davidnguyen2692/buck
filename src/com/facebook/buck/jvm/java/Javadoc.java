@@ -29,7 +29,6 @@ import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.shell.ShellStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
@@ -65,12 +64,11 @@ public class Javadoc extends AbstractBuildRule implements MavenPublishable {
 
   protected Javadoc(
       BuildRuleParams buildRuleParams,
-      SourcePathResolver resolver,
       Optional<String> mavenCoords,
       Optional<SourcePath> mavenPomTemplate,
       Iterable<HasMavenCoordinates> mavenDeps,
       ImmutableSet<SourcePath> sources) {
-    super(buildRuleParams, resolver);
+    super(buildRuleParams);
 
     this.mavenCoords = mavenCoords.map(coord -> AetherUtil.addClassifier(coord, "javadoc"));
     this.mavenPomTemplate = mavenPomTemplate;
@@ -96,7 +94,7 @@ public class Javadoc extends AbstractBuildRule implements MavenPublishable {
     ImmutableList.Builder<Step> steps = ImmutableList.builder();
 
     steps.add(new MkdirStep(getProjectFilesystem(), output.getParent()));
-    steps.add(new RmStep(getProjectFilesystem(), output, /* force deletion */ true));
+    steps.add(new RmStep(getProjectFilesystem(), output));
 
     // Fast path: nothing to do so just create an empty zip and return.
     if (sources.isEmpty()) {
@@ -119,7 +117,7 @@ public class Javadoc extends AbstractBuildRule implements MavenPublishable {
         getProjectFilesystem(),
         Joiner.on("\n").join(
             sources.stream()
-                .map(getResolver()::getAbsolutePath)
+                .map(context.getSourcePathResolver()::getAbsolutePath)
                 .map(Path::toString)
                 .iterator()),
         sourcesListFilePath,
@@ -133,6 +131,7 @@ public class Javadoc extends AbstractBuildRule implements MavenPublishable {
         getDeps().stream()
             .filter(HasClasspathEntries.class::isInstance)
             .flatMap(rule -> ((HasClasspathEntries) rule).getTransitiveClasspaths().stream())
+            .map(context.getSourcePathResolver()::getAbsolutePath)
             .map(Object::toString)
             .iterator());
     steps.add(new WriteFileStep(
@@ -193,7 +192,7 @@ public class Javadoc extends AbstractBuildRule implements MavenPublishable {
   }
 
   @Override
-  public Optional<Path> getPomTemplate() {
-    return mavenPomTemplate.map(getResolver()::getAbsolutePath);
+  public Optional<SourcePath> getPomTemplate() {
+    return mavenPomTemplate;
   }
 }

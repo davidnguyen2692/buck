@@ -19,11 +19,14 @@ package com.facebook.buck.distributed;
 import com.facebook.buck.android.AndroidPlatformTarget;
 import com.facebook.buck.cli.BuckConfig;
 import com.facebook.buck.command.Build;
+import com.facebook.buck.distributed.thrift.BuildId;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.json.BuildFileParseException;
 import com.facebook.buck.jvm.java.JavaBuckConfig;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.parser.BuildTargetParser;
+import com.facebook.buck.parser.BuildTargetPatternParser;
 import com.facebook.buck.parser.DefaultParserTargetNodeFactory;
 import com.facebook.buck.parser.ParserTargetNodeFactory;
 import com.facebook.buck.rules.ActionGraphAndResolver;
@@ -31,13 +34,18 @@ import com.facebook.buck.rules.BuildEngine;
 import com.facebook.buck.rules.CachingBuildEngine;
 import com.facebook.buck.rules.CachingBuildEngineBuckConfig;
 import com.facebook.buck.rules.Cell;
+import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.ConstructorArgMarshaller;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.rules.TargetGraphAndBuildTargets;
 import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.TargetNodeFactory;
+import com.facebook.buck.rules.keys.RuleKeyFactoryManager;
 import com.facebook.buck.step.DefaultStepRunner;
 import com.facebook.buck.util.concurrent.ConcurrencyLimit;
+import com.facebook.buck.versions.VersionException;
 import com.google.common.base.Function;
 import com.google.common.base.Functions;
 import com.google.common.base.Preconditions;
@@ -45,10 +53,12 @@ import com.google.common.base.Supplier;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
-import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Lists;
 
 import java.io.IOException;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ExecutionException;
@@ -56,6 +66,8 @@ import java.util.concurrent.ExecutionException;
 import javax.annotation.Nullable;
 
 public class DistBuildSlaveExecutor {
+  private static final Logger LOG = Logger.get(DistBuildSlaveExecutor.class);
+
   private final DistBuildExecutorArgs args;
 
   @Nullable
@@ -67,7 +79,6 @@ public class DistBuildSlaveExecutor {
   @Nullable
   private DistBuildCachingEngineDelegate cachingBuildEngineDelegate;
 
-  private static final Logger LOG = Logger.get(DistBuildSlaveExecutor.class);
 
   public DistBuildSlaveExecutor(DistBuildExecutorArgs args) {
     this.args = args;
@@ -75,84 +86,86 @@ public class DistBuildSlaveExecutor {
 
   public int buildAndReturnExitCode() throws IOException, InterruptedException {
     createBuildEngineDelegate();
-    BuckConfig config = args.getRemoteRootCellConfig();
-    CachingBuildEngineBuckConfig cachingBuildEngineBuckConfig =
-        config.getView(CachingBuildEngineBuckConfig.class);
-    BuildEngine buildEngine = new CachingBuildEngine(
-        Preconditions.checkNotNull(cachingBuildEngineDelegate),
-        args.getExecutorService(),
-        new DefaultStepRunner(),
-        cachingBuildEngineBuckConfig.getBuildEngineMode(),
-        cachingBuildEngineBuckConfig.getBuildDepFiles(),
-        cachingBuildEngineBuckConfig.getBuildMaxDepFileCacheEntries(),
-        cachingBuildEngineBuckConfig.getBuildArtifactCacheSizeLimit(),
-        cachingBuildEngineBuckConfig.getBuildInputRuleKeyFileSizeLimit(),
-        args.getObjectMapper(),
-        Preconditions.checkNotNull(actionGraphAndResolver).getResolver(),
-        config.getKeySeed(),
-        cachingBuildEngineBuckConfig.getResourceAwareSchedulingInfo());
+    LocalBuilder localBuilder = new LocalBuilderImpl();
 
-    // TODO(ruibm): Fix this to work with Android.
-    try (Build build = new Build(
-        Preconditions.checkNotNull(actionGraphAndResolver).getActionGraph(),
-        Preconditions.checkNotNull(actionGraphAndResolver).getResolver(),
-        args.getRootCell(),
-        Optional.empty(),
-        getExplodingAndroidSupplier(),
-        buildEngine,
-        args.getArtifactCache(),
-        config.getView(JavaBuckConfig.class).createDefaultJavaPackageFinder(),
-        args.getConsole(),
-        /* defaultTestTimeoutMillis */ 1000,
-        /* isCodeCoverageEnabled */ false,
-        /* isInclNoLocationClassesEnabled */ false,
-        /* isDebugEnabled */ false,
-        /* shouldReportAbsolutePaths */ false,
-        args.getBuckEventBus(),
-        args.getPlatform(),
-        ImmutableMap.of(),
-        args.getObjectMapper(),
-        args.getClock(),
-        new ConcurrencyLimit(
-            4,
-            1,
-            config.getResourceAllocationFairness(),
-            4,
-            config.getDefaultResourceAmounts(),
-            config.getMaximumResourceAmounts().withCpu(4)),
-        Optional.empty(),
-        Optional.empty(),
-        Optional.empty(),
-        args.getExecutors())) {
+    DistBuildModeRunner runner = null;
+    switch (args.getDistBuildMode()) {
+      case REMOTE_BUILD:
+        runner = new RemoteBuildModeRunner(
+            localBuilder,
+            args.getState().getRemoteState().getTopLevelTargets());
+        break;
 
-      // TODO(ruibm): We need to pass to the distbuild target via de distributed build
-      //              thrift structs.
-      FluentIterable<BuildTarget> allTargets = FluentIterable.from(
-          Preconditions.checkNotNull(targetGraph).getNodes())
-          .transform(TargetNode::getBuildTarget);
+      case COORDINATOR:
+        runner = newCoordinatorMode();
+        break;
 
-      return build.executeAndPrintFailuresToEventBus(
-          allTargets,
-          /* isKeepGoing */ true,
-          args.getBuckEventBus(),
-          args.getConsole(),
-          Optional.empty());
+      case MINION:
+        runner = newMinionMode(localBuilder);
+        break;
+
+      case COORDINATOR_AND_MINION:
+        runner = new CoordinatorAndMinionModeRunner(
+            newCoordinatorMode(),
+            newMinionMode(localBuilder));
+        break;
+
+      default:
+        LOG.error("Unknown distributed build mode [%s].", args.getDistBuildMode().toString());
+        return -1;
     }
+
+    return runner.runAndReturnExitCode();
   }
 
-  private TargetGraph createTargetGraph() throws IOException {
+  private MinionModeRunner newMinionMode(LocalBuilder localBuilder) {
+    return new MinionModeRunner(
+        args.getCoordinatorAddress(),
+        args.getCoordinatorPort(),
+        localBuilder,
+        getStampedeBuildIdForCoordinator());
+  }
+
+  private CoordinatorModeRunner newCoordinatorMode() {
+    BuildTargetsQueue queue = BuildTargetsQueue.newQueue(
+        Preconditions.checkNotNull(actionGraphAndResolver).getResolver(),
+        fullyQualifiedNameToBuildTarget(args.getState().getRemoteState().getTopLevelTargets()));
+    return new CoordinatorModeRunner(
+        args.getCoordinatorPort(),
+        queue,
+        getStampedeBuildIdForCoordinator());
+  }
+
+  private TargetGraph createTargetGraph() throws IOException, InterruptedException {
     if (targetGraph != null) {
       return targetGraph;
     }
 
     DistBuildTargetGraphCodec codec = createGraphCodec();
-    targetGraph = Preconditions.checkNotNull(codec.createTargetGraph(
-        args.getState().getRemoteState().getTargetGraph(),
-        Functions.forMap(args.getState().getCells())));
+    TargetGraphAndBuildTargets targetGraphAndBuildTargets =
+        Preconditions.checkNotNull(codec.createTargetGraph(
+            args.getState().getRemoteState().getTargetGraph(),
+            Functions.forMap(args.getState().getCells())));
+
+    try {
+      if (args.getRemoteRootCellConfig().getBuildVersions()) {
+        targetGraph = args.getVersionedTargetGraphCache().toVersionedTargetGraph(
+            args.getBuckEventBus(),
+            args.getRemoteRootCellConfig(),
+            targetGraphAndBuildTargets
+        ).getTargetGraph();
+      } else {
+        targetGraph = targetGraphAndBuildTargets.getTargetGraph();
+      }
+    } catch (VersionException e) {
+      throw new RuntimeException(e);
+    }
+
     return targetGraph;
   }
 
-  private ActionGraphAndResolver createActionGraphAndResolver() throws IOException {
+  private ActionGraphAndResolver createActionGraphAndResolver()
+      throws IOException, InterruptedException {
     if (actionGraphAndResolver != null) {
       return actionGraphAndResolver;
     }
@@ -167,7 +180,8 @@ public class DistBuildSlaveExecutor {
     return actionGraphAndResolver;
   }
 
-  private DistBuildCachingEngineDelegate createBuildEngineDelegate() throws IOException {
+  private DistBuildCachingEngineDelegate createBuildEngineDelegate()
+      throws IOException, InterruptedException {
     if (cachingBuildEngineDelegate != null) {
       return cachingBuildEngineDelegate;
     }
@@ -193,10 +207,12 @@ public class DistBuildSlaveExecutor {
     }
 
     createActionGraphAndResolver();
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(Preconditions.checkNotNull(
+        actionGraphAndResolver).getResolver());
     cachingBuildEngineDelegate =
         new DistBuildCachingEngineDelegate(
-            new SourcePathResolver(
-                Preconditions.checkNotNull(actionGraphAndResolver).getResolver()),
+            new SourcePathResolver(ruleFinder),
+            ruleFinder,
             args.getState(),
             fileHashLoaders);
     return cachingBuildEngineDelegate;
@@ -204,6 +220,21 @@ public class DistBuildSlaveExecutor {
 
   private Supplier<AndroidPlatformTarget> getExplodingAndroidSupplier() {
     return AndroidPlatformTarget.EXPLODING_ANDROID_PLATFORM_TARGET_SUPPLIER;
+  }
+
+  private List<BuildTarget> fullyQualifiedNameToBuildTarget(Iterable<String> buildTargets) {
+    List<BuildTarget> targets = Lists.newArrayList();
+    CellPathResolver distBuildCellPathResolver =
+        args.getState().getRootCell().getCellPathResolver();
+    for (String fullyQualifiedBuildTarget : buildTargets) {
+      BuildTarget target = BuildTargetParser.INSTANCE.parse(
+          fullyQualifiedBuildTarget,
+          BuildTargetPatternParser.fullyQualified(),
+          distBuildCellPathResolver);
+      targets.add(target);
+    }
+
+    return targets;
   }
 
   private DistBuildTargetGraphCodec createGraphCodec() {
@@ -232,8 +263,86 @@ public class DistBuildSlaveExecutor {
               throw new RuntimeException(e);
             }
           }
-        });
+        },
+        new HashSet<>(args.getState().getRemoteState().getTopLevelTargets()));
 
     return targetGraphCodec;
+  }
+
+  private BuildId getStampedeBuildIdForCoordinator() {
+    return args.getStampedeBuildId().orElse(new BuildId().setId("LOCAL_DEBUG_FILE"));
+  }
+
+  private class LocalBuilderImpl implements LocalBuilder {
+    private final BuckConfig distBuildConfig;
+    private final CachingBuildEngineBuckConfig engineConfig;
+
+    public LocalBuilderImpl() {
+      this.distBuildConfig = args.getRemoteRootCellConfig();
+      this.engineConfig = distBuildConfig.getView(CachingBuildEngineBuckConfig.class);
+    }
+
+    @Override
+    public int buildLocallyAndReturnExitCode(Iterable<String> targetsToBuild)
+        throws IOException, InterruptedException {
+      BuildEngine buildEngine = new CachingBuildEngine(
+          Preconditions.checkNotNull(cachingBuildEngineDelegate),
+          args.getExecutorService(),
+          args.getExecutorService(),
+          new DefaultStepRunner(),
+          engineConfig.getBuildEngineMode(),
+          engineConfig.getBuildDepFiles(),
+          engineConfig.getBuildMaxDepFileCacheEntries(),
+          engineConfig.getBuildArtifactCacheSizeLimit(),
+          args.getObjectMapper(),
+          Preconditions.checkNotNull(actionGraphAndResolver).getResolver(),
+          engineConfig.getResourceAwareSchedulingInfo(),
+          new RuleKeyFactoryManager(
+              distBuildConfig.getKeySeed(),
+              cachingBuildEngineDelegate.createFileHashCacheLoader()::getUnchecked,
+              actionGraphAndResolver.getResolver(),
+              engineConfig.getBuildInputRuleKeyFileSizeLimit()));
+
+      // TODO(ruibm): Fix this to work with Android.
+      try (Build build = new Build(
+          Preconditions.checkNotNull(actionGraphAndResolver).getActionGraph(),
+          Preconditions.checkNotNull(actionGraphAndResolver).getResolver(),
+          args.getRootCell(),
+          Optional.empty(),
+          getExplodingAndroidSupplier(),
+          buildEngine,
+          args.getArtifactCache(),
+          distBuildConfig.getView(JavaBuckConfig.class).createDefaultJavaPackageFinder(),
+          args.getConsole(),
+        /* defaultTestTimeoutMillis */ 1000,
+        /* isCodeCoverageEnabled */ false,
+        /* isInclNoLocationClassesEnabled */ false,
+        /* isDebugEnabled */ false,
+        /* shouldReportAbsolutePaths */ false,
+          args.getBuckEventBus(),
+          args.getPlatform(),
+          ImmutableMap.of(),
+          args.getObjectMapper(),
+          args.getClock(),
+          new ConcurrencyLimit(
+              4,
+              1,
+              distBuildConfig.getResourceAllocationFairness(),
+              4,
+              distBuildConfig.getDefaultResourceAmounts(),
+              distBuildConfig.getMaximumResourceAmounts().withCpu(4)),
+          Optional.empty(),
+          Optional.empty(),
+          Optional.empty(),
+          args.getExecutors())) {
+
+        return build.executeAndPrintFailuresToEventBus(
+            fullyQualifiedNameToBuildTarget(targetsToBuild),
+          /* isKeepGoing */ true,
+            args.getBuckEventBus(),
+            args.getConsole(),
+            Optional.empty());
+      }
+    }
   }
 }

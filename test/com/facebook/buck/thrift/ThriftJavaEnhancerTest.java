@@ -39,6 +39,7 @@ import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.FakeExportDependenciesRule;
 import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.args.StringArg;
 import com.google.common.collect.ImmutableList;
@@ -76,12 +77,9 @@ public class ThriftJavaEnhancerTest {
             .build(), resolver);
   }
 
-  private static ThriftCompiler createFakeThriftCompiler(
-      String target,
-      SourcePathResolver resolver) {
+  private static ThriftCompiler createFakeThriftCompiler(String target) {
     return new ThriftCompiler(
         new FakeBuildRuleParamsBuilder(BuildTargetFactory.newInstance(target)).build(),
-        resolver,
         new CommandTool.Builder()
             .addArg(new StringArg("compiler"))
             .build(),
@@ -145,7 +143,7 @@ public class ThriftJavaEnhancerTest {
   public void createBuildRule() throws NoSuchBuildTargetException {
     BuildRuleResolver resolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
     BuildRuleParams flavoredParams = new FakeBuildRuleParamsBuilder(TARGET).build();
 
     // Add a dummy dependency to the constructor arg to make sure it gets through.
@@ -154,11 +152,11 @@ public class ThriftJavaEnhancerTest {
     // Setup up some thrift inputs to pass to the createBuildRule method.
     ImmutableMap<String, ThriftSource> sources = ImmutableMap.of(
         "test1.thrift", new ThriftSource(
-            createFakeThriftCompiler("//:thrift_source1", pathResolver),
+            createFakeThriftCompiler("//:thrift_source1"),
             ImmutableList.of(),
             Paths.get("output1")),
         "test2.thrift", new ThriftSource(
-            createFakeThriftCompiler("//:thrift_source2", pathResolver),
+            createFakeThriftCompiler("//:thrift_source2"),
             ImmutableList.of(),
             Paths.get("output2")));
 
@@ -202,7 +200,7 @@ public class ThriftJavaEnhancerTest {
   public void exportedDeps() throws NoSuchBuildTargetException {
     BuildRuleResolver resolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
     BuildRuleParams flavoredParams =
         new FakeBuildRuleParamsBuilder(TARGET).build();
 
@@ -212,7 +210,7 @@ public class ThriftJavaEnhancerTest {
     // Setup up some thrift inputs to pass to the createBuildRule method.
     ImmutableMap<String, ThriftSource> sources = ImmutableMap.of(
         "test.thrift", new ThriftSource(
-            createFakeThriftCompiler("//:thrift_source", pathResolver),
+            createFakeThriftCompiler("//:thrift_source"),
             ImmutableList.of(),
             Paths.get("output")));
 

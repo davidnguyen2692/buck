@@ -614,6 +614,11 @@ public class ProjectIntegrationTest {
   }
 
   @Test
+  public void testBuckProjectWithIntellijSdk() throws IOException {
+    runBuckProjectAndVerify("project_with_intellij_sdk");
+  }
+
+  @Test
   public void testVersion2BuckProjectWithProjectSettings() throws IOException {
     runBuckProjectAndVerify("experimental_project_with_project_settings");
   }
@@ -641,8 +646,28 @@ public class ProjectIntegrationTest {
   }
 
   @Test
+  public void testVersion2BuckProjectWithAssets() throws IOException {
+    runBuckProjectAndVerify("experimental_project_with_assets");
+  }
+
+  @Test
   public void testVersion2BuckProjectWithLanguageLevel() throws IOException {
     runBuckProjectAndVerify("experimental_project_with_language_level");
+  }
+
+  @Test
+  public void testVersion2BuckProjectWithGeneratedSources() throws IOException {
+    runBuckProjectAndVerify("experimental_project_with_generated_sources");
+  }
+
+  @Test
+  public void testBuckProjectWithSubdirGlobResources() throws IOException {
+    runBuckProjectAndVerify("project_with_subdir_glob_resources");
+  }
+
+  @Test
+  public void testRobolectricTestRule() throws IOException {
+    runBuckProjectAndVerify("robolectric_test");
   }
 
   private ProcessResult runBuckProjectAndVerify(

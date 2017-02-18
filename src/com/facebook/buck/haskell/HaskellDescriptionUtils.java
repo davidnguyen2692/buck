@@ -43,6 +43,7 @@ import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.SourcePathArg;
@@ -73,7 +74,8 @@ public class HaskellDescriptionUtils {
       BuildTarget target,
       final BuildRuleParams baseParams,
       final BuildRuleResolver resolver,
-      SourcePathResolver pathResolver,
+      SourcePathRuleFinder ruleFinder,
+      ImmutableSet<BuildRule> deps,
       final CxxPlatform cxxPlatform,
       HaskellConfig haskellConfig,
       final Linker.LinkableDepType depType,
@@ -89,14 +91,13 @@ public class HaskellDescriptionUtils {
         ImmutableSortedMap.naturalOrder();
     final ImmutableSortedMap.Builder<String, HaskellPackage> packagesBuilder =
         ImmutableSortedMap.naturalOrder();
-    new AbstractBreadthFirstThrowingTraversal<BuildRule, NoSuchBuildTargetException>(
-        baseParams.getDeps()) {
+    new AbstractBreadthFirstThrowingTraversal<BuildRule, NoSuchBuildTargetException>(deps) {
       private final ImmutableSet<BuildRule> empty = ImmutableSet.of();
       @Override
       public Iterable<BuildRule> visit(BuildRule rule) throws NoSuchBuildTargetException {
-        ImmutableSet<BuildRule> deps = empty;
+        ImmutableSet<BuildRule> ruleDeps = empty;
         if (rule instanceof HaskellCompileDep) {
-          deps = rule.getDeps();
+          ruleDeps = rule.getDeps();
           HaskellCompileInput compileInput =
               ((HaskellCompileDep) rule).getCompileInput(cxxPlatform, depType);
           depFlags.put(rule.getBuildTarget(), compileInput.getFlags());
@@ -104,7 +105,7 @@ public class HaskellDescriptionUtils {
 
           // We add packages from first-order deps as expose modules, and transitively included
           // packages as hidden ones.
-          boolean firstOrderDep = baseParams.getDeps().contains(rule);
+          boolean firstOrderDep = deps.contains(rule);
           for (HaskellPackage pkg : compileInput.getPackages()) {
             if (firstOrderDep) {
               exposedPackagesBuilder.put(pkg.getInfo().getIdentifier(), pkg);
@@ -113,19 +114,18 @@ public class HaskellDescriptionUtils {
             }
           }
         }
-        return deps;
+        return ruleDeps;
       }
     }.start();
 
     Collection<CxxPreprocessorInput> cxxPreprocessorInputs =
-        CxxPreprocessables.getTransitiveCxxPreprocessorInput(cxxPlatform, baseParams.getDeps());
+        CxxPreprocessables.getTransitiveCxxPreprocessorInput(cxxPlatform, deps);
     ExplicitCxxToolFlags.Builder toolFlagsBuilder = CxxToolFlags.explicitBuilder();
     PreprocessorFlags.Builder ppFlagsBuilder = PreprocessorFlags.builder();
     toolFlagsBuilder.setPlatformFlags(
         CxxSourceTypes.getPlatformPreprocessFlags(cxxPlatform, CxxSource.Type.C));
     for (CxxPreprocessorInput input : cxxPreprocessorInputs) {
       ppFlagsBuilder.addAllIncludes(input.getIncludes());
-      ppFlagsBuilder.addAllSystemIncludePaths(input.getSystemIncludeRoots());
       ppFlagsBuilder.addAllFrameworkPaths(input.getFrameworks());
       toolFlagsBuilder.addAllRuleFlags(input.getPreprocessorFlags().get(CxxSource.Type.C));
     }
@@ -148,7 +148,7 @@ public class HaskellDescriptionUtils {
     return HaskellCompileRule.from(
         target,
         baseParams,
-        pathResolver,
+        ruleFinder,
         haskellConfig.getCompiler().resolve(resolver),
         haskellConfig.getHaskellVersion(),
         compileFlags,
@@ -178,7 +178,8 @@ public class HaskellDescriptionUtils {
   public static HaskellCompileRule requireCompileRule(
       BuildRuleParams params,
       BuildRuleResolver resolver,
-      SourcePathResolver pathResolver,
+      SourcePathRuleFinder ruleFinder,
+      ImmutableSet<BuildRule> deps,
       CxxPlatform cxxPlatform,
       HaskellConfig haskellConfig,
       Linker.LinkableDepType depType,
@@ -202,7 +203,8 @@ public class HaskellDescriptionUtils {
             target,
             params,
             resolver,
-            pathResolver,
+            ruleFinder,
+            deps,
             cxxPlatform,
             haskellConfig,
             depType,
@@ -221,6 +223,7 @@ public class HaskellDescriptionUtils {
       BuildRuleParams baseParams,
       BuildRuleResolver resolver,
       SourcePathResolver pathResolver,
+      SourcePathRuleFinder ruleFinder,
       CxxPlatform cxxPlatform,
       HaskellConfig haskellConfig,
       Linker.LinkType linkType,
@@ -274,7 +277,6 @@ public class HaskellDescriptionUtils {
         resolver.addToIndex(
             new WriteFile(
                 baseParams.copyWithBuildTarget(emptyModuleTarget),
-                pathResolver,
                 "module Unused where",
                 BuildTargets.getGenPath(
                     baseParams.getProjectFilesystem(),
@@ -287,7 +289,11 @@ public class HaskellDescriptionUtils {
                 target.withAppendedFlavors(ImmutableFlavor.of("empty-compiled-module")),
                 baseParams,
                 resolver,
-                pathResolver,
+                ruleFinder,
+                // TODO(andrewjcg): We shouldn't need any deps to compile an empty module, but ghc
+                // implicitly tries to load the prelude and in some setups this is provided via a
+                // Buck dependency.
+                baseParams.getDeps(),
                 cxxPlatform,
                 haskellConfig,
                 depType,
@@ -305,6 +311,7 @@ public class HaskellDescriptionUtils {
                 emptyArchiveTarget,
                 baseParams,
                 pathResolver,
+                ruleFinder,
                 cxxPlatform,
                 Archive.Contents.NORMAL,
                 BuildTargets.getGenPath(
@@ -324,15 +331,14 @@ public class HaskellDescriptionUtils {
                 target,
                 Suppliers.ofInstance(
                     ImmutableSortedSet.<BuildRule>naturalOrder()
-                        .addAll(linker.getDeps(pathResolver))
+                        .addAll(linker.getDeps(ruleFinder))
                         .addAll(
                             Stream.of(args, linkerArgs)
                                 .flatMap(Collection::stream)
-                                .flatMap(arg -> arg.getDeps(pathResolver).stream())
+                                .flatMap(arg -> arg.getDeps(ruleFinder).stream())
                                 .iterator())
                         .build()),
                 Suppliers.ofInstance(ImmutableSortedSet.of())),
-            pathResolver,
             linker,
             name,
             args,

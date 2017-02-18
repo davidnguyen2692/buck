@@ -74,6 +74,7 @@ class XctoolRunTestsStep implements Step {
   private static final ScheduledExecutorService stutterTimeoutExecutorService =
       Executors.newSingleThreadScheduledExecutor();
   private static final String XCTOOL_ENV_VARIABLE_PREFIX = "XCTOOL_TEST_ENV_";
+  private static final String FB_REFERENCE_IMAGE_DIR = "FB_REFERENCE_IMAGE_DIR";
 
   private final ProjectFilesystem filesystem;
 
@@ -95,6 +96,7 @@ class XctoolRunTestsStep implements Step {
   private final Optional<String> logLevelEnvironmentVariable;
   private final Optional<String> logLevel;
   private final Optional<Long> timeoutInMs;
+  private final Optional<String> snapshotReferenceImagesPath;
 
   // Helper class to parse the output of `xctool -listTestsOnly` then
   // store it in a multimap of {target: [testDesc1, testDesc2, ...], ... } pairs.
@@ -171,7 +173,8 @@ class XctoolRunTestsStep implements Step {
       Optional<Path> logDirectory,
       Optional<String> logLevelEnvironmentVariable,
       Optional<String> logLevel,
-      Optional<Long> timeoutInMs) {
+      Optional<Long> timeoutInMs,
+      Optional<String> snapshotReferenceImagesPath) {
     Preconditions.checkArgument(
         !(logicTestBundlePaths.isEmpty() &&
           appTestBundleToHostAppPaths.isEmpty()),
@@ -198,6 +201,7 @@ class XctoolRunTestsStep implements Step {
     this.logLevelEnvironmentVariable = logLevelEnvironmentVariable;
     this.logLevel = logLevel;
     this.timeoutInMs = timeoutInMs;
+    this.snapshotReferenceImagesPath = snapshotReferenceImagesPath;
   }
 
   @Override
@@ -226,6 +230,11 @@ class XctoolRunTestsStep implements Step {
       environment.put(
           XCTOOL_ENV_VARIABLE_PREFIX + logLevelEnvironmentVariable.get(),
           logLevel.get());
+    }
+    if (snapshotReferenceImagesPath.isPresent()) {
+      environment.put(
+          XCTOOL_ENV_VARIABLE_PREFIX + FB_REFERENCE_IMAGE_DIR,
+          snapshotReferenceImagesPath.get());
     }
 
     environment.putAll(this.environmentOverrides);

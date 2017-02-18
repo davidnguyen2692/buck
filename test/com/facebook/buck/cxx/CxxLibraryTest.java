@@ -30,6 +30,7 @@ import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.args.StringArg;
@@ -52,9 +53,9 @@ public class CxxLibraryTest {
 
   @Test
   public void cxxLibraryInterfaces() {
-    SourcePathResolver pathResolver = new SourcePathResolver(
+    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())
-    );
+    ));
     BuildTarget target = BuildTargetFactory.newInstance("//foo:bar");
     BuildRuleParams params = new FakeBuildRuleParamsBuilder(target).build();
     CxxPlatform cxxPlatform =
@@ -155,14 +156,15 @@ public class CxxLibraryTest {
 
     // Verify that the implemented BuildRule methods are effectively unused.
     assertEquals(ImmutableList.<Step>of(), cxxLibrary.getBuildSteps(null, null));
-    assertNull(cxxLibrary.getPathToOutput());
+    assertNull(cxxLibrary.getSourcePathToOutput());
   }
 
   @Test
   public void headerOnlyExports() throws Exception {
     BuildRuleResolver ruleResolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver pathResolver = new SourcePathResolver(ruleResolver);
+    SourcePathResolver pathResolver =
+        new SourcePathResolver(new SourcePathRuleFinder(ruleResolver));
     BuildTarget target = BuildTargetFactory.newInstance("//foo:bar");
     BuildRuleParams params = new FakeBuildRuleParamsBuilder(target).build();
     CxxPlatform cxxPlatform =
@@ -198,7 +200,8 @@ public class CxxLibraryTest {
         /* linkWhole */ false,
         Optional.empty(),
         ImmutableSortedSet.of(),
-        /* isAsset */ false);
+        /* isAsset */ false,
+        true);
 
     NativeLinkableInput expectedSharedNativeLinkableInput =
         NativeLinkableInput.of(

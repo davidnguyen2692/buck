@@ -35,7 +35,7 @@ import com.facebook.buck.jvm.java.JavaBuckConfig;
 import com.facebook.buck.jvm.java.JavaFileParser;
 import com.facebook.buck.jvm.java.JavaLibraryDescription;
 import com.facebook.buck.jvm.java.JavacOptions;
-import com.facebook.buck.jvm.java.intellij.IjModuleGraph;
+import com.facebook.buck.jvm.java.intellij.AggregationMode;
 import com.facebook.buck.jvm.java.intellij.IjProject;
 import com.facebook.buck.jvm.java.intellij.IntellijConfig;
 import com.facebook.buck.jvm.java.intellij.Project;
@@ -43,7 +43,6 @@ import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetException;
 import com.facebook.buck.model.FilesystemBackedBuildFileTree;
-import com.facebook.buck.model.HasBuildTarget;
 import com.facebook.buck.model.UnflavoredBuildTarget;
 import com.facebook.buck.parser.BuildFileSpec;
 import com.facebook.buck.parser.ParserConfig;
@@ -58,6 +57,7 @@ import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.ProjectConfig;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetGraphAndTargets;
 import com.facebook.buck.rules.TargetNode;
@@ -213,7 +213,7 @@ public class ProjectCommand extends BuildCommand {
           "specifying 3 would aggrgate modules to a/b/c from lower levels where possible). " +
           "Defaults to 'auto' if not specified in .buckconfig.")
   @Nullable
-  private IjModuleGraph.AggregationMode intellijAggregationMode = null;
+  private AggregationMode intellijAggregationMode = null;
 
   @Option(
       name = "--run-ij-cleaner",
@@ -386,15 +386,15 @@ public class ProjectCommand extends BuildCommand {
     return buildCommand;
   }
 
-  public IjModuleGraph.AggregationMode getIntellijAggregationMode(BuckConfig buckConfig) {
+  public AggregationMode getIntellijAggregationMode(BuckConfig buckConfig) {
     if (intellijAggregationMode != null) {
       return intellijAggregationMode;
     }
-    Optional<IjModuleGraph.AggregationMode> aggregationMode =
+    Optional<AggregationMode> aggregationMode =
         buckConfig.getValue(
             "project",
-            "intellij_aggregation_mode").map(IjModuleGraph.AggregationMode::fromString);
-    return aggregationMode.orElse(IjModuleGraph.AggregationMode.AUTO);
+            "intellij_aggregation_mode").map(AggregationMode::fromString);
+    return aggregationMode.orElse(AggregationMode.AUTO);
   }
 
   @Override
@@ -631,7 +631,8 @@ public class ProjectCommand extends BuildCommand {
 
     BuckConfig buckConfig = params.getBuckConfig();
     BuildRuleResolver ruleResolver = result.getResolver();
-    SourcePathResolver sourcePathResolver = new SourcePathResolver(ruleResolver);
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(ruleResolver);
+    SourcePathResolver sourcePathResolver = new SourcePathResolver(ruleFinder);
 
     JavacOptions javacOptions = buckConfig.getView(JavaBuckConfig.class).getDefaultJavacOptions();
 
@@ -641,6 +642,7 @@ public class ProjectCommand extends BuildCommand {
         JavaFileParser.createJavaFileParser(javacOptions),
         ruleResolver,
         sourcePathResolver,
+        ruleFinder,
         params.getCell().getFilesystem(),
         getIntellijAggregationMode(buckConfig),
         buckConfig);
@@ -803,7 +805,7 @@ public class ProjectCommand extends BuildCommand {
 
     try (ExecutionContext executionContext = createExecutionContext(params)) {
       Project project = new Project(
-          new SourcePathResolver(result.getResolver()),
+          new SourcePathResolver(new SourcePathRuleFinder(result.getResolver())),
           FluentIterable
               .from(result.getActionGraph().getNodes())
               .filter(ProjectConfig.class)
@@ -973,7 +975,7 @@ public class ProjectCommand extends BuildCommand {
     ImmutableSet<BuildTarget> targets;
     if (passedInTargetsSet.isEmpty()) {
       targets = targetGraphAndTargets.getProjectRoots().stream()
-          .map(HasBuildTarget::getBuildTarget)
+          .map(TargetNode::getBuildTarget)
           .collect(MoreCollectors.toImmutableSet());
     } else {
       targets = passedInTargetsSet;
@@ -1020,10 +1022,10 @@ public class ProjectCommand extends BuildCommand {
           params.getCell().getKnownBuildRuleTypes().getCxxPlatforms(),
           defaultCxxPlatform,
           params.getBuckConfig().getView(ParserConfig.class).getBuildFileName(),
-          input -> new SourcePathResolver(
+          input -> new SourcePathResolver(new SourcePathRuleFinder(
               ActionGraphCache.getFreshActionGraph(params.getBuckEventBus(),
                   targetGraphAndTargets.getTargetGraph().getSubgraph(
-                  ImmutableSet.of(input))).getResolver()),
+                  ImmutableSet.of(input))).getResolver())),
           params.getBuckEventBus(),
           halideBuckConfig,
           cxxBuckConfig,
@@ -1234,7 +1236,7 @@ public class ProjectCommand extends BuildCommand {
     return FluentIterable
         .from(projectGraph.getNodes())
         .filter(rootsPredicate)
-        .transform(HasBuildTarget::getBuildTarget)
+        .transform(TargetNode::getBuildTarget)
         .toSet();
   }
 
@@ -1308,7 +1310,7 @@ public class ProjectCommand extends BuildCommand {
             executor,
             Sets.union(
                 projectGraph.getNodes().stream()
-                    .map(HasBuildTarget::getBuildTarget)
+                    .map(TargetNode::getBuildTarget)
                     .collect(MoreCollectors.toImmutableSet()),
                 explicitTestTargets));
       }
@@ -1387,19 +1389,19 @@ public class ProjectCommand extends BuildCommand {
 
 
   public static class AggregationModeOptionHandler
-      extends OptionHandler<IjModuleGraph.AggregationMode> {
+      extends OptionHandler<AggregationMode> {
 
     public AggregationModeOptionHandler(
         CmdLineParser parser,
         OptionDef option,
-        Setter<? super IjModuleGraph.AggregationMode> setter) {
+        Setter<? super AggregationMode> setter) {
       super(parser, option, setter);
     }
 
     @Override
     public int parseArguments(Parameters params) throws CmdLineException {
       String param = params.getParameter(0);
-      setter.addValue(IjModuleGraph.AggregationMode.fromString(param));
+      setter.addValue(AggregationMode.fromString(param));
       return 1;
     }
 

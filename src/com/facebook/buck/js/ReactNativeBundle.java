@@ -19,7 +19,7 @@ package com.facebook.buck.js;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.rules.AbstractBuildRuleWithResolver;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
@@ -41,13 +41,14 @@ import com.google.common.collect.Maps;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Optional;
+import java.util.function.Predicate;
 
 /**
  * Responsible for running the React Native JS packager in order to generate a single {@code .js}
  * bundle along with resources referenced by the javascript code.
  */
 public class ReactNativeBundle
-    extends AbstractBuildRule
+    extends AbstractBuildRuleWithResolver
     implements SupportsInputBasedRuleKey, SupportsDependencyFileRuleKey {
 
   public static final String JS_BUNDLE_OUTPUT_DIR_FORMAT = "__%s_js__/";
@@ -133,7 +134,12 @@ public class ReactNativeBundle
     steps.add(new MakeCleanDirectoryStep(getProjectFilesystem(), sourceMapOutputPath.getParent()));
     steps.add(new MakeCleanDirectoryStep(getProjectFilesystem(), depFile.getParent()));
 
-    appendWorkerSteps(steps, jsOutput, sourceMapOutputPath, depFile);
+    appendWorkerSteps(
+        steps,
+        context.getSourcePathResolver(),
+        jsOutput,
+        sourceMapOutputPath,
+        depFile);
 
     buildableContext.recordArtifact(jsOutputDir);
     buildableContext.recordArtifact(resource);
@@ -143,6 +149,7 @@ public class ReactNativeBundle
 
   private void appendWorkerSteps(
       ImmutableList.Builder<Step> stepBuilder,
+      SourcePathResolver resolver,
       Path outputFile,
       Path sourceMapOutputPath,
       Path depFile) {
@@ -157,12 +164,12 @@ public class ReactNativeBundle
         new ReactNativeBundleWorkerStep(
             getProjectFilesystem(),
             tmpDir,
-            jsPackager.getCommandPrefix(getResolver()),
+            jsPackager.getCommandPrefix(resolver),
             packagerFlags,
             platform,
             isUnbundle,
             isIndexedUnbundle,
-            getProjectFilesystem().resolve(getResolver().getAbsolutePath(entryPath)),
+            getProjectFilesystem().resolve(resolver.getAbsolutePath(entryPath)),
             isDevMode,
             getProjectFilesystem().resolve(outputFile),
             getProjectFilesystem().resolve(resource),
@@ -174,10 +181,10 @@ public class ReactNativeBundle
         new ReactNativeDepsWorkerStep(
             getProjectFilesystem(),
             tmpDir,
-            jsPackager.getCommandPrefix(getResolver()),
+            jsPackager.getCommandPrefix(resolver),
             packagerFlags,
             platform,
-            getProjectFilesystem().resolve(getResolver().getAbsolutePath(entryPath)),
+            getProjectFilesystem().resolve(resolver.getAbsolutePath(entryPath)),
             getProjectFilesystem().resolve(depFile));
     stepBuilder.add(depsWorkerStep);
   }
@@ -212,12 +219,19 @@ public class ReactNativeBundle
   }
 
   @Override
-  public Optional<ImmutableSet<SourcePath>> getPossibleInputSourcePaths() {
-    return Optional.of(srcs);
+  public Predicate<SourcePath> getCoveredByDepFilePredicate() {
+    // note, sorted set is intentionally converted to a hash set to achieve constant time look-up
+    return ImmutableSet.copyOf(srcs)::contains;
   }
 
   @Override
-  public ImmutableList<SourcePath> getInputsAfterBuildingLocally() throws IOException {
+  public Predicate<SourcePath> getExistenceOfInterestPredicate() {
+    return (SourcePath path) -> false;
+  }
+
+  @Override
+  public ImmutableList<SourcePath> getInputsAfterBuildingLocally(BuildContext context)
+      throws IOException {
     ImmutableList.Builder<SourcePath> inputs = ImmutableList.builder();
 
     // Use the generated depfile to determinate which sources ended up being used.
@@ -225,7 +239,7 @@ public class ReactNativeBundle
         Maps.uniqueIndex(srcs, getResolver()::getAbsolutePath);
     Path depFile = getPathToDepFile(getBuildTarget(), getProjectFilesystem());
     for (String line : getProjectFilesystem().readLines(depFile)) {
-      Path path = getProjectFilesystem().getRootPath().getFileSystem().getPath(line);
+      Path path = getProjectFilesystem().getPath(line);
       SourcePath sourcePath = pathToSourceMap.get(path);
       if (sourcePath == null) {
         throw new IOException(

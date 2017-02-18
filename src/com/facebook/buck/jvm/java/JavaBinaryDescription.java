@@ -34,6 +34,7 @@ import com.facebook.buck.rules.Hint;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.versions.VersionRoot;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
@@ -58,14 +59,17 @@ public class JavaBinaryDescription implements
   private final JavacOptions javacOptions;
   private final CxxPlatform cxxPlatform;
   private final JavaOptions javaOptions;
+  private final JavaBuckConfig javaBuckConfig;
 
   public JavaBinaryDescription(
       JavaOptions javaOptions,
       JavacOptions javacOptions,
-      CxxPlatform cxxPlatform) {
+      CxxPlatform cxxPlatform,
+      JavaBuckConfig javaBuckConfig) {
     this.javaOptions = javaOptions;
     this.javacOptions = Preconditions.checkNotNull(javacOptions);
     this.cxxPlatform = Preconditions.checkNotNull(cxxPlatform);
+    this.javaBuckConfig = Preconditions.checkNotNull(javaBuckConfig);
   }
 
   @Override
@@ -80,7 +84,8 @@ public class JavaBinaryDescription implements
       BuildRuleResolver resolver,
       A args) throws NoSuchBuildTargetException {
 
-    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
     ImmutableMap<String, SourcePath> nativeLibraries =
         JavaLibraryRules.getNativeLibraries(params.getDeps(), cxxPlatform);
     BuildRuleParams binaryParams = params;
@@ -97,7 +102,7 @@ public class JavaBinaryDescription implements
     // Construct the build rule to build the binary JAR.
     ImmutableSet<JavaLibrary> transitiveClasspathDeps =
         JavaLibraryClasspathProvider.getClasspathDeps(binaryParams.getDeps());
-    ImmutableSet<Path> transitiveClasspaths =
+    ImmutableSet<SourcePath> transitiveClasspaths =
         JavaLibraryClasspathProvider.getClasspathsFromLibraries(transitiveClasspathDeps);
     BuildRule rule = new JavaBinary(
         binaryParams.appendExtraDeps(transitiveClasspathDeps),
@@ -109,7 +114,8 @@ public class JavaBinaryDescription implements
         args.metaInfDirectory.orElse(null),
         args.blacklist,
         transitiveClasspathDeps,
-        transitiveClasspaths);
+        transitiveClasspaths,
+        javaBuckConfig.shouldCacheBinaries());
 
     // If we're packaging native libraries, construct the rule to build the fat JAR, which packages
     // up the original binary JAR and any required native libraries.
@@ -120,12 +126,13 @@ public class JavaBinaryDescription implements
       rule = new JarFattener(
           params.appendExtraDeps(
               Suppliers.<Iterable<BuildRule>>ofInstance(
-                  pathResolver.filterBuildRuleInputs(
+                  ruleFinder.filterBuildRuleInputs(
                       ImmutableList.<SourcePath>builder()
                           .add(innerJar)
                           .addAll(nativeLibraries.values())
                           .build()))),
           pathResolver,
+          ruleFinder,
           javacOptions,
           innerJar,
           nativeLibraries,

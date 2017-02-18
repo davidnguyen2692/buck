@@ -18,6 +18,7 @@ package com.facebook.buck.python;
 
 import static com.facebook.buck.rules.BuildableProperties.Kind.PACKAGING;
 
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
@@ -29,6 +30,7 @@ import com.facebook.buck.rules.BuildableProperties;
 import com.facebook.buck.rules.CommandTool;
 import com.facebook.buck.rules.HasRuntimeDeps;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.step.Step;
@@ -37,14 +39,15 @@ import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.RmStep;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.ImmutableSortedSet;
 
 import java.nio.file.Path;
+import java.util.stream.Stream;
 
 public class PythonPackagedBinary extends PythonBinary implements HasRuntimeDeps {
 
   private static final BuildableProperties OUTPUT_TYPE = new BuildableProperties(PACKAGING);
 
+  private final SourcePathRuleFinder ruleFinder;
   @AddToRuleKey
   private final Tool builder;
   @AddToRuleKey
@@ -63,6 +66,7 @@ public class PythonPackagedBinary extends PythonBinary implements HasRuntimeDeps
   protected PythonPackagedBinary(
       BuildRuleParams params,
       SourcePathResolver resolver,
+      SourcePathRuleFinder ruleFinder,
       PythonPlatform pythonPlatform,
       Tool builder,
       ImmutableList<String> buildArgs,
@@ -83,6 +87,7 @@ public class PythonPackagedBinary extends PythonBinary implements HasRuntimeDeps
         preloadLibraries,
         pexExtension,
         legacyOutputPath);
+    this.ruleFinder = ruleFinder;
     this.builder = builder;
     this.buildArgs = buildArgs;
     this.pathToPexExecuter = pathToPexExecuter;
@@ -120,7 +125,10 @@ public class PythonPackagedBinary extends PythonBinary implements HasRuntimeDeps
     steps.add(new MkdirStep(getProjectFilesystem(), binPath.getParent()));
 
     // Delete any other pex that was there (when switching between pex styles).
-    steps.add(new RmStep(getProjectFilesystem(), binPath, /* force */ true, /* recurse */ true));
+    steps.add(new RmStep(
+        getProjectFilesystem(),
+        binPath,
+        RmStep.Mode.RECURSIVE));
 
     Path workingDirectory = BuildTargets.getGenPath(
         getProjectFilesystem(),
@@ -128,13 +136,15 @@ public class PythonPackagedBinary extends PythonBinary implements HasRuntimeDeps
         "__%s__working_directory");
     steps.add(new MakeCleanDirectoryStep(getProjectFilesystem(), workingDirectory));
 
+    SourcePathResolver resolver = context.getSourcePathResolver();
+
     // Generate and return the PEX build step.
     steps.add(
         new PexStep(
             getProjectFilesystem(),
             builder.getEnvironment(),
             ImmutableList.<String>builder()
-                .addAll(builder.getCommandPrefix(getResolver()))
+                .addAll(builder.getCommandPrefix(resolver))
                 .addAll(buildArgs)
                 .build(),
             pythonEnvironment.getPythonPath(),
@@ -142,11 +152,11 @@ public class PythonPackagedBinary extends PythonBinary implements HasRuntimeDeps
             workingDirectory,
             binPath,
             mainModule,
-            getResolver().getMappedPaths(components.getModules()),
-            getResolver().getMappedPaths(components.getResources()),
-            getResolver().getMappedPaths(components.getNativeLibraries()),
+            resolver.getMappedPaths(components.getModules()),
+            resolver.getMappedPaths(components.getResources()),
+            resolver.getMappedPaths(components.getNativeLibraries()),
             ImmutableSet.copyOf(
-                getResolver().deprecatedAllPaths(components.getPrebuiltLibraries())),
+                resolver.getAllAbsolutePaths(components.getPrebuiltLibraries())),
             preloadLibraries,
             components.isZipSafe().orElse(true)));
 
@@ -157,11 +167,12 @@ public class PythonPackagedBinary extends PythonBinary implements HasRuntimeDeps
   }
 
   @Override
-  public ImmutableSortedSet<BuildRule> getRuntimeDeps() {
-    return ImmutableSortedSet.<BuildRule>naturalOrder()
-        .addAll(super.getRuntimeDeps())
-        .addAll(pathToPexExecuter.getDeps(getResolver()))
-        .build();
+  public Stream<BuildTarget> getRuntimeDeps() {
+    return Stream.concat(
+        super.getRuntimeDeps(),
+        pathToPexExecuter.getDeps(ruleFinder)
+            .stream()
+            .map(BuildRule::getBuildTarget));
   }
 
   @Override

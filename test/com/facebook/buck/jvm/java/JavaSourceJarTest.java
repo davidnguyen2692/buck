@@ -19,9 +19,10 @@ package com.facebook.buck.jvm.java;
 import static org.easymock.EasyMock.anyObject;
 import static org.easymock.EasyMock.createNiceMock;
 import static org.easymock.EasyMock.expect;
+import static org.hamcrest.Matchers.endsWith;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.event.BuckEventBusFactory;
 import com.facebook.buck.jvm.core.JavaPackageFinder;
@@ -36,6 +37,7 @@ import com.facebook.buck.rules.FakeBuildableContext;
 import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.CopyStep;
@@ -54,27 +56,28 @@ public class JavaSourceJarTest {
 
   @Test
   public void outputNameShouldIndicateThatTheOutputIsASrcJar() {
+    BuildRuleResolver resolver = new BuildRuleResolver(
+        TargetGraph.EMPTY,
+        new DefaultTargetNodeToBuildRuleTransformer());
+
     JavaSourceJar rule = new JavaSourceJar(
         new FakeBuildRuleParamsBuilder("//example:target").build(),
-        new SourcePathResolver(
-            new BuildRuleResolver(
-              TargetGraph.EMPTY,
-              new DefaultTargetNodeToBuildRuleTransformer())
-        ),
         ImmutableSortedSet.of(),
         Optional.empty());
+    resolver.addToIndex(rule);
 
-    Path output = rule.getPathToOutput();
+    SourcePath output = rule.getSourcePathToOutput();
 
     assertNotNull(output);
-    assertTrue(output.toString().endsWith(Javac.SRC_JAR));
+    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
+    assertThat(pathResolver.getRelativePath(output).toString(), endsWith(Javac.SRC_JAR));
   }
 
   @Test
   public void shouldOnlyIncludePathBasedSources() {
-    SourcePathResolver pathResolver = new SourcePathResolver(
+    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())
-    );
+    ));
     SourcePath fileBased = new FakeSourcePath("some/path/File.java");
     SourcePath ruleBased = new BuildTargetSourcePath(
         BuildTargetFactory.newInstance("//cheese:cake"));
@@ -89,12 +92,12 @@ public class JavaSourceJarTest {
 
     JavaSourceJar rule = new JavaSourceJar(
         new FakeBuildRuleParamsBuilder("//example:target").build(),
-        pathResolver,
         ImmutableSortedSet.of(fileBased, ruleBased),
         Optional.empty());
 
     BuildContext buildContext = BuildContext.builder()
         .setActionGraph(new ActionGraph(ImmutableList.of()))
+        .setSourcePathResolver(pathResolver)
         .setJavaPackageFinder(finderStub)
         .setEventBus(BuckEventBusFactory.newInstance())
         .build();

@@ -21,7 +21,6 @@ import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.google.common.collect.ImmutableList;
@@ -39,9 +38,8 @@ public class OcamlDebugLauncher extends AbstractBuildRule {
 
   public OcamlDebugLauncher(
       BuildRuleParams params,
-      SourcePathResolver resolver,
       OcamlDebugLauncherStep.Args args) {
-    super(params, resolver);
+    super(params);
     this.args = args;
   }
 
@@ -52,7 +50,7 @@ public class OcamlDebugLauncher extends AbstractBuildRule {
     buildableContext.recordArtifact(args.getOutput());
     return ImmutableList.of(
       new MkdirStep(getProjectFilesystem(), args.getOutput().getParent()),
-      new OcamlDebugLauncherStep(getProjectFilesystem(), getResolver(), args)
+      new OcamlDebugLauncherStep(getProjectFilesystem(), context.getSourcePathResolver(), args)
     );
   }
 

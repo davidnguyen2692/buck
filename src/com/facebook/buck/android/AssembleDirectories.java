@@ -23,7 +23,6 @@ import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.CopyStep;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
@@ -40,9 +39,8 @@ public class AssembleDirectories extends AbstractBuildRule {
 
   public AssembleDirectories(
       BuildRuleParams buildRuleParams,
-      SourcePathResolver resolver,
       ImmutableCollection<SourcePath> directories) {
-    super(buildRuleParams, resolver);
+    super(buildRuleParams);
     this.originalDirectories = directories;
     this.destinationDirectory = BuildTargets.getGenPath(
         getProjectFilesystem(),
@@ -56,7 +54,7 @@ public class AssembleDirectories extends AbstractBuildRule {
     ImmutableList.Builder<Step> steps = ImmutableList.builder();
     steps.add(new MakeCleanDirectoryStep(getProjectFilesystem(), destinationDirectory));
     for (SourcePath directory : originalDirectories) {
-      Path resolvedPath = getResolver().getAbsolutePath(directory);
+      Path resolvedPath = context.getSourcePathResolver().getAbsolutePath(directory);
       steps.add(
           CopyStep.forDirectory(
               getProjectFilesystem(),

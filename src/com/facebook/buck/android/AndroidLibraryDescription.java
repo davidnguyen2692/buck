@@ -25,6 +25,7 @@ import com.facebook.buck.jvm.java.JavaSourceJar;
 import com.facebook.buck.jvm.java.JavacOptions;
 import com.facebook.buck.jvm.java.JavacOptionsFactory;
 import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.model.Either;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.Flavored;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
@@ -39,9 +40,10 @@ import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePaths;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
-import com.facebook.buck.rules.query.DepQueryUtils;
+import com.facebook.buck.rules.query.Query;
+import com.facebook.buck.rules.query.QueryUtils;
 import com.facebook.buck.util.DependencyMode;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.base.Suppliers;
@@ -88,16 +90,17 @@ public class AndroidLibraryDescription
       BuildRuleParams params,
       BuildRuleResolver resolver,
       A args) throws NoSuchBuildTargetException {
-    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
     if (params.getBuildTarget().getFlavors().contains(JavaLibrary.SRC_JAR)) {
-      return new JavaSourceJar(params, pathResolver, args.srcs, args.mavenCoords);
+      return new JavaSourceJar(params, args.srcs, args.mavenCoords);
     }
+
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
 
     JavacOptions javacOptions = JavacOptionsFactory.create(
         defaultOptions,
         params,
         resolver,
-        pathResolver,
+        ruleFinder,
         args
     );
 
@@ -113,15 +116,15 @@ public class AndroidLibraryDescription
 
     boolean hasDummyRDotJavaFlavor =
         params.getBuildTarget().getFlavors().contains(DUMMY_R_DOT_JAVA_FLAVOR);
-    if (params.getBuildTarget().getFlavors().contains(CalculateAbi.FLAVOR)) {
+    if (CalculateAbi.isAbiTarget(params.getBuildTarget())) {
       if (hasDummyRDotJavaFlavor) {
-        return graphEnhancer.getBuildableForAndroidResourcesAbi(resolver, pathResolver);
+        return graphEnhancer.getBuildableForAndroidResourcesAbi(resolver, ruleFinder);
       }
-      BuildTarget libraryTarget = params.getBuildTarget().withoutFlavors(CalculateAbi.FLAVOR);
+      BuildTarget libraryTarget = CalculateAbi.getLibraryTarget(params.getBuildTarget());
       resolver.requireRule(libraryTarget);
       return CalculateAbi.of(
           params.getBuildTarget(),
-          pathResolver,
+          ruleFinder,
           params,
           new BuildTargetSourcePath(libraryTarget));
     }
@@ -132,9 +135,10 @@ public class AndroidLibraryDescription
     if (hasDummyRDotJavaFlavor) {
       return dummyRDotJava.get();
     } else {
-      ImmutableSet<Path> additionalClasspathEntries = ImmutableSet.of();
+      ImmutableSet<Either<SourcePath, Path>> additionalClasspathEntries = ImmutableSet.of();
       if (dummyRDotJava.isPresent()) {
-        additionalClasspathEntries = ImmutableSet.of(dummyRDotJava.get().getPathToOutput());
+        additionalClasspathEntries = ImmutableSet.of(
+            Either.ofLeft(dummyRDotJava.get().getSourcePathToOutput()));
         ImmutableSortedSet<BuildRule> newDeclaredDeps = ImmutableSortedSet.<BuildRule>naturalOrder()
             .addAll(params.getDeclaredDeps().get())
             .add(dummyRDotJava.get())
@@ -143,8 +147,6 @@ public class AndroidLibraryDescription
             Suppliers.ofInstance(newDeclaredDeps),
             params.getExtraDeps());
       }
-
-      BuildTarget abiJarTarget = params.getBuildTarget().withAppendedFlavors(CalculateAbi.FLAVOR);
 
       AndroidLibraryCompiler compiler =
           compilerFactory.getCompiler(args.language.orElse(JvmLanguage.JAVA));
@@ -159,7 +161,7 @@ public class AndroidLibraryDescription
       // Resolve the dependencies query, if present and add to declared deps
       if (args.depsQuery.isPresent()) {
         declaredDepsBuilder.addAll(
-            DepQueryUtils.resolveDepQuery(
+            QueryUtils.resolveDepQuery(
                 params,
                 args.depsQuery.get(),
                 resolver,
@@ -177,9 +179,11 @@ public class AndroidLibraryDescription
                       declaredDeps,
                       exportedDeps,
                       resolver.getAllRules(args.providedDeps))))
-              .addAll(pathResolver.filterBuildRuleInputs(javacOptions.getInputs(pathResolver)))
+              .addAll(ruleFinder.filterBuildRuleInputs(javacOptions.getInputs(ruleFinder)))
               .addAll(compiler.getExtraDeps(args, resolver))
               .build();
+
+      SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
 
       BuildRuleParams androidLibraryParams =
           params.copyWithDeps(
@@ -188,16 +192,15 @@ public class AndroidLibraryDescription
       return new AndroidLibrary(
           androidLibraryParams,
           pathResolver,
+          ruleFinder,
           args.srcs,
           ResourceValidator.validateResources(
               pathResolver,
               params.getProjectFilesystem(), args.resources),
-          args.proguardConfig.map(
-              SourcePaths.toSourcePath(params.getProjectFilesystem())::apply),
+          args.proguardConfig,
           args.postprocessClassesCommands,
           exportedDeps,
           resolver.getAllRules(args.providedDeps),
-          abiJarTarget,
           JavaLibraryRules.getAbiInputs(resolver, androidLibraryParams.getDeps()),
           additionalClasspathEntries,
           javacOptions,
@@ -232,7 +235,7 @@ public class AndroidLibraryDescription
     public Optional<String> resourceUnionPackage;
     public Optional<String> finalRName;
     public Optional<JvmLanguage> language;
-    public Optional<String> depsQuery;
+    public Optional<Query> depsQuery;
   }
 }
 

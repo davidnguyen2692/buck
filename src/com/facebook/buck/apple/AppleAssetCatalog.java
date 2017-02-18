@@ -25,15 +25,12 @@ import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.MkdirStep;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
-import com.google.common.collect.Iterables;
 
 import java.nio.file.Path;
 import java.util.Optional;
@@ -46,7 +43,6 @@ public class AppleAssetCatalog extends AbstractBuildRule {
   public static final Flavor FLAVOR = ImmutableFlavor.of("apple-asset-catalog");
 
   private static final String BUNDLE_DIRECTORY_EXTENSION = ".bundle";
-  private static final String XCASSETS_DIRECTORY_EXTENSION = ".xcassets";
 
   @AddToRuleKey
   private final String applePlatformName;
@@ -73,7 +69,6 @@ public class AppleAssetCatalog extends AbstractBuildRule {
 
   AppleAssetCatalog(
       BuildRuleParams params,
-      final SourcePathResolver resolver,
       String applePlatformName,
       Tool actool,
       SortedSet<SourcePath> assetCatalogDirs,
@@ -81,13 +76,7 @@ public class AppleAssetCatalog extends AbstractBuildRule {
       Optional<String> launchImage,
       AppleAssetCatalogDescription.Optimization optimization,
       String bundleName) {
-    super(params, resolver);
-    Preconditions.checkArgument(
-        Iterables.all(
-            assetCatalogDirs,
-            input -> resolver.getAbsolutePath(input)
-                .toString()
-                .endsWith(XCASSETS_DIRECTORY_EXTENSION)));
+    super(params);
     this.applePlatformName = applePlatformName;
     this.actool = actool;
     this.assetCatalogDirs = ImmutableSortedSet.copyOf(assetCatalogDirs);
@@ -110,16 +99,13 @@ public class AppleAssetCatalog extends AbstractBuildRule {
     stepsBuilder.add(new MakeCleanDirectoryStep(getProjectFilesystem(), outputDir));
     stepsBuilder.add(new MkdirStep(getProjectFilesystem(), outputPlist.getParent()));
     ImmutableSortedSet<Path> absoluteAssetCatalogDirs =
-        ImmutableSortedSet.copyOf(
-            Iterables.transform(
-                assetCatalogDirs,
-                getResolver()::getAbsolutePath));
+        context.getSourcePathResolver().getAllAbsolutePaths(assetCatalogDirs);
     stepsBuilder.add(
         new ActoolStep(
             getProjectFilesystem().getRootPath(),
             applePlatformName,
             actool.getEnvironment(),
-            actool.getCommandPrefix(getResolver()),
+            actool.getCommandPrefix(context.getSourcePathResolver()),
             absoluteAssetCatalogDirs,
             getProjectFilesystem().resolve(outputDir),
             getProjectFilesystem().resolve(outputPlist),

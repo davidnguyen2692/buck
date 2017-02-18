@@ -45,12 +45,14 @@ import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.SourcePaths;
 import com.facebook.buck.rules.SourceWithFlags;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.coercer.SourceList;
+import com.facebook.buck.shell.AbstractGenruleDescription;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.OptionalCompat;
@@ -228,12 +230,12 @@ public class AppleDescriptions {
         ImmutableSortedMap.<String, SourcePath>naturalOrder()
             .putAll(
                 convertAppleHeadersToPublicCxxHeaders(
-                    resolver::deprecatedGetPath,
+                    resolver::getRelativePath,
                     headerPathPrefix,
                     arg))
             .putAll(
                 convertAppleHeadersToPrivateCxxHeaders(
-                    resolver::deprecatedGetPath,
+                    resolver::getRelativePath,
                     headerPathPrefix,
                     arg))
             .build();
@@ -267,6 +269,7 @@ public class AppleDescriptions {
     output.headerNamespace = Optional.of("");
     output.cxxRuntimeType = arg.cxxRuntimeType;
     output.tests = arg.tests;
+    output.precompiledHeader = arg.precompiledHeader;
   }
 
   public static void populateCxxBinaryDescriptionArg(
@@ -296,7 +299,7 @@ public class AppleDescriptions {
     output.headers =
         SourceList.ofNamedSources(
             convertAppleHeadersToPrivateCxxHeaders(
-                resolver::deprecatedGetPath,
+                resolver::getRelativePath,
                 headerPathPrefix,
                 arg));
     output.exportedDeps = arg.exportedDeps;
@@ -304,7 +307,7 @@ public class AppleDescriptions {
     output.exportedHeaders =
         SourceList.ofNamedSources(
             convertAppleHeadersToPublicCxxHeaders(
-                resolver::deprecatedGetPath,
+                resolver::getRelativePath,
                 headerPathPrefix,
                 arg));
     output.exportedPlatformHeaders = arg.exportedPlatformHeaders;
@@ -382,6 +385,16 @@ public class AppleDescriptions {
       return Optional.empty();
     }
 
+    for (SourcePath assetCatalogDir : assetCatalogDirs) {
+      Path baseName = sourcePathResolver.getRelativePath(assetCatalogDir).getFileName();
+      if (!baseName.toString().endsWith(".xcassets")) {
+        throw new HumanReadableException(
+            "Target %s had asset catalog dir %s - asset catalog dirs must end with .xcassets",
+            params.getBuildTarget(),
+            assetCatalogDir);
+      }
+    }
+
     BuildRuleParams assetCatalogParams = params.copyWithChanges(
         params.getBuildTarget().withAppendedFlavors(AppleAssetCatalog.FLAVOR),
         Suppliers.ofInstance(ImmutableSortedSet.of()),
@@ -390,7 +403,6 @@ public class AppleDescriptions {
     return Optional.of(
         new AppleAssetCatalog(
             assetCatalogParams,
-            sourcePathResolver,
             applePlatform.getName(),
             actool,
             assetCatalogDirs,
@@ -403,7 +415,6 @@ public class AppleDescriptions {
   public static Optional<CoreDataModel> createBuildRulesForCoreDataDependencies(
       TargetGraph targetGraph,
       BuildRuleParams params,
-      SourcePathResolver sourcePathResolver,
       String moduleName,
       AppleCxxPlatform appleCxxPlatform) {
     TargetNode<?, ?> targetNode = targetGraph.get(params.getBuildTarget());
@@ -425,7 +436,6 @@ public class AppleDescriptions {
     } else {
       return Optional.of(new CoreDataModel(
           coreDataModelParams,
-          sourcePathResolver,
           appleCxxPlatform,
           moduleName,
           coreDataModelArgs.stream()
@@ -437,7 +447,6 @@ public class AppleDescriptions {
   public static Optional<SceneKitAssets> createBuildRulesForSceneKitAssetsDependencies(
       TargetGraph targetGraph,
       BuildRuleParams params,
-      SourcePathResolver sourcePathResolver,
       AppleCxxPlatform appleCxxPlatform) {
     TargetNode<?, ?> targetNode = targetGraph.get(params.getBuildTarget());
 
@@ -458,7 +467,6 @@ public class AppleDescriptions {
     } else {
       return Optional.of(new SceneKitAssets(
           sceneKitAssetsParams,
-          sourcePathResolver,
           appleCxxPlatform,
           sceneKitAssetsArgs.stream()
               .map(input -> new PathSourcePath(params.getProjectFilesystem(), input.path))
@@ -500,7 +508,7 @@ public class AppleDescriptions {
                     unstrippedBinaryRule,
                     appleDsym)),
             Suppliers.ofInstance(ImmutableSortedSet.of())),
-        new SourcePathResolver(resolver),
+        new SourcePathResolver(new SourcePathRuleFinder(resolver)),
         buildRuleForDebugFormat);
     return rule;
   }
@@ -561,7 +569,6 @@ public class AppleDescriptions {
                     .addAll(unstrippedBinaryBuildRule.getStaticLibraryDeps())
                     .build()),
             Suppliers.ofInstance(ImmutableSortedSet.of())),
-        new SourcePathResolver(resolver),
         appleCxxPlatform.getDsymutil(),
         appleCxxPlatform.getLldb(),
         new BuildTargetSourcePath(unstrippedBinaryBuildRule.getBuildTarget()),
@@ -630,7 +637,8 @@ public class AppleDescriptions {
     }
     ImmutableSet<SourcePath> frameworks = frameworksBuilder.build();
 
-    SourcePathResolver sourcePathResolver = new SourcePathResolver(resolver);
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    SourcePathResolver sourcePathResolver = new SourcePathResolver(ruleFinder);
     BuildRuleParams paramsWithoutBundleSpecificFlavors = stripBundleSpecificFlavors(params);
 
     Optional<AppleAssetCatalog> assetCatalog =
@@ -640,21 +648,22 @@ public class AppleDescriptions {
             sourcePathResolver,
             appleCxxPlatform.getAppleSdk().getApplePlatform(),
             appleCxxPlatform.getActool());
+    addToIndex(resolver, assetCatalog);
 
     Optional<CoreDataModel> coreDataModel =
         createBuildRulesForCoreDataDependencies(
             targetGraph,
             paramsWithoutBundleSpecificFlavors,
-            sourcePathResolver,
             AppleBundle.getBinaryName(params.getBuildTarget(), productName),
             appleCxxPlatform);
+    addToIndex(resolver, coreDataModel);
 
     Optional<SceneKitAssets> sceneKitAssets =
         createBuildRulesForSceneKitAssetsDependencies(
             targetGraph,
             paramsWithoutBundleSpecificFlavors,
-            sourcePathResolver,
             appleCxxPlatform);
+    addToIndex(resolver, sceneKitAssets);
 
     // TODO(bhamiltoncx): Sort through the changes needed to make project generation work with
     // binary being optional.
@@ -762,6 +771,12 @@ public class AppleDescriptions {
         cacheable);
   }
 
+  private static void addToIndex(BuildRuleResolver resolver, Optional<? extends BuildRule> rule) {
+    if (rule.isPresent()) {
+      resolver.addToIndex(rule.get());
+    }
+  }
+
   private static BuildRule getBinaryFromBuildRuleWithBinary(BuildRule rule) {
     if (rule instanceof BuildRuleWithBinary) {
       rule = ((BuildRuleWithBinary) rule).getBinaryBuildRule();
@@ -776,6 +791,12 @@ public class AppleDescriptions {
       ImmutableSet<Flavor> flavors,
       BuildRuleResolver resolver,
       BuildTarget binary) throws NoSuchBuildTargetException {
+
+    // Don't flavor genrule deps.
+    if (targetGraph.get(binary).getDescription() instanceof AbstractGenruleDescription) {
+      return resolver.requireRule(binary);
+    }
+
     // Cxx targets must have one Platform Flavor set otherwise nothing gets compiled.
     if (flavors.contains(AppleDescriptions.FRAMEWORK_FLAVOR)) {
       flavors = ImmutableSet.<Flavor>builder()
@@ -864,13 +885,10 @@ public class AppleDescriptions {
     for (BuildRule rule : deps) {
       if (rule instanceof AppleBundle) {
         AppleBundle appleBundle = (AppleBundle) rule;
-        Path outputPath = Preconditions.checkNotNull(
-            appleBundle.getPathToOutput(),
+        SourcePath sourcePath = Preconditions.checkNotNull(
+            appleBundle.getSourcePathToOutput(),
             "Path cannot be null for AppleBundle [%s].",
             appleBundle);
-        SourcePath sourcePath = new BuildTargetSourcePath(
-            appleBundle.getBuildTarget(),
-            outputPath);
 
         if (AppleBundleExtension.APPEX.toFileExtension().equals(appleBundle.getExtension()) ||
             AppleBundleExtension.APP.toFileExtension().equals(appleBundle.getExtension())) {

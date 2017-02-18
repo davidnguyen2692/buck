@@ -15,6 +15,7 @@
  */
 package com.facebook.buck.artifact_cache;
 
+import com.facebook.buck.cli.BuckConfig;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.NetworkEvent.BytesReceivedEvent;
 import com.facebook.buck.io.ProjectFilesystem;
@@ -26,7 +27,9 @@ import com.facebook.buck.slb.LoadBalancedService;
 import com.facebook.buck.slb.RetryingHttpService;
 import com.facebook.buck.slb.SingleUriService;
 import com.facebook.buck.timing.DefaultClock;
+import com.facebook.buck.util.AsyncCloseable;
 import com.facebook.buck.util.HumanReadableException;
+import com.google.common.base.CharMatcher;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -40,6 +43,7 @@ import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 
 import okhttp3.ConnectionPool;
+import okhttp3.Dispatcher;
 import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
@@ -54,21 +58,49 @@ import okio.Source;
 /**
  * Creates instances of the {@link ArtifactCache}.
  */
-public class ArtifactCaches {
+public class ArtifactCaches implements ArtifactCacheFactory {
 
   private static final Logger LOG = Logger.get(ArtifactCaches.class);
+
+  private final ArtifactCacheBuckConfig buckConfig;
+  private final BuckEventBus buckEventBus;
+  private final ProjectFilesystem projectFilesystem;
+  private final Optional<String> wifiSsid;
+  private final ListeningExecutorService httpWriteExecutorService;
+  private final Optional<AsyncCloseable> asyncCloseable;
 
   private interface NetworkCacheFactory {
     ArtifactCache newInstance(NetworkCacheArgs args);
   }
 
   private static final NetworkCacheFactory HTTP_PROTOCOL = HttpArtifactCache::new;
-
   private static final NetworkCacheFactory THRIFT_PROTOCOL = ThriftArtifactCache::new;
-
   private static final int SLB_THREAD_PRIORITY = Thread.MAX_PRIORITY;
 
-  private ArtifactCaches() {
+
+  /**
+   * Creates a new instance of the cache factory for use during a build.
+   *
+   * @param buckConfig        describes what kind of cache to create
+   * @param buckEventBus      event bus
+   * @param projectFilesystem filesystem to store files on
+   * @param wifiSsid          current WiFi ssid to decide if we want the http cache or not
+   * @param asyncCloseable
+   */
+  public ArtifactCaches(
+      ArtifactCacheBuckConfig buckConfig,
+      BuckEventBus buckEventBus,
+      ProjectFilesystem projectFilesystem,
+      Optional<String> wifiSsid,
+      ListeningExecutorService httpWriteExecutorService,
+      Optional<AsyncCloseable> asyncCloseable) {
+
+    this.buckConfig = buckConfig;
+    this.buckEventBus = buckEventBus;
+    this.projectFilesystem = projectFilesystem;
+    this.wifiSsid = wifiSsid;
+    this.httpWriteExecutorService = httpWriteExecutorService;
+    this.asyncCloseable = asyncCloseable;
   }
 
   private static Request.Builder addHeadersToBuilder(
@@ -80,38 +112,54 @@ public class ArtifactCaches {
     return builder;
   }
 
+  @Override
+  public ArtifactCache newInstance() {
+    return newInstance(false);
+  }
+
   /**
    * Creates a new instance of the cache for use during a build.
    *
-   * @param buckConfig describes what kind of cache to create
-   * @param buckEventBus event bus
-   * @param projectFilesystem filesystem to store files on
-   * @param wifiSsid current WiFi ssid to decide if we want the http cache or not
-   * @return a cache
-   * @throws InterruptedException
+   * @param distributedBuildModeEnabled  true if this is a distributed build
+   * @return ArtifactCache instance
    */
-  public static ArtifactCache newInstance(
-      ArtifactCacheBuckConfig buckConfig,
-      BuckEventBus buckEventBus,
-      ProjectFilesystem projectFilesystem,
-      Optional<String> wifiSsid,
-      ListeningExecutorService httpWriteExecutorService) {
+  @Override
+  public ArtifactCache newInstance(
+      boolean distributedBuildModeEnabled) {
     ArtifactCacheConnectEvent.Started started = ArtifactCacheConnectEvent.started();
     buckEventBus.post(started);
+
     ArtifactCache artifactCache = newInstanceInternal(
         buckConfig,
         buckEventBus,
         projectFilesystem,
         wifiSsid,
-        httpWriteExecutorService);
+        httpWriteExecutorService,
+        distributedBuildModeEnabled);
+
+    if (asyncCloseable.isPresent()) {
+      artifactCache = asyncCloseable.get().closeAsync(artifactCache);
+    }
+
     buckEventBus.post(ArtifactCacheConnectEvent.finished(started));
     return artifactCache;
+  }
+
+  @Override
+  public ArtifactCacheFactory cloneWith(BuckConfig newConfig) {
+    return new ArtifactCaches(
+        new ArtifactCacheBuckConfig(newConfig),
+        buckEventBus,
+        projectFilesystem,
+        wifiSsid,
+        httpWriteExecutorService,
+        asyncCloseable);
   }
 
   /**
    * Creates a new instance of the cache to be used to serve the dircache from the WebServer.
    *
-   * @param buckConfig describes how to configure te cache
+   * @param buckConfig        describes how to configure te cache
    * @param projectFilesystem filesystem to store files on
    * @return a cache
    */
@@ -129,7 +177,8 @@ public class ArtifactCaches {
       BuckEventBus buckEventBus,
       ProjectFilesystem projectFilesystem,
       Optional<String> wifiSsid,
-      ListeningExecutorService httpWriteExecutorService) {
+      ListeningExecutorService httpWriteExecutorService,
+      boolean distributedBuildModeEnabled) {
     ImmutableSet<ArtifactCacheBuckConfig.ArtifactCacheMode> modes =
         buckConfig.getArtifactCacheModes();
     if (modes.isEmpty()) {
@@ -139,11 +188,7 @@ public class ArtifactCaches {
     for (ArtifactCacheBuckConfig.ArtifactCacheMode mode : modes) {
       switch (mode) {
         case dir:
-          builder.add(
-              createDirArtifactCache(
-                  Optional.of(buckEventBus),
-                  buckConfig.getDirCache(),
-                  projectFilesystem));
+          initializeDirCaches(buckConfig, buckEventBus, projectFilesystem, builder);
           break;
         case http:
           initializeDistributedCaches(
@@ -153,6 +198,7 @@ public class ArtifactCaches {
               wifiSsid,
               httpWriteExecutorService,
               builder,
+              distributedBuildModeEnabled,
               HTTP_PROTOCOL);
           break;
 
@@ -164,6 +210,7 @@ public class ArtifactCaches {
               wifiSsid,
               httpWriteExecutorService,
               builder,
+              distributedBuildModeEnabled,
               THRIFT_PROTOCOL);
           break;
       }
@@ -190,6 +237,20 @@ public class ArtifactCaches {
     return result;
   }
 
+  private static void initializeDirCaches(
+      ArtifactCacheBuckConfig buckConfig,
+      BuckEventBus buckEventBus,
+      ProjectFilesystem projectFilesystem,
+      ImmutableList.Builder<ArtifactCache> builder) {
+    for (DirCacheEntry cacheEntry : buckConfig.getDirCacheEntries()) {
+      builder.add(
+          createDirArtifactCache(
+              Optional.ofNullable(buckEventBus),
+              cacheEntry,
+              projectFilesystem));
+    }
+  }
+
   private static void initializeDistributedCaches(
       ArtifactCacheBuckConfig buckConfig,
       BuckEventBus buckEventBus,
@@ -197,6 +258,7 @@ public class ArtifactCaches {
       Optional<String> wifiSsid,
       ListeningExecutorService httpWriteExecutorService,
       ImmutableList.Builder<ArtifactCache> builder,
+      boolean distributedBuildModeEnabled,
       NetworkCacheFactory factory) {
     for (HttpCacheEntry cacheEntry : buckConfig.getHttpCaches()) {
       if (!cacheEntry.isWifiUsableForDistributedCache(wifiSsid)) {
@@ -205,13 +267,14 @@ public class ArtifactCaches {
       }
 
       builder.add(createHttpArtifactCache(
-              cacheEntry,
-              buckConfig.getHostToReportToRemoteCacheServer(),
-              buckEventBus,
-              projectFilesystem,
-              httpWriteExecutorService,
-              buckConfig,
-              factory));
+          cacheEntry,
+          buckConfig.getHostToReportToRemoteCacheServer(),
+          buckEventBus,
+          projectFilesystem,
+          httpWriteExecutorService,
+          buckConfig,
+          factory,
+          distributedBuildModeEnabled));
     }
   }
 
@@ -221,7 +284,7 @@ public class ArtifactCaches {
       ProjectFilesystem projectFilesystem) {
     Path cacheDir = dirCacheConfig.getCacheDir();
     try {
-      DirArtifactCache dirArtifactCache =  new DirArtifactCache(
+      DirArtifactCache dirArtifactCache = new DirArtifactCache(
           "dir",
           projectFilesystem,
           cacheDir,
@@ -232,7 +295,8 @@ public class ArtifactCaches {
         return dirArtifactCache;
       }
 
-      return new LoggingArtifactCacheDecorator(buckEventBus.get(),
+      return new LoggingArtifactCacheDecorator(
+          buckEventBus.get(),
           dirArtifactCache,
           new DirArtifactCacheEvent.DirArtifactCacheEventFactory());
 
@@ -251,15 +315,17 @@ public class ArtifactCaches {
       ProjectFilesystem projectFilesystem,
       ListeningExecutorService httpWriteExecutorService,
       ArtifactCacheBuckConfig config,
-      NetworkCacheFactory factory) {
+      NetworkCacheFactory factory,
+      boolean distributedBuildModeEnabled) {
 
     // Setup the default client to use.
     OkHttpClient.Builder storeClientBuilder = new OkHttpClient.Builder();
     storeClientBuilder.networkInterceptors().add(
         chain -> chain.proceed(
             chain.request().newBuilder()
-                .addHeader("X-BuckCache-User", System.getProperty("user.name", "<unknown>"))
-                .addHeader("X-BuckCache-Host", hostToReportToRemote)
+                .addHeader("X-BuckCache-User",
+                    stripNonAscii(System.getProperty("user.name", "<unknown>")))
+                .addHeader("X-BuckCache-Host", stripNonAscii(hostToReportToRemote))
                 .build()));
     int timeoutSeconds = cacheDescription.getTimeoutSeconds();
     setTimeouts(storeClientBuilder, timeoutSeconds);
@@ -268,7 +334,13 @@ public class ArtifactCaches {
             /* maxIdleConnections */ (int) config.getThreadPoolSize(),
             /* keepAliveDurationMs */ config.getThreadPoolKeepAliveDurationMillis(),
             TimeUnit.MILLISECONDS)
-        );
+    );
+
+    // The artifact cache effectively only connects to a single host at a time. We should allow as
+    // many concurrent connections to that host as we allow threads.
+    Dispatcher dispatcher = new Dispatcher();
+    dispatcher.setMaxRequestsPerHost((int) config.getThreadPoolSize());
+    storeClientBuilder.dispatcher(dispatcher);
 
     final ImmutableMap<String, String> readHeaders = cacheDescription.getReadHeaders();
     final ImmutableMap<String, String> writeHeaders = cacheDescription.getWriteHeaders();
@@ -277,7 +349,7 @@ public class ArtifactCaches {
     if (!writeHeaders.isEmpty()) {
       storeClientBuilder.networkInterceptors().add(
           chain -> chain.proceed(
-            addHeadersToBuilder(chain.request().newBuilder(), writeHeaders).build()
+              addHeadersToBuilder(chain.request().newBuilder(), writeHeaders).build()
           ));
     }
 
@@ -291,7 +363,7 @@ public class ArtifactCaches {
     if (!readHeaders.isEmpty()) {
       fetchClientBuilder.networkInterceptors().add(
           chain -> chain.proceed(
-            addHeadersToBuilder(chain.request().newBuilder(), readHeaders).build()
+              addHeadersToBuilder(chain.request().newBuilder(), readHeaders).build()
           ));
     }
 
@@ -345,7 +417,19 @@ public class ArtifactCaches {
             .setBuckEventBus(buckEventBus)
             .setHttpWriteExecutorService(httpWriteExecutorService)
             .setErrorTextTemplate(cacheDescription.getErrorMessageFormat())
+            .setDistributedBuildModeEnabled(distributedBuildModeEnabled)
             .build());
+  }
+
+  private static String stripNonAscii(String str) {
+    if (CharMatcher.ascii().matchesAllOf(str)) {
+      return str;
+    }
+    StringBuilder builder = new StringBuilder();
+    for (char c : str.toCharArray()) {
+      builder.append(CharMatcher.ascii().matches(c) ? c : '?');
+    }
+    return builder.toString();
   }
 
   private static OkHttpClient.Builder setTimeouts(

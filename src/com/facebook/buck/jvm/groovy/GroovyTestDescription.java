@@ -35,8 +35,8 @@ import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRules;
 import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.Label;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.base.Suppliers;
@@ -78,30 +78,34 @@ public class GroovyTestDescription implements Description<GroovyTestDescription.
       BuildRuleParams params,
       BuildRuleResolver resolver,
       A args) throws NoSuchBuildTargetException {
-    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
 
-    if (params.getBuildTarget().getFlavors().contains(CalculateAbi.FLAVOR)) {
-      BuildTarget testTarget = params.getBuildTarget().withoutFlavors(CalculateAbi.FLAVOR);
+    if (CalculateAbi.isAbiTarget(params.getBuildTarget())) {
+      BuildTarget testTarget = CalculateAbi.getLibraryTarget(params.getBuildTarget());
       resolver.requireRule(testTarget);
       return CalculateAbi.of(
           params.getBuildTarget(),
-          pathResolver,
+          ruleFinder,
           params,
           new BuildTargetSourcePath(testTarget));
     }
 
-    BuildTarget abiJarTarget = params.getBuildTarget().withAppendedFlavors(CalculateAbi.FLAVOR);
+    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
 
+    JavacOptions javacOptions = JavacOptionsFactory
+        .create(
+          defaultJavacOptions,
+          params,
+          resolver,
+          ruleFinder,
+          args
+        )
+        // groovyc may or may not play nice with generating ABIs from source, so disabling for now
+        .withAbiGenerationMode(JavacOptions.AbiGenerationMode.CLASS);
     GroovycToJarStepFactory stepFactory = new GroovycToJarStepFactory(
         groovyBuckConfig.getGroovyCompiler().get(),
         Optional.of(args.extraGroovycArguments),
-        JavacOptionsFactory.create(
-            defaultJavacOptions,
-            params,
-            resolver,
-            pathResolver,
-            args
-        ));
+        javacOptions);
 
     BuildRuleParams testsLibraryParams =
         params.appendExtraDeps(
@@ -110,14 +114,15 @@ public class GroovyTestDescription implements Description<GroovyTestDescription.
                     Iterables.concat(
                         params.getDeclaredDeps().get(),
                         resolver.getAllRules(args.providedDeps))),
-                pathResolver.filterBuildRuleInputs(
-                    defaultJavacOptions.getInputs(pathResolver))))
+                ruleFinder.filterBuildRuleInputs(
+                    defaultJavacOptions.getInputs(ruleFinder))))
             .withFlavor(JavaTest.COMPILED_TESTS_LIBRARY_FLAVOR);
     JavaLibrary testsLibrary =
         resolver.addToIndex(
             new DefaultJavaLibrary(
                 testsLibraryParams,
                 pathResolver,
+                ruleFinder,
                 args.srcs,
                 ResourceValidator.validateResources(
                     pathResolver,
@@ -128,7 +133,6 @@ public class GroovyTestDescription implements Description<GroovyTestDescription.
                 /* postprocessClassesCommands */ ImmutableList.of(),
                 /* exportDeps */ ImmutableSortedSet.of(),
                 /* providedDeps */ ImmutableSortedSet.of(),
-                abiJarTarget,
                 JavaLibraryRules.getAbiInputs(resolver, testsLibraryParams.getDeps()),
                 /* trackClassUsage */ false,
                 /* additionalClasspathEntries */ ImmutableSet.of(),
@@ -164,7 +168,6 @@ public class GroovyTestDescription implements Description<GroovyTestDescription.
   @SuppressFieldNotInitialized
   public static class Arg extends GroovyLibraryDescription.Arg {
     public ImmutableSortedSet<String> contacts = ImmutableSortedSet.of();
-    public ImmutableSortedSet<Label> labels = ImmutableSortedSet.of();
     public ImmutableList<String> vmArgs = ImmutableList.of();
     public Optional<TestType> testType;
     public Optional<Boolean> runTestSeparately;

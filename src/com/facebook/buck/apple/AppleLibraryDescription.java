@@ -16,6 +16,7 @@
 
 package com.facebook.buck.apple;
 
+import static com.facebook.buck.cxx.NativeLinkable.Linkage;
 import static com.facebook.buck.swift.SwiftLibraryDescription.isSwiftTarget;
 
 import com.facebook.buck.cxx.CxxCompilationDatabase;
@@ -47,9 +48,12 @@ import com.facebook.buck.rules.ImplicitFlavorsInferringDescription;
 import com.facebook.buck.rules.MetadataProvidingDescription;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.swift.SwiftLibraryDescription;
 import com.facebook.buck.util.HumanReadableException;
+import com.facebook.buck.util.MoreCollectors;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -63,6 +67,7 @@ import com.google.common.collect.Sets;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.SortedSet;
 
 public class AppleLibraryDescription implements
     Description<AppleLibraryDescription.Arg>,
@@ -143,6 +148,27 @@ public class AppleLibraryDescription implements
   @Override
   public AppleLibraryDescription.Arg createUnpopulatedConstructorArg() {
     return new Arg();
+  }
+
+  @Override
+  public Optional<ImmutableSet<FlavorDomain<?>>> flavorDomains() {
+    ImmutableSet.Builder<FlavorDomain<?>> builder = ImmutableSet.builder();
+
+    ImmutableSet<FlavorDomain<?>> localDomains = ImmutableSet.of(
+        AppleDebugFormat.FLAVOR_DOMAIN
+    );
+
+    builder.addAll(localDomains);
+    delegate.flavorDomains().ifPresent(domains -> builder.addAll(domains));
+    swiftDelegate.flavorDomains().ifPresent(domains -> builder.addAll(domains));
+
+    ImmutableSet<FlavorDomain<?>> result = builder.build();
+
+    // Drop StripStyle because it's overridden by AppleDebugFormat
+    result = result.stream().filter(domain -> !domain.equals(StripStyle.FLAVOR_DOMAIN)).collect(
+        MoreCollectors.toImmutableSet());
+
+    return Optional.of(result);
   }
 
   @Override
@@ -254,7 +280,7 @@ public class AppleLibraryDescription implements
         StripStyle.FLAVOR_DOMAIN.getValue(params.getBuildTarget());
     params = CxxStrip.removeStripStyleFlavorInParams(params, flavoredStripStyle);
 
-    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
 
     BuildRule unstrippedBinaryRule = requireUnstrippedBuildRule(
         params,
@@ -285,10 +311,9 @@ public class AppleLibraryDescription implements
     BuildRule strippedBinaryRule = CxxDescriptionEnhancer.createCxxStripRule(
         params,
         resolver,
-        representativePlatform.getStrip(),
         flavoredStripStyle.orElse(StripStyle.NON_GLOBAL_SYMBOLS),
-        pathResolver,
-        unstrippedBinaryRule);
+        unstrippedBinaryRule,
+        representativePlatform);
 
     return AppleDescriptions.createAppleDebuggableBinary(
         params,
@@ -407,7 +432,7 @@ public class AppleLibraryDescription implements
         !buildTarget.getFlavors().contains(AppleDescriptions.FRAMEWORK_FLAVOR)) {
       CxxLibraryDescription.Arg delegateArg = delegate.createUnpopulatedConstructorArg();
       AppleDescriptions.populateCxxLibraryDescriptionArg(
-          new SourcePathResolver(resolver),
+          new SourcePathResolver(new SourcePathRuleFinder(resolver)),
           delegateArg,
           args,
           buildTarget);
@@ -470,8 +495,13 @@ public class AppleLibraryDescription implements
             constructorArg);
   }
 
-  public static boolean isSharedLibraryTarget(BuildTarget target) {
-    return target.getFlavors().contains(CxxDescriptionEnhancer.SHARED_FLAVOR);
+  public static boolean isSharedLibraryNode(TargetNode<CxxLibraryDescription.Arg, ?> node) {
+    SortedSet<Flavor> flavors = node.getBuildTarget().getFlavors();
+    if (LIBRARY_TYPE.getFlavor(flavors).isPresent()) {
+      return flavors.contains(CxxDescriptionEnhancer.SHARED_FLAVOR);
+    } else {
+      return node.getConstructorArg().preferredLinkage.equals(Optional.of(Linkage.SHARED));
+    }
   }
 
   @SuppressFieldNotInitialized

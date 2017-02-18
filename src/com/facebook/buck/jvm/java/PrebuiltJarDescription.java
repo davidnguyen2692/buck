@@ -31,6 +31,7 @@ import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.CopyStep;
@@ -57,23 +58,22 @@ public class PrebuiltJarDescription implements Description<PrebuiltJarDescriptio
       BuildRuleParams params,
       BuildRuleResolver resolver,
       A args) throws NoSuchBuildTargetException {
-    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
 
-    if (params.getBuildTarget().getFlavors().contains(CalculateAbi.FLAVOR)) {
+    if (CalculateAbi.isAbiTarget(params.getBuildTarget())) {
       return CalculateAbi.of(
           params.getBuildTarget(),
-          pathResolver,
+          ruleFinder,
           params,
           args.binaryJar);
     }
 
-    BuildTarget abiJarTarget = params.getBuildTarget().withAppendedFlavors(CalculateAbi.FLAVOR);
+    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
 
     BuildRule prebuilt = new PrebuiltJar(
         params,
         pathResolver,
         args.binaryJar,
-        abiJarTarget,
         args.sourceJar,
         args.gwtJar,
         args.javadocUrl,
@@ -87,14 +87,14 @@ public class PrebuiltJarDescription implements Description<PrebuiltJarDescriptio
         flavoredBuildTarget,
         /* declaredDeps */ Suppliers.ofInstance(ImmutableSortedSet.of(prebuilt)),
         /* inferredDeps */ Suppliers.ofInstance(ImmutableSortedSet.of()));
-    BuildRule gwtModule = createGwtModule(gwtParams, pathResolver, args);
+    BuildRule gwtModule = createGwtModule(gwtParams, args);
     resolver.addToIndex(gwtModule);
 
     return prebuilt;
   }
 
   @VisibleForTesting
-  static BuildRule createGwtModule(BuildRuleParams params, SourcePathResolver resolver, Arg arg) {
+  static BuildRule createGwtModule(BuildRuleParams params, Arg arg) {
     // Because a PrebuiltJar rarely requires any building whatsoever (it could if the source_jar
     // is a BuildTargetSourcePath), we make the PrebuiltJar a dependency of the GWT module. If this
     // becomes a performance issue in practice, then we will explore reducing the dependencies of
@@ -115,9 +115,8 @@ public class PrebuiltJarDescription implements Description<PrebuiltJarDescriptio
 
       protected ExistingOuputs(
           BuildRuleParams params,
-          SourcePathResolver resolver,
           SourcePath source) {
-        super(params, resolver);
+        super(params);
         this.source = source;
         BuildTarget target = params.getBuildTarget();
         this.output = BuildTargets.getGenPath(
@@ -130,13 +129,14 @@ public class PrebuiltJarDescription implements Description<PrebuiltJarDescriptio
       public ImmutableList<Step> getBuildSteps(
           BuildContext context,
           BuildableContext buildableContext) {
-        buildableContext.recordArtifact(getPathToOutput());
+        buildableContext.recordArtifact(
+            context.getSourcePathResolver().getRelativePath(getSourcePathToOutput()));
 
         ImmutableList.Builder<Step> steps = ImmutableList.builder();
         steps.add(new MakeCleanDirectoryStep(getProjectFilesystem(), output.getParent()));
         steps.add(CopyStep.forFile(
                 getProjectFilesystem(),
-                getResolver().getAbsolutePath(source),
+                context.getSourcePathResolver().getAbsolutePath(source),
                 output));
 
         return steps.build();
@@ -147,7 +147,7 @@ public class PrebuiltJarDescription implements Description<PrebuiltJarDescriptio
         return output;
       }
     }
-    return new ExistingOuputs(params, resolver, input);
+    return new ExistingOuputs(params, input);
   }
 
   @SuppressFieldNotInitialized

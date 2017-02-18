@@ -1,6 +1,7 @@
 {
   "log" : {
     "deps" : [
+      "//src/com/facebook/buck/build_type:build_type",
       "//src/com/facebook/buck/io:MorePaths.java",
       "//src/com/facebook/buck/io:io",
       "//src/com/facebook/buck/log:api",
@@ -10,7 +11,7 @@
       "//src/com/facebook/buck/util:util",
       "//src/com/facebook/buck/util/concurrent:concurrent",
       "//src/com/facebook/buck/util/network/hostname:hostname",
-      "//third-party/java/immutables:processor",
+      "//third-party/java/immutables:immutables",
       "//third-party/java/jsr:jsr305",
       "//third-party/java/stringtemplate:stringtemplate"
     ],

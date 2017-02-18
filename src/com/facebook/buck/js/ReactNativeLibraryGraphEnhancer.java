@@ -26,12 +26,12 @@ import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.Tool;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
-
-import java.util.Optional;
 
 public class ReactNativeLibraryGraphEnhancer {
 
@@ -48,6 +48,7 @@ public class ReactNativeLibraryGraphEnhancer {
       BuildRuleParams baseParams,
       BuildRuleResolver resolver,
       SourcePathResolver pathResolver,
+      SourcePathRuleFinder ruleFinder,
       BuildTarget target,
       ReactNativeLibraryArgs args,
       ReactNativePlatform platform) {
@@ -57,9 +58,9 @@ public class ReactNativeLibraryGraphEnhancer {
             target,
             Suppliers.ofInstance(
                 ImmutableSortedSet.<BuildRule>naturalOrder()
-                    .addAll(pathResolver.filterBuildRuleInputs(args.entryPath))
-                    .addAll(pathResolver.filterBuildRuleInputs(args.srcs))
-                    .addAll(jsPackager.getDeps(pathResolver))
+                    .addAll(ruleFinder.filterBuildRuleInputs(args.entryPath))
+                    .addAll(ruleFinder.filterBuildRuleInputs(args.srcs))
+                    .addAll(jsPackager.getDeps(ruleFinder))
                     .build()),
             Suppliers.ofInstance(ImmutableSortedSet.of())),
         pathResolver,
@@ -80,13 +81,15 @@ public class ReactNativeLibraryGraphEnhancer {
       BuildRuleResolver resolver,
       AndroidReactNativeLibraryDescription.Args args) {
 
-    SourcePathResolver sourcePathResolver = new SourcePathResolver(resolver);
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    SourcePathResolver sourcePathResolver = new SourcePathResolver(ruleFinder);
     BuildTarget originalBuildTarget = params.getBuildTarget();
     ReactNativeBundle bundle =
         createReactNativeBundle(
             params,
             resolver,
             sourcePathResolver,
+            ruleFinder,
             BuildTarget.builder(originalBuildTarget)
                 .addFlavors(REACT_NATIVE_BUNDLE_FLAVOR)
                 .build(),
@@ -110,15 +113,13 @@ public class ReactNativeLibraryGraphEnhancer {
           bundle.getResources());
       BuildRule resource = new AndroidResource(
           paramsForResource,
-          sourcePathResolver,
+          ruleFinder,
           /* deps */ ImmutableSortedSet.of(),
           resources,
-          /* resSrcs */ ImmutableSortedSet.of(),
-          Optional.of(resources),
+          /* resSrcs */ ImmutableSortedMap.of(),
           args.rDotJavaPackage.get(),
           /* assets */ null,
-          /* assetsSrcs */ ImmutableSortedSet.of(),
-          Optional.empty(),
+          /* assetsSrcs */ ImmutableSortedMap.of(),
           /* manifest */ null,
           /* hasWhitelistedStrings */ false);
       resolver.addToIndex(resource);
@@ -127,7 +128,6 @@ public class ReactNativeLibraryGraphEnhancer {
 
     return new AndroidReactNativeLibrary(
         params.appendExtraDeps(extraDeps.build()),
-        sourcePathResolver,
         bundle);
   }
 
@@ -135,10 +135,12 @@ public class ReactNativeLibraryGraphEnhancer {
       BuildRuleParams params,
       BuildRuleResolver resolver,
       ReactNativeLibraryArgs args) {
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
     return createReactNativeBundle(
         params,
         resolver,
-        new SourcePathResolver(resolver),
+        new SourcePathResolver(ruleFinder),
+        ruleFinder,
         params.getBuildTarget(),
         args,
         ReactNativePlatform.IOS);

@@ -26,6 +26,8 @@ import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
+import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.testutil.TargetGraphFactory;
@@ -66,22 +68,24 @@ public class DefaultSuggestBuildRulesTest {
         TargetGraphFactory.newInstance(libraryTwoNode, parentNode, grandparentNode);
     BuildRuleResolver resolver =
         new BuildRuleResolver(targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
+    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
 
     BuildRule libraryTwo = resolver.requireRule(libraryTwoNode.getBuildTarget());
     BuildRule parent = resolver.requireRule(parentNode.getBuildTarget());
     BuildRule grandparent = resolver.requireRule(grandparentNode.getBuildTarget());
 
     ImmutableMap<Path, String> jarPathToSymbols = ImmutableMap.of(
-        projectFilesystem.resolve(parent.getPathToOutput()), "com.facebook.Foo",
-        projectFilesystem.resolve(libraryTwo.getPathToOutput()), "com.facebook.Foo");
+        pathResolver.getAbsolutePath(parent.getSourcePathToOutput()), "com.facebook.Foo",
+        pathResolver.getAbsolutePath(libraryTwo.getSourcePathToOutput()), "com.facebook.Foo");
     ImmutableSetMultimap<JavaLibrary, Path> transitiveClasspathEntries =
-        fromLibraries(libraryTwo, parent, grandparent);
+        fromLibraries(pathResolver, libraryTwo, parent, grandparent);
 
     SuggestBuildRules.JarResolver jarResolver = createJarResolver(jarPathToSymbols);
 
     SuggestBuildRules suggestFn =
         DefaultSuggestBuildRules.createSuggestBuildFunction(
             jarResolver,
+            pathResolver,
             ImmutableSet.of(),
             transitiveClasspathEntries.keySet(),
             ImmutableList.of(libraryTwo, parent, grandparent));
@@ -104,22 +108,24 @@ public class DefaultSuggestBuildRulesTest {
         TargetGraphFactory.newInstance(libraryTwoNode, parentNode, grandparentNode);
     BuildRuleResolver resolver =
         new BuildRuleResolver(targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
+    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
 
     BuildRule libraryTwo = resolver.requireRule(libraryTwoNode.getBuildTarget());
     BuildRule parent = resolver.requireRule(parentNode.getBuildTarget());
     BuildRule grandparent = resolver.requireRule(grandparentNode.getBuildTarget());
 
     ImmutableMap<Path, String> jarPathToSymbols = ImmutableMap.of(
-        projectFilesystem.resolve(parent.getPathToOutput()), "com.facebook.Foo",
-        projectFilesystem.resolve(libraryTwo.getPathToOutput()), "com.facebook.Bar");
+        pathResolver.getAbsolutePath(parent.getSourcePathToOutput()), "com.facebook.Foo",
+        pathResolver.getAbsolutePath(libraryTwo.getSourcePathToOutput()), "com.facebook.Bar");
     ImmutableSetMultimap<JavaLibrary, Path> transitiveClasspathEntries =
-        fromLibraries(libraryTwo, parent, grandparent);
+        fromLibraries(pathResolver, libraryTwo, parent, grandparent);
 
     SuggestBuildRules.JarResolver jarResolver = createJarResolver(jarPathToSymbols);
 
     SuggestBuildRules suggestFn =
         DefaultSuggestBuildRules.createSuggestBuildFunction(
             jarResolver,
+            pathResolver,
             ImmutableSet.of(),
             transitiveClasspathEntries.keySet(),
             ImmutableList.of(libraryTwo, parent, grandparent));
@@ -130,13 +136,17 @@ public class DefaultSuggestBuildRulesTest {
     assertEquals(ImmutableSet.of("//:libtwo"), suggestions);
   }
 
-  private ImmutableSetMultimap<JavaLibrary, Path> fromLibraries(BuildRule...buildRules) {
+  private ImmutableSetMultimap<JavaLibrary, Path> fromLibraries(
+      SourcePathResolver pathResolver,
+      BuildRule...buildRules) {
     ImmutableSetMultimap.Builder<JavaLibrary, Path> builder =
         ImmutableSetMultimap.builder();
 
     for (BuildRule buildRule : buildRules) {
       //noinspection ConstantConditions
-      builder.put((JavaLibrary) buildRule, projectFilesystem.resolve(buildRule.getPathToOutput()));
+      builder.put(
+          (JavaLibrary) buildRule,
+          pathResolver.getAbsolutePath(buildRule.getSourcePathToOutput()));
     }
 
     return builder.build();

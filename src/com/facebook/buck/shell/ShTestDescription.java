@@ -24,9 +24,9 @@ import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
-import com.facebook.buck.rules.Label;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.SourcePaths;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.args.MacroArg;
@@ -79,7 +79,8 @@ public class ShTestDescription implements
       BuildRuleParams params,
       BuildRuleResolver resolver,
       A args) {
-    final SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    final SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
     Function<String, com.facebook.buck.rules.args.Arg> toArg =
         MacroArg.toMacroArgFunction(
             MACRO_HANDLER,
@@ -99,8 +100,9 @@ public class ShTestDescription implements
         params.appendExtraDeps(
             () -> FluentIterable.from(testArgs)
                 .append(testEnv.values())
-                .transformAndConcat(arg -> arg.getDeps(pathResolver))),
+                .transformAndConcat(arg -> arg.getDeps(ruleFinder))),
         pathResolver,
+        ruleFinder,
         args.test,
         testArgs,
         testEnv,
@@ -140,7 +142,6 @@ public class ShTestDescription implements
     public SourcePath test;
     public ImmutableList<String> args = ImmutableList.of();
     public ImmutableSet<String> contacts = ImmutableSet.of();
-    public ImmutableSortedSet<Label> labels = ImmutableSortedSet.of();
     public Optional<Long> testRuleTimeoutMs;
     public Optional<Boolean> runTestSeparately;
     public ImmutableSortedSet<BuildTarget> deps = ImmutableSortedSet.of();

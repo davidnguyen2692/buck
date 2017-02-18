@@ -35,11 +35,14 @@ import com.facebook.buck.rules.ExternalTestRunnerRule;
 import com.facebook.buck.rules.ExternalTestRunnerTestSpec;
 import com.facebook.buck.rules.Label;
 import com.facebook.buck.rules.LocalCachingBuildEngineDelegate;
+import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetGraphAndBuildTargets;
 import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.TargetNodes;
 import com.facebook.buck.rules.TestRule;
+import com.facebook.buck.rules.keys.RuleKeyFactoryManager;
 import com.facebook.buck.step.AdbOptions;
 import com.facebook.buck.step.DefaultStepRunner;
 import com.facebook.buck.step.TargetDevice;
@@ -48,8 +51,10 @@ import com.facebook.buck.test.CoverageReportFormat;
 import com.facebook.buck.test.TestRunningOptions;
 import com.facebook.buck.util.ForwardingProcessListener;
 import com.facebook.buck.util.ListeningProcessExecutor;
+import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.MoreExceptions;
 import com.facebook.buck.util.ProcessExecutorParams;
+import com.facebook.buck.util.RichStream;
 import com.facebook.buck.util.concurrent.ConcurrencyLimit;
 import com.facebook.buck.versions.VersionException;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
@@ -65,6 +70,7 @@ import com.google.common.collect.Lists;
 import org.kohsuke.args4j.Option;
 
 import java.io.IOException;
+import java.io.PrintStream;
 import java.nio.channels.Channels;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -174,7 +180,13 @@ public class TestCommand extends BuildCommand {
   @SuppressFieldNotInitialized
   private TestLabelOptions testLabelOptions;
 
-  @Option(name = "--", handler = ConsumeAllOptionsHandler.class)
+  @Option(
+      name = "--",
+      usage = "When an external test runner is specified to be used (in the .buckconfig file), " +
+          "all options specified after -- get forwarded directly to the external test runner. " +
+          "Available options after -- are specific to that particular test runner and you may " +
+          "also want to consult its help pages.",
+      handler = ConsumeAllOptionsHandler.class)
   private List<String> withDashArguments = Lists.newArrayList();
 
   public boolean isRunAllTests() {
@@ -194,6 +206,10 @@ public class TestCommand extends BuildCommand {
     }
     if (isOnlyFailing == null) {
       isOnlyFailing = buckConfig.getBooleanValue("test", RERUN_ONLY_FAILING, false);
+    }
+
+    if (isCodeCoverageEnabled()) {
+      return TestRunningOptions.TestResultCacheMode.DISABLED;
     }
 
     if (isResultsCacheDisabled) {
@@ -306,6 +322,7 @@ public class TestCommand extends BuildCommand {
         CommandThreadManager testPool = new CommandThreadManager(
             "Test-Run",
             concurrencyLimit)) {
+      SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(build.getRuleResolver());
       return TestRunning.runTests(
           params,
           testRules,
@@ -313,7 +330,9 @@ public class TestCommand extends BuildCommand {
           getTestRunningOptions(params),
           testPool.getExecutor(),
           buildEngine,
-          new DefaultStepRunner());
+          new DefaultStepRunner(),
+          new SourcePathResolver(ruleFinder),
+          ruleFinder);
     } catch (ExecutionException e) {
       params.getBuckEventBus().post(ConsoleEvent.severe(
           MoreExceptions.getHumanReadableOrLocalizedMessage(e)));
@@ -325,7 +344,8 @@ public class TestCommand extends BuildCommand {
       final CommandRunnerParams params,
       Build build,
       Iterable<String> command,
-      Iterable<TestRule> testRules)
+      Iterable<TestRule> testRules,
+      SourcePathResolver pathResolver)
       throws InterruptedException, IOException {
     TestRunningOptions options = getTestRunningOptions(params);
 
@@ -339,7 +359,7 @@ public class TestCommand extends BuildCommand {
         return 1;
       }
       ExternalTestRunnerRule rule = (ExternalTestRunnerRule) testRule;
-      specs.add(rule.getExternalTestRunnerSpec(build.getExecutionContext(), options));
+      specs.add(rule.getExternalTestRunnerSpec(build.getExecutionContext(), options, pathResolver));
     }
 
     // Serialize the specs to a file to pass into the test runner.
@@ -502,73 +522,89 @@ public class TestCommand extends BuildCommand {
 
       CachingBuildEngineBuckConfig cachingBuildEngineBuckConfig =
           params.getBuckConfig().getView(CachingBuildEngineBuckConfig.class);
-      CachingBuildEngine cachingBuildEngine =
-          new CachingBuildEngine(
-              new LocalCachingBuildEngineDelegate(params.getFileHashCache()),
-              pool.getExecutor(),
-              new DefaultStepRunner(),
-              getBuildEngineMode().orElse(cachingBuildEngineBuckConfig.getBuildEngineMode()),
-              cachingBuildEngineBuckConfig.getBuildDepFiles(),
-              cachingBuildEngineBuckConfig.getBuildMaxDepFileCacheEntries(),
-              cachingBuildEngineBuckConfig.getBuildArtifactCacheSizeLimit(),
-              cachingBuildEngineBuckConfig.getBuildInputRuleKeyFileSizeLimit(),
-              params.getObjectMapper(),
-              actionGraphAndResolver.getResolver(),
-              params.getBuckConfig().getKeySeed(),
-              cachingBuildEngineBuckConfig.getResourceAwareSchedulingInfo());
-      try (Build build = createBuild(
-          params.getBuckConfig(),
-          actionGraphAndResolver.getActionGraph(),
-          actionGraphAndResolver.getResolver(),
-          params.getCell(),
-          params.getAndroidPlatformTargetSupplier(),
-          cachingBuildEngine,
-          params.getArtifactCache(),
-          params.getConsole(),
-          params.getBuckEventBus(),
-          getTargetDeviceOptional(),
-          params.getPersistentWorkerPools(),
-          params.getPlatform(),
-          params.getEnvironment(),
-          params.getObjectMapper(),
-          params.getClock(),
-          Optional.of(getAdbOptions(params.getBuckConfig())),
-          Optional.of(getTargetDeviceOptions()),
-          params.getExecutors())) {
-
-        // Build all of the test rules.
-        int exitCode = build.executeAndPrintFailuresToEventBus(
-            testRules,
-            isKeepGoing(),
-            params.getBuckEventBus(),
+      try (CommandThreadManager artifactFetchService = getArtifactFetchService(
+          params.getBuckConfig(), pool.getExecutor())) {
+        LocalCachingBuildEngineDelegate localCachingBuildEngineDelegate =
+            new LocalCachingBuildEngineDelegate(params.getFileHashCache());
+        CachingBuildEngine cachingBuildEngine =
+            new CachingBuildEngine(
+                new LocalCachingBuildEngineDelegate(params.getFileHashCache()),
+                pool.getExecutor(),
+                artifactFetchService == null ?
+                    pool.getExecutor() :
+                    artifactFetchService.getExecutor(),
+                new DefaultStepRunner(),
+                getBuildEngineMode().orElse(cachingBuildEngineBuckConfig.getBuildEngineMode()),
+                cachingBuildEngineBuckConfig.getBuildDepFiles(),
+                cachingBuildEngineBuckConfig.getBuildMaxDepFileCacheEntries(),
+                cachingBuildEngineBuckConfig.getBuildArtifactCacheSizeLimit(),
+                params.getObjectMapper(),
+                actionGraphAndResolver.getResolver(),
+                cachingBuildEngineBuckConfig.getResourceAwareSchedulingInfo(),
+                new RuleKeyFactoryManager(
+                    params.getBuckConfig().getKeySeed(),
+                    localCachingBuildEngineDelegate.createFileHashCacheLoader()::getUnchecked,
+                    actionGraphAndResolver.getResolver(),
+                    cachingBuildEngineBuckConfig.getBuildInputRuleKeyFileSizeLimit()));
+        try (Build build = createBuild(
+            params.getBuckConfig(),
+            actionGraphAndResolver.getActionGraph(),
+            actionGraphAndResolver.getResolver(),
+            params.getCell(),
+            params.getAndroidPlatformTargetSupplier(),
+            cachingBuildEngine,
+            params.getArtifactCacheFactory().newInstance(),
             params.getConsole(),
-            getPathToBuildReport(params.getBuckConfig()));
-        params.getBuckEventBus().post(BuildEvent.finished(started, exitCode));
-        if (exitCode != 0) {
-          return exitCode;
-        }
+            params.getBuckEventBus(),
+            getTargetDeviceOptional(),
+            params.getPersistentWorkerPools(),
+            params.getPlatform(),
+            params.getEnvironment(),
+            params.getObjectMapper(),
+            params.getClock(),
+            Optional.of(getAdbOptions(params.getBuckConfig())),
+            Optional.of(getTargetDeviceOptions()),
+            params.getExecutors())) {
 
-        // If the user requests that we build tests that we filter out, then we perform
-        // the filtering here, after we've done the build but before we run the tests.
-        if (isBuildFiltered(params.getBuckConfig())) {
-          testRules =
-              filterTestRules(
-                  params.getBuckConfig(),
-                  targetGraphAndBuildTargets.getBuildTargets(),
-                  testRules);
-        }
+          // Build all of the test rules.
+          int exitCode = build.executeAndPrintFailuresToEventBus(
+              RichStream.from(testRules)
+                  .map(TestRule::getBuildTarget)
+                  .collect(MoreCollectors.toImmutableList()),
+              isKeepGoing(),
+              params.getBuckEventBus(),
+              params.getConsole(),
+              getPathToBuildReport(params.getBuckConfig()));
+          params.getBuckEventBus().post(BuildEvent.finished(started, exitCode));
+          if (exitCode != 0) {
+            return exitCode;
+          }
 
-        // Once all of the rules are built, then run the tests.
-        Optional<ImmutableList<String>> externalTestRunner =
-            params.getBuckConfig().getExternalTestRunner();
-        if (externalTestRunner.isPresent()) {
-          return runTestsExternal(
-              params,
-              build,
-              externalTestRunner.get(),
-              testRules);
+          // If the user requests that we build tests that we filter out, then we perform
+          // the filtering here, after we've done the build but before we run the tests.
+          if (isBuildFiltered(params.getBuckConfig())) {
+            testRules =
+                filterTestRules(
+                    params.getBuckConfig(),
+                    targetGraphAndBuildTargets.getBuildTargets(),
+                    testRules);
+          }
+
+          // Once all of the rules are built, then run the tests.
+          Optional<ImmutableList<String>> externalTestRunner =
+              params.getBuckConfig().getExternalTestRunner();
+          if (externalTestRunner.isPresent()) {
+            SourcePathResolver pathResolver = new SourcePathResolver(
+                new SourcePathRuleFinder(actionGraphAndResolver.getResolver()));
+            return runTestsExternal(
+                params,
+                build,
+                externalTestRunner.get(),
+                testRules,
+                pathResolver);
+          }
+          return runTestsInternal(params, cachingBuildEngine, build, testRules);
         }
-        return runTestsInternal(params, cachingBuildEngine, build, testRules);
       }
     }
   }
@@ -613,6 +649,29 @@ public class TestCommand extends BuildCommand {
     }
 
     return builder.build();
+  }
+
+  @Override
+  protected void printUsage(PrintStream stream) {
+    stream.println("Usage:");
+    stream.println("  " + "buck test [<targets>] [<options>]");
+    stream.println();
+
+    stream.println("Description:");
+    stream.println("  Builds and runs the tests for one or more specified targets.");
+    stream.println("  You can either directly specify test targets, or any other target which");
+    stream.println("  contains a `tests = ['...']` field to specify its tests. Alternatively,");
+    stream.println("  by specifying no targets all of the tests will be run.");
+    stream.println("  Tests get run by the internal test runner unless an external test runner");
+    stream.println("  is specified in the .buckconfig file. Note that not all of the options");
+    stream.println("  are applicable to all build rule types. Likewise, when an external test");
+    stream.println("  runner is being used, some of the options listed here may not apply, and");
+    stream.println("  you may need to use options specific to that test runner. See -- option.");
+    stream.println();
+
+    stream.println("Options:");
+    new AdditionalOptionsCmdLineParser(this).printUsage(stream);
+    stream.println();
   }
 
   @Override

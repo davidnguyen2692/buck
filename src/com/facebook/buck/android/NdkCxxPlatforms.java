@@ -21,6 +21,7 @@ import com.facebook.buck.cxx.CxxBuckConfig;
 import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.cxx.CxxToolProvider;
 import com.facebook.buck.cxx.DefaultLinkerProvider;
+import com.facebook.buck.cxx.ElfSharedLibraryInterfaceFactory;
 import com.facebook.buck.cxx.GnuArchiver;
 import com.facebook.buck.cxx.GnuLinker;
 import com.facebook.buck.cxx.Linker;
@@ -54,6 +55,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 public class NdkCxxPlatforms {
 
@@ -556,7 +558,8 @@ public class NdkCxxPlatforms {
         Paths.get("."),
         sanitizePaths,
         filesystem.getRootPath().toAbsolutePath(),
-        type);
+        type,
+        filesystem);
     MungingDebugPathSanitizer assemblerDebugPathSanitizer = new MungingDebugPathSanitizer(
         config.getDebugPathSanitizerLimit(),
         File.separatorChar,
@@ -584,6 +587,7 @@ public class NdkCxxPlatforms {
                         toolchainPaths,
                         compilerType.getCxx(),
                         version,
+                        cxxRuntime,
                         executableFinder))))
         .addAllLdflags(
             targetConfiguration.getLinkerFlags(compilerType))
@@ -620,7 +624,22 @@ public class NdkCxxPlatforms {
         .setSharedLibraryVersionedExtensionFormat("so.%s")
         .setStaticLibraryExtension("a")
         .setObjectFileExtension("o")
-    ;
+        .setSharedLibraryInterfaceFactory(
+            config.shouldUseSharedLibraryInterfaces() ?
+                Optional.of(
+                    ElfSharedLibraryInterfaceFactory.of(
+                        new ConstantToolProvider(
+                            getGccTool(toolchainPaths, "objcopy", version, executableFinder)))) :
+                Optional.empty());
+
+    // Add the NDK root path to the white-list so that headers from the NDK won't trigger the
+    // verification warnings.  Ideally, long-term, we'd model NDK libs/headers via automatically
+    // generated nodes/descriptions so that they wouldn't need to special case it here.
+    cxxPlatformBuilder.setHeaderVerification(
+        config.getHeaderVerification()
+            .withPlatformWhitelist(
+                ImmutableList.of(
+                    "^" + Pattern.quote(ndkRoot.toString() + File.separatorChar) + ".*")));
 
     if (cxxRuntime != CxxRuntime.SYSTEM) {
       cxxPlatformBuilder.putRuntimeLdflags(
@@ -631,15 +650,18 @@ public class NdkCxxPlatforms {
 
     CxxPlatform cxxPlatform = cxxPlatformBuilder.build();
 
-    return NdkCxxPlatform.builder()
+    NdkCxxPlatform.Builder builder = NdkCxxPlatform.builder();
+    builder
         .setCxxPlatform(cxxPlatform)
         .setCxxRuntime(cxxRuntime)
-        .setCxxSharedRuntimePath(
-            toolchainPaths.getCxxRuntimeLibsDirectory()
-                .resolve(cxxRuntime.getSoname()))
         .setObjdump(
-            getGccTool(toolchainPaths, "objdump", version, executableFinder))
-        .build();
+            getGccTool(toolchainPaths, "objdump", version, executableFinder));
+    if (cxxRuntime != CxxRuntime.SYSTEM) {
+      builder.setCxxSharedRuntimePath(
+          toolchainPaths.getCxxRuntimeLibsDirectory()
+              .resolve(cxxRuntime.getSoname()));
+    }
+    return builder.build();
   }
 
   /**
@@ -756,6 +778,7 @@ public class NdkCxxPlatforms {
       NdkCxxToolchainPaths toolchainPaths,
       String tool,
       String version,
+      CxxRuntime cxxRuntime,
       ExecutableFinder executableFinder) {
 
     ImmutableList.Builder<String> flags = ImmutableList.builder();
@@ -777,9 +800,11 @@ public class NdkCxxPlatforms {
           "-B" + toolchainPaths.getLibPath());
     }
 
-    // Add the path to the C/C++ runtime libraries.
-    flags.add(
-        "-L" + toolchainPaths.getCxxRuntimeLibsDirectory().toString());
+    // Add the path to the C/C++ runtime libraries, if necessary.
+    if (cxxRuntime != CxxRuntime.SYSTEM) {
+      flags.add(
+          "-L" + toolchainPaths.getCxxRuntimeLibsDirectory().toString());
+    }
 
     return new GnuLinker(
         VersionedTool.builder()

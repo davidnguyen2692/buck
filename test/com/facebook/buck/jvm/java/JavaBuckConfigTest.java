@@ -18,6 +18,7 @@ package com.facebook.buck.jvm.java;
 
 
 import static com.facebook.buck.jvm.java.JavacOptions.TARGETED_JAVA_VERSION;
+import static org.easymock.EasyMock.createMock;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.hasEntry;
 import static org.hamcrest.Matchers.hasKey;
@@ -34,11 +35,11 @@ import com.facebook.buck.cli.BuckConfigTestUtils;
 import com.facebook.buck.cli.FakeBuckConfig;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.environment.Architecture;
 import com.facebook.buck.util.environment.Platform;
-import com.google.common.base.Functions;
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableMap;
 
@@ -341,6 +342,27 @@ public class JavaBuckConfigTest {
         Matchers.equalTo(JavacOptions.JavacLocation.IN_PROCESS));
   }
 
+  @Test
+  public void testAbisGeneratedFromClassByDefault() throws IOException {
+    JavaBuckConfig config = createWithDefaultFilesystem(new StringReader(""));
+    JavacOptions options = config.getDefaultJavacOptions();
+    assertThat(
+        options.getAbiGenerationMode(),
+        Matchers.equalTo(JavacOptions.AbiGenerationMode.CLASS));
+  }
+
+  @Test
+  public void testAbisMigratingToSource() throws IOException {
+    String content = Joiner.on('\n').join(
+        "[java]",
+        "    abi_generation_mode = migrating_to_source");
+    JavaBuckConfig config = createWithDefaultFilesystem(new StringReader(content));
+    JavacOptions options = config.getDefaultJavacOptions();
+    assertThat(
+        options.getAbiGenerationMode(),
+        Matchers.equalTo(JavacOptions.AbiGenerationMode.MIGRATING_TO_SOURCE));
+  }
+
   private void assertOptionKeyAbsent(JavacOptions options, String key) {
     OptionAccumulator optionsConsumer = visitOptions(options);
     assertThat(optionsConsumer.keyVals, not(hasKey(key)));
@@ -356,9 +378,14 @@ public class JavaBuckConfigTest {
 
   private OptionAccumulator visitOptions(JavacOptions options) {
     OptionAccumulator optionsConsumer = new OptionAccumulator();
-    options.appendOptionsTo(optionsConsumer, Functions.identity());
+    options.appendOptionsTo(
+        optionsConsumer,
+        createMock(SourcePathResolver.class),
+        defaultFilesystem);
     return optionsConsumer;
   }
+
+
 
   private JavaBuckConfig createWithDefaultFilesystem(Reader reader)
       throws IOException {

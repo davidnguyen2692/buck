@@ -35,6 +35,7 @@ import com.facebook.buck.rules.Hint;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.util.OptionalCompat;
@@ -68,17 +69,19 @@ public class ScalaLibraryDescription implements Description<ScalaLibraryDescript
       final BuildRuleParams rawParams,
       final BuildRuleResolver resolver,
       A args) throws NoSuchBuildTargetException {
-    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
 
-    if (rawParams.getBuildTarget().getFlavors().contains(CalculateAbi.FLAVOR)) {
-      BuildTarget libraryTarget = rawParams.getBuildTarget().withoutFlavors(CalculateAbi.FLAVOR);
+    if (CalculateAbi.isAbiTarget(rawParams.getBuildTarget())) {
+      BuildTarget libraryTarget = CalculateAbi.getLibraryTarget(rawParams.getBuildTarget());
       resolver.requireRule(libraryTarget);
       return CalculateAbi.of(
           rawParams.getBuildTarget(),
-          pathResolver,
+          ruleFinder,
           rawParams,
           new BuildTargetSourcePath(libraryTarget));
     }
+
+    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
 
     Tool scalac = scalaBuckConfig.getScalac(resolver);
 
@@ -90,8 +93,6 @@ public class ScalaLibraryDescription implements Description<ScalaLibraryDescript
             .build(),
         rawParams.getExtraDeps());
 
-    BuildTarget abiJarTarget = params.getBuildTarget().withAppendedFlavors(CalculateAbi.FLAVOR);
-
     BuildRuleParams javaLibraryParams =
         params.appendExtraDeps(
             Iterables.concat(
@@ -99,10 +100,11 @@ public class ScalaLibraryDescription implements Description<ScalaLibraryDescript
                     Iterables.concat(
                         params.getDeclaredDeps().get(),
                         resolver.getAllRules(args.providedDeps))),
-                scalac.getDeps(pathResolver)));
+                scalac.getDeps(ruleFinder)));
     return new DefaultJavaLibrary(
         javaLibraryParams,
         pathResolver,
+        ruleFinder,
         args.srcs,
         validateResources(
             pathResolver,
@@ -113,16 +115,15 @@ public class ScalaLibraryDescription implements Description<ScalaLibraryDescript
         /* postprocessClassesCommands */ ImmutableList.of(),
         params.getDeclaredDeps().get(),
         resolver.getAllRules(args.providedDeps),
-        abiJarTarget,
         JavaLibraryRules.getAbiInputs(resolver, javaLibraryParams.getDeps()),
         /* trackClassUsage */ false,
         /* additionalClasspathEntries */ ImmutableSet.of(),
         new ScalacToJarStepFactory(
             scalac,
-            ScalacToJarStepFactory.collectScalacArguments(
-                scalaBuckConfig,
-                resolver,
-                args.extraArguments)),
+            scalaBuckConfig.getCompilerFlags(),
+            args.extraArguments,
+            resolver.getAllRules(scalaBuckConfig.getCompilerPlugins())
+        ),
         args.resourcesRoot,
         args.manifestFile,
         args.mavenCoords,

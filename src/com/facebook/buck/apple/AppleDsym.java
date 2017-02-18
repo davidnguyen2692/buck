@@ -30,7 +30,6 @@ import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.HasPostBuildSteps;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.keys.SupportsInputBasedRuleKey;
 import com.facebook.buck.step.Step;
@@ -65,12 +64,11 @@ public class AppleDsym
 
   public AppleDsym(
       BuildRuleParams params,
-      SourcePathResolver resolver,
       Tool dsymutil,
       Tool lldb,
       SourcePath unstrippedBinarySourcePath,
       Path dsymOutputPath) {
-    super(params, resolver);
+    super(params);
     this.dsymutil = dsymutil;
     this.lldb = lldb;
     this.unstrippedBinarySourcePath = unstrippedBinarySourcePath;
@@ -119,14 +117,18 @@ public class AppleDsym
       BuildableContext buildableContext) {
     buildableContext.recordArtifact(dsymOutputPath);
 
-    Path unstrippedBinaryPath = getResolver().getAbsolutePath(unstrippedBinarySourcePath);
+    Path unstrippedBinaryPath =
+        context.getSourcePathResolver().getAbsolutePath(unstrippedBinarySourcePath);
     Path dwarfFileFolder = dsymOutputPath.resolve(DSYM_DWARF_FILE_FOLDER);
     return ImmutableList.of(
-        new RmStep(getProjectFilesystem(), dsymOutputPath, true, true),
+        new RmStep(
+            getProjectFilesystem(),
+            dsymOutputPath,
+            RmStep.Mode.RECURSIVE),
         new DsymStep(
             getProjectFilesystem(),
             dsymutil.getEnvironment(),
-            dsymutil.getCommandPrefix(getResolver()),
+            dsymutil.getCommandPrefix(context.getSourcePathResolver()),
             unstrippedBinaryPath,
             dsymOutputPath),
         new MoveStep(
@@ -141,12 +143,12 @@ public class AppleDsym
   }
 
   @Override
-  public ImmutableList<Step> getPostBuildSteps() {
+  public ImmutableList<Step> getPostBuildSteps(BuildContext context) {
     return ImmutableList.of(
         new RegisterDebugSymbolsStep(
             unstrippedBinarySourcePath,
             lldb,
-            getResolver(),
+            context.getSourcePathResolver(),
             dsymOutputPath));
   }
 }

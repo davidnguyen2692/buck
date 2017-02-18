@@ -36,13 +36,14 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.HashMap;
 import java.util.Optional;
 
 public class ManifestTest {
 
   private static final SourcePathResolver RESOLVER =
-      new SourcePathResolver(
-          new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer()));
+      new SourcePathResolver(new SourcePathRuleFinder(
+          new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())));
 
   @Test
   public void toMap() {
@@ -99,8 +100,10 @@ public class ManifestTest {
         Paths.get("Member.class"));
     HashCode hashCode = HashCode.fromInt(20);
     FileHashCache fileHashCache =
-        FakeFileHashCache.withArchiveMemberPathHashes(
-            ImmutableMap.of(RESOLVER.getAbsoluteArchiveMemberPath(input), hashCode));
+        new FakeFileHashCache(
+            new HashMap<>(),
+            ImmutableMap.of(RESOLVER.getAbsoluteArchiveMemberPath(input), hashCode),
+            new HashMap<>());
     manifest.addEntry(fileHashCache, key, RESOLVER, ImmutableSet.of(input), ImmutableSet.of(input));
     assertThat(
         manifest.toMap(),

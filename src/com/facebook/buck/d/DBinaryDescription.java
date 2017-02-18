@@ -33,6 +33,7 @@ import com.facebook.buck.rules.CommandTool;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.SymlinkTree;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.args.SourcePathArg;
@@ -78,13 +79,15 @@ public class DBinaryDescription implements
       A args)
       throws NoSuchBuildTargetException {
 
-    SourcePathResolver pathResolver = new SourcePathResolver(buildRuleResolver);
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(buildRuleResolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
 
     SymlinkTree sourceTree =
         buildRuleResolver.addToIndex(
             DDescriptionUtils.createSourceSymlinkTree(
                 DDescriptionUtils.getSymlinkTreeTarget(params.getBuildTarget()),
                 params,
+                ruleFinder,
                 pathResolver,
                 args.srcs));
 
@@ -110,7 +113,7 @@ public class DBinaryDescription implements
     CommandTool.Builder executableBuilder = new CommandTool.Builder();
     executableBuilder.addArg(
         new SourcePathArg(
-            new SourcePathResolver(buildRuleResolver),
+            pathResolver,
             new BuildTargetSourcePath(
                 nativeLinkable.getBuildTarget())));
 
@@ -119,7 +122,7 @@ public class DBinaryDescription implements
     return new DBinary(
         params.copyWithExtraDeps(
             Suppliers.ofInstance(ImmutableSortedSet.of(nativeLinkable))),
-        new SourcePathResolver(buildRuleResolver),
+        ruleFinder,
         executableBuilder.build(),
         nativeLinkable.getPathToOutput());
   }

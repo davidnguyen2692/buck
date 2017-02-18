@@ -50,10 +50,10 @@ import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.SymlinkTree;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.args.SourcePathArg;
-import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.util.OptionalCompat;
 import com.facebook.buck.versions.VersionPropagator;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
@@ -114,6 +114,7 @@ public class CxxLuaExtensionDescription implements
       BuildRuleParams params,
       BuildRuleResolver ruleResolver,
       SourcePathResolver pathResolver,
+      SourcePathRuleFinder ruleFinder,
       CxxPlatform cxxPlatform,
       Arg args) throws NoSuchBuildTargetException {
 
@@ -137,7 +138,6 @@ public class CxxLuaExtensionDescription implements
         CxxDescriptionEnhancer.requireHeaderSymlinkTree(
             params,
             ruleResolver,
-            new SourcePathResolver(ruleResolver),
             cxxPlatform,
             headers,
             HeaderVisibility.PRIVATE,
@@ -173,6 +173,7 @@ public class CxxLuaExtensionDescription implements
             params,
             ruleResolver,
             pathResolver,
+            ruleFinder,
             cxxBuckConfig,
             cxxPlatform,
             cxxPreprocessorInput,
@@ -182,14 +183,18 @@ public class CxxLuaExtensionDescription implements
                 args.langCompilerFlags,
                 cxxPlatform),
             args.prefixHeader,
+            args.precompiledHeader,
             srcs,
             CxxSourceRuleFactory.PicType.PIC,
             sandboxTree);
 
     ImmutableList.Builder<com.facebook.buck.rules.args.Arg> argsBuilder = ImmutableList.builder();
     argsBuilder.addAll(
-        StringArg.from(
-            CxxFlags.getFlags(
+        CxxDescriptionEnhancer.toStringWithMacrosArgs(
+            params.getBuildTarget(),
+            params.getCellRoots(),
+            ruleResolver,
+            CxxFlags.getFlagsWithMacrosWithPlatformMacroExpansion(
                 args.linkerFlags,
                 args.platformLinkerFlags,
                 cxxPlatform)));
@@ -212,7 +217,8 @@ public class CxxLuaExtensionDescription implements
           cxxPlatform,
           params);
     }
-    SourcePathResolver pathResolver = new SourcePathResolver(ruleResolver);
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(ruleResolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
     String extensionName = getExtensionName(params.getBuildTarget(), cxxPlatform);
     Path extensionPath =
         getExtensionPath(
@@ -225,6 +231,7 @@ public class CxxLuaExtensionDescription implements
         params,
         ruleResolver,
         pathResolver,
+        ruleFinder,
         getExtensionTarget(
             params.getBuildTarget(),
             cxxPlatform.getFlavor()),
@@ -244,6 +251,7 @@ public class CxxLuaExtensionDescription implements
                     params.withoutFlavor(LinkerMapMode.NO_LINKER_MAP.getFlavor()),
                     ruleResolver,
                     pathResolver,
+                    ruleFinder,
                     cxxPlatform,
                     args))
             .build());
@@ -274,7 +282,8 @@ public class CxxLuaExtensionDescription implements
 
     // Otherwise, we return the generic placeholder of this library, that dependents can use
     // get the real build rules via querying the action graph.
-    final SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    final SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
     return new CxxLuaExtension(params, pathResolver) {
 
       @Override
@@ -312,7 +321,8 @@ public class CxxLuaExtensionDescription implements
       public NativeLinkableInput getNativeLinkTargetInput(CxxPlatform cxxPlatform)
           throws NoSuchBuildTargetException {
         return NativeLinkableInput.builder()
-            .addAllArgs(getExtensionArgs(params, resolver, pathResolver, cxxPlatform, args))
+            .addAllArgs(
+                getExtensionArgs(params, resolver, pathResolver, ruleFinder, cxxPlatform, args))
             .addAllFrameworks(args.frameworks)
             .build();
       }

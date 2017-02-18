@@ -16,10 +16,11 @@
 package com.facebook.buck.cli;
 
 import com.facebook.buck.android.AndroidPlatformTarget;
-import com.facebook.buck.artifact_cache.ArtifactCache;
+import com.facebook.buck.artifact_cache.ArtifactCacheFactory;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.httpserver.WebServer;
 import com.facebook.buck.jvm.core.JavaPackageFinder;
+import com.facebook.buck.log.InvocationInfo;
 import com.facebook.buck.parser.Parser;
 import com.facebook.buck.rules.ActionGraphCache;
 import com.facebook.buck.rules.Cell;
@@ -46,7 +47,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentMap;
 
-@Value.Immutable(copy = false)
+@Value.Immutable()
 @BuckStyleImmutable
 public interface AbstractCommandRunnerParams {
   Console getConsole();
@@ -57,7 +58,7 @@ public interface AbstractCommandRunnerParams {
 
   VersionedTargetGraphCache getVersionedTargetGraphCache();
 
-  ArtifactCache getArtifactCache();
+  ArtifactCacheFactory getArtifactCacheFactory();
 
   Parser getParser();
 
@@ -92,4 +93,6 @@ public interface AbstractCommandRunnerParams {
   ActionGraphCache getActionGraphCache();
 
   KnownBuildRuleTypesFactory getKnownBuildRuleTypesFactory();
+
+  Optional<InvocationInfo> getInvocationInfo();
 }

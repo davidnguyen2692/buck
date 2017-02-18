@@ -16,6 +16,7 @@
 
 package com.facebook.buck.cxx.elf;
 
+import com.facebook.buck.model.Pair;
 import com.google.common.base.Preconditions;
 
 import java.nio.ByteBuffer;
@@ -73,13 +74,13 @@ public class Elf {
   /**
    * @return the parsed section header for the section of the given name.
    */
-  public Optional<ElfSection> getSectionByName(String name) {
+  public Optional<Pair<Integer, ElfSection>> getSectionByName(String name) {
     ElfSection stringTable = getSectionByIndex(header.e_shstrndx);
-    for (int i = 0; i < header.e_shnum; i++) {
-      ElfSection section = getSectionByIndex(i);
+    for (int index = 0; index < header.e_shnum; index++) {
+      ElfSection section = getSectionByIndex(index);
       String sectionName = stringTable.lookupString(section.header.sh_name);
       if (name.equals(sectionName)) {
-        return Optional.of(section);
+        return Optional.of(new Pair<>(index, section));
       }
     }
     return Optional.empty();
@@ -125,7 +126,7 @@ public class Elf {
       return buffer.getShort() & 0xffff;
     }
 
-    public static void putEl32fHalf(ByteBuffer buffer, short val) {
+    public static void putElf32Half(ByteBuffer buffer, short val) {
       buffer.putShort(val);
     }
 
@@ -133,7 +134,7 @@ public class Elf {
       return buffer.getInt();
     }
 
-    public static void putEl32fSword(ByteBuffer buffer, int val) {
+    public static void putElf32Sword(ByteBuffer buffer, int val) {
       buffer.putInt(val);
     }
 

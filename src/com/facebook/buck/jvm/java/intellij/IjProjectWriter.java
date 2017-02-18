@@ -142,6 +142,14 @@ public class IjProjectWriter {
         "languageLevel",
         JavaLanguageLevelHelper.convertLanguageLevelToIjFormat(
             module.getLanguageLevel().orElse(null)));
+    moduleContents.add(
+        "moduleType",
+        module.getModuleType().orElse(IjModuleType.DEFAULT));
+    moduleContents.add(
+        "metaInfDirectory",
+        module.getMetaInfDirectory()
+            .map((dir) -> module.getModuleBasePath().relativize(dir))
+            .orElse(null));
 
     writeToFile(moduleContents, path);
     return path;
@@ -297,7 +305,7 @@ public class IjProjectWriter {
   }
 
   private Optional<String> getFirstResourcePackageFromDependencies(IjModule module) {
-    ImmutableMap<IjModule, IjModuleGraph.DependencyType> deps =
+    ImmutableMap<IjModule, DependencyType> deps =
         moduleGraph.getDependentModulesFor(module);
     for (IjModule dep : deps.keySet()) {
       Optional<IjModuleAndroidFacet> facet = dep.getAndroidFacet();

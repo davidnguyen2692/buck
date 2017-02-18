@@ -22,10 +22,8 @@ import com.google.common.base.Function;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.io.ByteSource;
 
-import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.FileSystem;
@@ -163,17 +161,6 @@ public class MorePaths {
   }
 
   /**
-   * Convert a set of input file paths as strings to {@link Path} objects.
-   */
-  public static ImmutableSortedSet<Path> asPaths(Iterable<String> paths) {
-    ImmutableSortedSet.Builder<Path> builder = ImmutableSortedSet.naturalOrder();
-    for (String path : paths) {
-      builder.add(Paths.get(path));
-    }
-    return builder.build();
-  }
-
-  /**
    * Filters out {@link Path} objects from {@code paths} that aren't a subpath of {@code root} and
    * returns a set of paths relative to {@code root}.
    */
@@ -298,7 +285,20 @@ public class MorePaths {
     return p;
   }
 
-  public static Path fixPath(String path) {
-    return fixPath(new File(path).toPath());
+  /**
+   * Drop the cache in Path object.
+   *
+   * Path's implementation class {@code UnixPath}, will lazily initialize a String representation
+   * and store it in the object when {@code #toString()} is called for the first time. This doubles
+   * the memory requirement for the Path object.
+   *
+   * This hack constructs a new path, dropping the cached toString value.
+   *
+   * Due to the nature of what this function does, it's very sensitive to the implementation. Any
+   * calls to {@code #toString()} on the returned object would also recreate the cached string
+   * value.
+   */
+  public static Path dropInternalCaches(Path p) {
+    return p.getFileSystem().getPath(p.toString());
   }
 }

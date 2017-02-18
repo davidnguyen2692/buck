@@ -10,11 +10,13 @@
   "cmdExe":null,
   "executable":null,
   "fully_qualified_name":"//:test",
+  "labels":null,
   "licenses":null,
   "name":"test",
   "out":"test-output",
   "srcs":null,
   "tests":null,
+  "type":null,
   "visibility":null
 }
 ]

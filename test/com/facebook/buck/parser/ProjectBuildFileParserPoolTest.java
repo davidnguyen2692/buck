@@ -28,6 +28,7 @@ import com.google.common.base.Throwables;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.util.concurrent.FutureCallback;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.ListeningExecutorService;
@@ -49,6 +50,8 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+
+import javax.annotation.Nullable;
 
 public class ProjectBuildFileParserPoolTest {
 
@@ -73,7 +76,8 @@ public class ProjectBuildFileParserPoolTest {
                     try {
                       didntTimeout = createParserLatch.await(1, TimeUnit.SECONDS);
                     } catch (InterruptedException e) {
-                      Throwables.propagate(e);
+                      Throwables.throwIfUnchecked(e);
+                      throw new RuntimeException(e);
                     }
                     assertThat(didntTimeout, Matchers.equalTo(true));
                     return ImmutableList.of();
@@ -144,7 +148,8 @@ public class ProjectBuildFileParserPoolTest {
                       }
                     });
               } catch (Exception e) {
-                Throwables.propagate(e);
+                Throwables.throwIfUnchecked(e);
+                throw new RuntimeException(e);
               }
               EasyMock.replay(parser);
               return parser;
@@ -254,13 +259,16 @@ public class ProjectBuildFileParserPoolTest {
 
       futures = scheduleWork(cell, parserPool, executorService, 5);
       for (ListenableFuture<?> future : futures) {
-        Futures.transform(
+        Futures.addCallback(
             future,
-            new Function<Object, Object>() {
+            new FutureCallback<Object>() {
               @Override
-              public Object apply(Object input) {
+              public void onSuccess(@Nullable Object result) {
                 postCloseWork.incrementAndGet();
-                return null;
+              }
+
+              @Override
+              public void onFailure(Throwable t) {
               }
             });
       }
@@ -343,7 +351,8 @@ public class ProjectBuildFileParserPoolTest {
       mock.close();
       EasyMock.expectLastCall().andVoid().once();
     } catch (Exception e) {
-      Throwables.propagate(e);
+      Throwables.throwIfUnchecked(e);
+      throw new RuntimeException(e);
     }
     EasyMock.replay(mock);
     return mock;

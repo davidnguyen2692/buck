@@ -16,6 +16,7 @@
 
 package com.facebook.buck.jvm.java;
 
+import static org.easymock.EasyMock.createMock;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
 
@@ -24,9 +25,11 @@ import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.step.TargetDevice;
 import com.facebook.buck.testutil.MoreAsserts;
+import com.facebook.buck.util.MoreCollectors;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
 
@@ -44,7 +47,10 @@ public class JavaTestRuleTest {
     ImmutableList<String> vmArgs = ImmutableList.of("--one", "--two", "--three");
     JavaTest rule = newRule(vmArgs);
 
-    ImmutableList<String> amended = rule.amendVmArgs(vmArgs, Optional.empty());
+    ImmutableList<String> amended = rule.amendVmArgs(
+        vmArgs,
+        createMock(SourcePathResolver.class),
+        Optional.empty());
 
     MoreAsserts.assertListEquals(vmArgs, amended);
   }
@@ -55,7 +61,10 @@ public class JavaTestRuleTest {
     JavaTest rule = newRule(vmArgs);
 
     TargetDevice device = new TargetDevice(TargetDevice.Type.EMULATOR, null);
-    ImmutableList<String> amended = rule.amendVmArgs(vmArgs, Optional.of(device));
+    ImmutableList<String> amended = rule.amendVmArgs(
+        vmArgs,
+        createMock(SourcePathResolver.class),
+        Optional.of(device));
 
     ImmutableList<String> expected = ImmutableList.of("--one", "-Dbuck.device=emulator");
     assertEquals(expected, amended);
@@ -67,7 +76,10 @@ public class JavaTestRuleTest {
     JavaTest rule = newRule(vmArgs);
 
     TargetDevice device = new TargetDevice(TargetDevice.Type.REAL_DEVICE, null);
-    ImmutableList<String> amended = rule.amendVmArgs(vmArgs, Optional.of(device));
+    ImmutableList<String> amended = rule.amendVmArgs(
+        vmArgs,
+        createMock(SourcePathResolver.class),
+        Optional.of(device));
 
     ImmutableList<String> expected = ImmutableList.of("--one", "-Dbuck.device=device");
     assertEquals(expected, amended);
@@ -79,7 +91,10 @@ public class JavaTestRuleTest {
     JavaTest rule = newRule(vmArgs);
 
     TargetDevice device = new TargetDevice(TargetDevice.Type.EMULATOR, "123");
-    List<String> amended = rule.amendVmArgs(vmArgs, Optional.of(device));
+    List<String> amended = rule.amendVmArgs(
+        vmArgs,
+        createMock(SourcePathResolver.class),
+        Optional.of(device));
 
     List<String> expected = ImmutableList.of(
         "--one", "-Dbuck.device=emulator", "-Dbuck.device.id=123");
@@ -90,7 +105,7 @@ public class JavaTestRuleTest {
   public void transitiveLibraryDependenciesAreRuntimeDeps() throws Exception {
     BuildRuleResolver resolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
 
     FakeJavaLibrary transitiveDep =
         resolver.addToIndex(
@@ -106,18 +121,21 @@ public class JavaTestRuleTest {
                 ImmutableSortedSet.of(transitiveDep)));
 
     JavaTest rule =
-        (JavaTest) JavaTestBuilder.createBuilder(BuildTargetFactory.newInstance("//:rule"))
+        JavaTestBuilder.createBuilder(BuildTargetFactory.newInstance("//:rule"))
             .addSrc(Paths.get("ExampleTest.java"))
             .addDep(firstOrderDep.getBuildTarget())
             .build(resolver);
 
     assertThat(
-        rule.getRuntimeDeps(),
-        Matchers.hasItems(rule.getCompiledTestsLibrary(), firstOrderDep, transitiveDep));
+        rule.getRuntimeDeps().collect(MoreCollectors.toImmutableSet()),
+        Matchers.hasItems(
+            rule.getCompiledTestsLibrary().getBuildTarget(),
+            firstOrderDep.getBuildTarget(),
+            transitiveDep.getBuildTarget()));
   }
 
   private JavaTest newRule(ImmutableList<String> vmArgs) throws NoSuchBuildTargetException {
-    return (JavaTest) JavaTestBuilder
+    return JavaTestBuilder
         .createBuilder(BuildTargetFactory.newInstance("//example:test"))
         .setVmArgs(vmArgs)
         .addSrc(Paths.get("ExampleTest.java"))

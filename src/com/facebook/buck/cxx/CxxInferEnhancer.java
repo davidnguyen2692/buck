@@ -26,6 +26,7 @@ import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.SymlinkTree;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Suppliers;
@@ -91,7 +92,7 @@ public final class CxxInferEnhancer {
     InferFlavors.checkNoInferFlavors(buildTarget.getFlavors());
     return CxxDescriptionEnhancer.parseCxxSources(
         buildTarget,
-        new SourcePathResolver(ruleResolver),
+        new SourcePathResolver(new SourcePathRuleFinder(ruleResolver)),
         cxxPlatform,
         args);
   }
@@ -109,7 +110,7 @@ public final class CxxInferEnhancer {
         requireInferCaptureAggregatorBuildRuleForCxxDescriptionArg(
             params,
             ruleResolver,
-            new SourcePathResolver(ruleResolver),
+            new SourcePathResolver(new SourcePathRuleFinder(ruleResolver)),
             cxxBuckConfig,
             cxxPlatform,
             args,
@@ -127,14 +128,12 @@ public final class CxxInferEnhancer {
                         .addAll(captureRules)
                         .build()),
                 params.getExtraDeps()),
-            new SourcePathResolver(ruleResolver),
             captureRules));
   }
 
   public static CxxInferComputeReport requireInferAnalyzeAndReportBuildRuleForCxxDescriptionArg(
       BuildRuleParams params,
       BuildRuleResolver resolver,
-      SourcePathResolver pathResolver,
       CxxBuckConfig cxxBuckConfig,
       CxxPlatform cxxPlatform,
       CxxConstructorArg args,
@@ -154,7 +153,6 @@ public final class CxxInferEnhancer {
     CxxInferAnalyze analysisRule = requireInferAnalyzeBuildRuleForCxxDescriptionArg(
         cleanParams,
         resolver,
-        pathResolver,
         cxxBuckConfig,
         cxxPlatform,
         args,
@@ -163,7 +161,6 @@ public final class CxxInferEnhancer {
     return createInferReportRule(
         paramsWithInferFlavor,
         resolver,
-        pathResolver,
         analysisRule);
   }
 
@@ -211,7 +208,6 @@ public final class CxxInferEnhancer {
   public static CxxInferAnalyze requireInferAnalyzeBuildRuleForCxxDescriptionArg(
       BuildRuleParams params,
       BuildRuleResolver resolver,
-      SourcePathResolver pathResolver,
       CxxBuckConfig cxxBuckConfig,
       CxxPlatform cxxPlatform,
       CxxConstructorArg args,
@@ -245,7 +241,6 @@ public final class CxxInferEnhancer {
     return createInferAnalyzeRule(
         paramsWithInferAnalyzeFlavor,
         resolver,
-        pathResolver,
         inferConfig,
         cxxInferCaptureAndAnalyzeRules);
   }
@@ -364,7 +359,6 @@ public final class CxxInferEnhancer {
         CxxLibraryDescription.getTransitiveCxxPreprocessorInput(
             params,
             resolver,
-            pathResolver,
             cxxPlatform,
             CxxFlags.getLanguageFlags(
                 args.exportedPreprocessorFlags,
@@ -394,7 +388,8 @@ public final class CxxInferEnhancer {
 
     InferFlavors.checkNoInferFlavors(params.getBuildTarget().getFlavors());
 
-    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
 
     ImmutableMap<Path, SourcePath> headers = CxxDescriptionEnhancer.parseHeaders(
         params.getBuildTarget(),
@@ -413,7 +408,6 @@ public final class CxxInferEnhancer {
     HeaderSymlinkTree headerSymlinkTree = CxxDescriptionEnhancer.requireHeaderSymlinkTree(
         params,
         resolver,
-        pathResolver,
         cxxPlatform,
         headers,
         HeaderVisibility.PRIVATE,
@@ -454,6 +448,7 @@ public final class CxxInferEnhancer {
         params,
         resolver,
         pathResolver,
+        ruleFinder,
         cxxBuckConfig,
         cxxPlatform,
         preprocessorInputs,
@@ -463,6 +458,7 @@ public final class CxxInferEnhancer {
             args.langCompilerFlags,
             cxxPlatform),
         args.prefixHeader,
+        args.precompiledHeader,
         CxxSourceRuleFactory.PicType.PDC,
         sandboxTree);
     return factory.requireInferCaptureBuildRules(
@@ -474,7 +470,6 @@ public final class CxxInferEnhancer {
   private static CxxInferAnalyze createInferAnalyzeRule(
       BuildRuleParams params,
       BuildRuleResolver resolver,
-      SourcePathResolver pathResolver,
       InferBuckConfig inferConfig,
       CxxInferCaptureAndAggregatingRules<CxxInferAnalyze> captureAnalyzeRules) {
     return resolver.addToIndex(
@@ -487,7 +482,6 @@ public final class CxxInferEnhancer {
                         .addAll(captureAnalyzeRules.aggregatingRules)
                         .build()),
                 params.getExtraDeps()),
-            pathResolver,
             inferConfig,
             captureAnalyzeRules));
   }
@@ -507,7 +501,6 @@ public final class CxxInferEnhancer {
   private static CxxInferComputeReport createInferReportRule(
       BuildRuleParams buildRuleParams,
       BuildRuleResolver buildRuleResolver,
-      SourcePathResolver sourcePathResolver,
       CxxInferAnalyze analysisToReport) {
     return buildRuleResolver.addToIndex(
         new CxxInferComputeReport(
@@ -518,7 +511,6 @@ public final class CxxInferEnhancer {
                         .add(analysisToReport)
                         .build()),
                 buildRuleParams.getExtraDeps()),
-            sourcePathResolver,
             analysisToReport));
   }
 }

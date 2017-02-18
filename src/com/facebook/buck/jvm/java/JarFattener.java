@@ -17,7 +17,7 @@
 package com.facebook.buck.jvm.java;
 
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.rules.AbstractBuildRuleWithResolver;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BinaryBuildRule;
 import com.facebook.buck.rules.BuildContext;
@@ -27,6 +27,7 @@ import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.CommandTool;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.step.Step;
@@ -59,19 +60,20 @@ import javax.xml.bind.JAXBException;
 /**
  * Build a fat JAR that packages an inner JAR along with any required native libraries.
  */
-public class JarFattener extends AbstractBuildRule implements BinaryBuildRule {
+public class JarFattener extends AbstractBuildRuleWithResolver implements BinaryBuildRule {
 
   private static final String FAT_JAR_INNER_JAR = "inner.jar";
   private static final String FAT_JAR_NATIVE_LIBRARY_RESOURCE_ROOT = "nativelibs";
   public static final ImmutableList<String> FAT_JAR_SRC_RESOURCES =
       ImmutableList.of(
           "com/facebook/buck/jvm/java/FatJar.java",
-          "com/facebook/buck/util/exportedfiles/Nullable.java",
-          "com/facebook/buck/util/exportedfiles/Preconditions.java"
+          "com/facebook/buck/util/liteinfersupport/Nullable.java",
+          "com/facebook/buck/util/liteinfersupport/Preconditions.java"
       );
   public static final String FAT_JAR_MAIN_SRC_RESOURCE =
       "com/facebook/buck/jvm/java/FatJarMain.java";
 
+  private final SourcePathRuleFinder ruleFinder;
   private final JavacOptions javacOptions;
   @AddToRuleKey
   private final SourcePath innerJar;
@@ -84,11 +86,13 @@ public class JarFattener extends AbstractBuildRule implements BinaryBuildRule {
   public JarFattener(
       BuildRuleParams params,
       SourcePathResolver resolver,
+      SourcePathRuleFinder ruleFinder,
       JavacOptions javacOptions,
       SourcePath innerJar,
       ImmutableMap<String, SourcePath> nativeLibraries,
       JavaRuntimeLauncher javaRuntimeLauncher) {
     super(params, resolver);
+    this.ruleFinder = ruleFinder;
     this.javacOptions = javacOptions;
     this.innerJar = innerJar;
     this.nativeLibraries = nativeLibraries;
@@ -117,7 +121,7 @@ public class JarFattener extends AbstractBuildRule implements BinaryBuildRule {
       steps.add(
           new SymlinkFileStep(
               getProjectFilesystem(),
-              getResolver().getAbsolutePath(entry.getValue()),
+              context.getSourcePathResolver().getAbsolutePath(entry.getValue()),
               fatJarDir.resolve(resource),
               /* useAbsolutePaths */ true));
     }
@@ -146,7 +150,7 @@ public class JarFattener extends AbstractBuildRule implements BinaryBuildRule {
     steps.add(
         new SymlinkFileStep(
             getProjectFilesystem(),
-            getResolver().getAbsolutePath(innerJar),
+            context.getSourcePathResolver().getAbsolutePath(innerJar),
             fatJarDir.resolve(FAT_JAR_INNER_JAR),
             /* useAbsolutePaths */ true));
 
@@ -174,7 +178,8 @@ public class JarFattener extends AbstractBuildRule implements BinaryBuildRule {
         context,
         ImmutableSortedSet.copyOf(javaSourceFilePaths),
         getBuildTarget(),
-        getResolver(),
+        context.getSourcePathResolver(),
+        ruleFinder,
         getProjectFilesystem(),
         /* classpathEntries */ ImmutableSortedSet.of(),
         fatJarDir,

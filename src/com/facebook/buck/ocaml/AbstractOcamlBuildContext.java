@@ -164,6 +164,15 @@ abstract class AbstractOcamlBuildContext implements RuleKeyAppendable {
     return getNativeOutputPath(getBuildTarget(), getProjectFilesystem(), isLibrary());
   }
 
+  public Path getNativePluginOutput() {
+    UnflavoredBuildTarget target = getBuildTarget();
+    return BuildTargets.getGenPath(
+      getProjectFilesystem(),
+      BuildTarget.of(target),
+      "%s/lib" + target.getShortName() + OcamlCompilables.OCAML_CMXS
+    );
+  }
+
   public static Path getNativeOutputPath(
       UnflavoredBuildTarget target,
       ProjectFilesystem filesystem,
@@ -330,10 +339,6 @@ abstract class AbstractOcamlBuildContext implements RuleKeyAppendable {
                 getSourcePathResolver(),
                 Optional.empty(),
                 getCPreprocessor())));
-
-    for (Path includes : cxxPreprocessorInput.getSystemIncludeRoots()) {
-      compileFlags.add("-ccopt", "-isystem" + includes.toString());
-    }
 
     for (String cFlag : cxxPreprocessorInput.getPreprocessorFlags().get(CxxSource.Type.C)) {
       compileFlags.add("-ccopt", cFlag);

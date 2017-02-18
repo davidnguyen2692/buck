@@ -26,6 +26,7 @@ import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.FakeExportDependenciesRule;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.google.common.collect.ImmutableSortedSet;
 
@@ -38,7 +39,7 @@ public class JavaTestDescriptionTest {
   public void rulesExportedFromDepsBecomeFirstOrderDeps() throws Exception {
     BuildRuleResolver resolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
 
     FakeBuildRule exportedRule =
         resolver.addToIndex(new FakeBuildRule("//:exported_rule", pathResolver));
@@ -47,7 +48,7 @@ public class JavaTestDescriptionTest {
             new FakeExportDependenciesRule("//:exporting_rule", pathResolver, exportedRule));
 
     BuildTarget target = BuildTargetFactory.newInstance("//:rule");
-    JavaTest javaTest = (JavaTest) JavaTestBuilder.createBuilder(target)
+    JavaTest javaTest = JavaTestBuilder.createBuilder(target)
         .addDep(exportingRule.getBuildTarget())
         .build(resolver);
 
@@ -59,7 +60,7 @@ public class JavaTestDescriptionTest {
   public void rulesExportedFromProvidedDepsBecomeFirstOrderDeps() throws Exception {
     BuildRuleResolver resolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
 
     FakeBuildRule exportedRule =
         resolver.addToIndex(new FakeBuildRule("//:exported_rule", pathResolver));
@@ -68,7 +69,7 @@ public class JavaTestDescriptionTest {
             new FakeExportDependenciesRule("//:exporting_rule", pathResolver, exportedRule));
 
     BuildTarget target = BuildTargetFactory.newInstance("//:rule");
-    JavaTest javaTest = (JavaTest) JavaTestBuilder.createBuilder(target)
+    JavaTest javaTest = JavaTestBuilder.createBuilder(target)
         .addProvidedDep(exportingRule.getBuildTarget())
         .build(resolver);
 

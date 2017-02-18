@@ -19,7 +19,6 @@ package com.facebook.buck.go;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.Flavored;
-import com.facebook.buck.model.HasBuildTarget;
 import com.facebook.buck.model.HasTests;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.AbstractDescriptionArg;
@@ -33,6 +32,7 @@ import com.facebook.buck.rules.MetadataProvidingDescription;
 import com.facebook.buck.rules.NoopBuildRule;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.base.Preconditions;
@@ -130,11 +130,11 @@ public class GoLibraryDescription implements
           args.assemblerFlags,
           platform.get(),
           FluentIterable.from(params.getDeclaredDeps().get())
-              .transform(HasBuildTarget::getBuildTarget)
+              .transform(BuildRule::getBuildTarget)
               .append(args.exportedDeps));
     }
 
-    return new NoopBuildRule(params, new SourcePathResolver(resolver));
+    return new NoopBuildRule(params, new SourcePathResolver(new SourcePathRuleFinder(resolver)));
   }
 
   @SuppressFieldNotInitialized

@@ -37,8 +37,8 @@ import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
-import com.facebook.buck.rules.Label;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.util.OptionalCompat;
@@ -83,17 +83,19 @@ public class ScalaTestDescription implements Description<ScalaTestDescription.Ar
       final BuildRuleParams rawParams,
       final BuildRuleResolver resolver,
       A args) throws NoSuchBuildTargetException {
-    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
 
-    if (rawParams.getBuildTarget().getFlavors().contains(CalculateAbi.FLAVOR)) {
-      BuildTarget testTarget = rawParams.getBuildTarget().withoutFlavors(CalculateAbi.FLAVOR);
+    if (CalculateAbi.isAbiTarget(rawParams.getBuildTarget())) {
+      BuildTarget testTarget = CalculateAbi.getLibraryTarget(rawParams.getBuildTarget());
       resolver.requireRule(testTarget);
       return CalculateAbi.of(
           rawParams.getBuildTarget(),
-          pathResolver,
+          ruleFinder,
           rawParams,
           new BuildTargetSourcePath(testTarget));
     }
+
+    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
 
     final BuildRule scalaLibrary = resolver.getRule(config.getScalaLibraryTarget());
     BuildRuleParams params = rawParams.copyWithDeps(
@@ -109,13 +111,11 @@ public class ScalaTestDescription implements Description<ScalaTestDescription.Ar
             args.useCxxLibraries,
             args.cxxLibraryWhitelist,
             resolver,
-            pathResolver,
+            ruleFinder,
             cxxPlatform);
     params = cxxLibraryEnhancement.updatedParams;
 
     Tool scalac = config.getScalac(resolver);
-
-    BuildTarget abiJarTarget = params.getBuildTarget().withAppendedFlavors(CalculateAbi.FLAVOR);
 
     BuildRuleParams javaLibraryParams =
         params.appendExtraDeps(
@@ -124,13 +124,14 @@ public class ScalaTestDescription implements Description<ScalaTestDescription.Ar
                     Iterables.concat(
                         params.getDeclaredDeps().get(),
                         resolver.getAllRules(args.providedDeps))),
-                scalac.getDeps(pathResolver)))
+                scalac.getDeps(ruleFinder)))
             .withFlavor(JavaTest.COMPILED_TESTS_LIBRARY_FLAVOR);
     JavaLibrary testsLibrary =
         resolver.addToIndex(
             new DefaultJavaLibrary(
                 javaLibraryParams,
                 pathResolver,
+                ruleFinder,
                 args.srcs,
                 ResourceValidator.validateResources(
                     pathResolver,
@@ -141,16 +142,14 @@ public class ScalaTestDescription implements Description<ScalaTestDescription.Ar
                 /* postprocessClassesCommands */ ImmutableList.of(),
                 /* exportDeps */ ImmutableSortedSet.of(),
                 /* providedDeps */ ImmutableSortedSet.of(),
-                abiJarTarget,
                 JavaLibraryRules.getAbiInputs(resolver, javaLibraryParams.getDeps()),
                 /* trackClassUsage */ false,
                 /* additionalClasspathEntries */ ImmutableSet.of(),
                 new ScalacToJarStepFactory(
                     scalac,
-                    ImmutableList.<String>builder()
-                        .addAll(config.getCompilerFlags())
-                        .addAll(args.extraArguments)
-                        .build()
+                    config.getCompilerFlags(),
+                    args.extraArguments,
+                    ImmutableSet.of()
                 ),
                 args.resourcesRoot,
                 args.manifestFile,
@@ -194,7 +193,6 @@ public class ScalaTestDescription implements Description<ScalaTestDescription.Ar
   @SuppressFieldNotInitialized
   public static class Arg extends ScalaLibraryDescription.Arg {
     public ImmutableSortedSet<String> contacts = ImmutableSortedSet.of();
-    public ImmutableSortedSet<Label> labels = ImmutableSortedSet.of();
     public ImmutableList<String> vmArgs = ImmutableList.of();
     public Optional<TestType> testType;
     public Optional<Boolean> runTestSeparately;

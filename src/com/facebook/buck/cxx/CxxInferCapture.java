@@ -22,10 +22,8 @@ import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
-import com.facebook.buck.rules.RuleKeyAppendable;
 import com.facebook.buck.rules.RuleKeyObjectSink;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.keys.SupportsDependencyFileRuleKey;
 import com.facebook.buck.shell.DefaultShellStep;
 import com.facebook.buck.step.ExecutionContext;
@@ -33,21 +31,22 @@ import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.util.Escaper;
+import com.facebook.buck.util.HumanReadableException;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Optional;
+import java.util.function.Predicate;
 
 /**
  * Generate the CFG for a source file
  */
 public class CxxInferCapture
     extends AbstractBuildRule
-    implements RuleKeyAppendable, SupportsDependencyFileRuleKey {
+    implements SupportsDependencyFileRuleKey {
 
   @AddToRuleKey
   private final InferBuckConfig inferConfig;
@@ -66,7 +65,6 @@ public class CxxInferCapture
 
   CxxInferCapture(
       BuildRuleParams buildRuleParams,
-      SourcePathResolver pathResolver,
       CxxToolFlags preprocessorFlags,
       CxxToolFlags compilerFlags,
       SourcePath input,
@@ -75,7 +73,7 @@ public class CxxInferCapture
       PreprocessorDelegate preprocessorDelegate,
       InferBuckConfig inferConfig,
       DebugPathSanitizer sanitizer) {
-    super(buildRuleParams, pathResolver);
+    super(buildRuleParams);
     this.preprocessorFlags = preprocessorFlags;
     this.compilerFlags = compilerFlags;
     this.input = input;
@@ -104,38 +102,24 @@ public class CxxInferCapture
         .add("@" + getArgfile())
         .build();
   }
-
-  private ImmutableList<String> getCompilerArgs() {
-    ImmutableList.Builder<String> commandBuilder = ImmutableList.builder();
-    return commandBuilder
-        .add("-MD", "-MF", getTempDepFilePath().toString())
-        .addAll(
-            CxxToolFlags.concat(preprocessorFlags, getSearchPathFlags(), compilerFlags)
-                .getAllFlags())
-        .add("-x", inputType.getLanguage())
-        .add("-o", output.toString()) // TODO(martinoluca): Use -fsyntax-only for better perf
-        .add("-c")
-        .add(getResolver().deprecatedGetPath(input).toString())
-        .build();
-  }
-
   @Override
   public ImmutableList<Step> getBuildSteps(
       BuildContext context, BuildableContext buildableContext) {
     ImmutableList<String> frontendCommand = getFrontendCommand();
 
-    buildableContext.recordArtifact(this.getPathToOutput());
+    buildableContext.recordArtifact(
+        context.getSourcePathResolver().getRelativePath(getSourcePathToOutput()));
 
+    Path inputRelativePath = context.getSourcePathResolver().getRelativePath(input);
     return ImmutableList.<Step>builder()
         .add(new MkdirStep(getProjectFilesystem(), resultsDir))
         .add(new MkdirStep(getProjectFilesystem(), output.getParent()))
-        .add(new WriteArgFileStep())
+        .add(new WriteArgFileStep(inputRelativePath))
         .add(
             new DefaultShellStep(
                 getProjectFilesystem().getRootPath(),
                 frontendCommand,
                 ImmutableMap.of()))
-        .add(new ParseAndWriteBuckCompatibleDepfileStep(getTempDepFilePath(), getDepFilePath()))
         .build();
   }
 
@@ -173,16 +157,37 @@ public class CxxInferCapture
   }
 
   @Override
-  public Optional<ImmutableSet<SourcePath>> getPossibleInputSourcePaths() {
-    return preprocessorDelegate.getPossibleInputSourcePaths();
+  public Predicate<SourcePath> getCoveredByDepFilePredicate() {
+    return preprocessorDelegate.getCoveredByDepFilePredicate();
   }
 
   @Override
-  public ImmutableList<SourcePath> getInputsAfterBuildingLocally() throws IOException {
+  public Predicate<SourcePath> getExistenceOfInterestPredicate() {
+    return (SourcePath path) -> false;
+  }
+
+  @Override
+  public ImmutableList<SourcePath> getInputsAfterBuildingLocally(BuildContext context)
+      throws IOException {
+
+    ImmutableList<Path> depFileLines;
+    try {
+      depFileLines = Depfiles.parseAndOutputBuckCompatibleDepfile(
+          context.getEventBus(),
+          getProjectFilesystem(),
+          preprocessorDelegate.getHeaderPathNormalizer(),
+          preprocessorDelegate.getHeaderVerification(),
+          getDepFilePath(),
+          context.getSourcePathResolver().getRelativePath(input),
+          output);
+    } catch (Depfiles.HeaderVerificationException e) {
+      throw new HumanReadableException(e);
+    }
+
     ImmutableList.Builder<SourcePath> inputs = ImmutableList.builder();
 
     // include all inputs coming from the preprocessor tool.
-    inputs.addAll(preprocessorDelegate.getInputsAfterBuildingLocally(readDepFileLines()));
+    inputs.addAll(preprocessorDelegate.getInputsAfterBuildingLocally(depFileLines));
 
     // Add the input.
     inputs.add(input);
@@ -199,52 +204,13 @@ public class CxxInferCapture
     return output.getFileSystem().getPath(output.toString() + ".dep");
   }
 
-  private Path getTempDepFilePath() {
-    return output.getFileSystem().getPath(getDepFilePath().toString() + ".tmp.dep");
-  }
-
-  private ImmutableList<String> readDepFileLines() throws IOException {
-    return ImmutableList.copyOf(getProjectFilesystem().readLines(getDepFilePath()));
-  }
-
-
-  private class ParseAndWriteBuckCompatibleDepfileStep implements Step {
-
-    private Path sourceDepfile;
-    private Path destDepfile;
-
-    public ParseAndWriteBuckCompatibleDepfileStep(Path sourceDepfile, Path destDepfile) {
-      this.sourceDepfile = sourceDepfile;
-      this.destDepfile = destDepfile;
-    }
-
-    @Override
-    public StepExecutionResult execute(ExecutionContext context)
-        throws IOException, InterruptedException {
-      Depfiles.parseAndWriteBuckCompatibleDepfile(
-          context,
-          getProjectFilesystem(),
-          preprocessorDelegate.getHeaderPathNormalizer(),
-          preprocessorDelegate.getHeaderVerification(),
-          sourceDepfile,
-          destDepfile,
-          getResolver().deprecatedGetPath(input),
-          output);
-      return StepExecutionResult.SUCCESS;
-    }
-
-    @Override
-    public String getShortName() {
-      return "depfile-parse";
-    }
-
-    @Override
-    public String getDescription(ExecutionContext context) {
-      return "Parse depfiles and write them in a Buck compatible format";
-    }
-  }
-
   private class WriteArgFileStep implements Step {
+
+    private final Path inputRelativePath;
+
+    public WriteArgFileStep(Path inputRelativePath) {
+      this.inputRelativePath = inputRelativePath;
+    }
 
     @Override
     public StepExecutionResult execute(ExecutionContext context)
@@ -264,6 +230,19 @@ public class CxxInferCapture
     public String getDescription(ExecutionContext context) {
       return "Write argfile for clang";
     }
-  }
 
+    private ImmutableList<String> getCompilerArgs() {
+      ImmutableList.Builder<String> commandBuilder = ImmutableList.builder();
+      return commandBuilder
+          .add("-MD", "-MF", getDepFilePath().toString())
+          .addAll(
+              CxxToolFlags.concat(preprocessorFlags, getSearchPathFlags(), compilerFlags)
+                  .getAllFlags())
+          .add("-x", inputType.getLanguage())
+          .add("-o", output.toString()) // TODO(martinoluca): Use -fsyntax-only for better perf
+          .add("-c")
+          .add(inputRelativePath.toString())
+          .build();
+    }
+  }
 }

@@ -19,7 +19,7 @@ package com.facebook.buck.jvm.java;
 import static com.facebook.buck.rules.BuildableProperties.Kind.PACKAGING;
 
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.rules.AbstractBuildRuleWithResolver;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BinaryBuildRule;
 import com.facebook.buck.rules.BuildContext;
@@ -49,7 +49,7 @@ import java.util.regex.Pattern;
 import javax.annotation.Nullable;
 
 @BuildsAnnotationProcessor
-public class JavaBinary extends AbstractBuildRule
+public class JavaBinary extends AbstractBuildRuleWithResolver
     implements BinaryBuildRule, HasClasspathEntries {
 
   private static final BuildableProperties OUTPUT_TYPE = new BuildableProperties(PACKAGING);
@@ -74,7 +74,9 @@ public class JavaBinary extends AbstractBuildRule
   private final ImmutableSet<Pattern> blacklist;
 
   private final ImmutableSet<JavaLibrary> transitiveClasspathDeps;
-  private final ImmutableSet<Path> transitiveClasspaths;
+  private final ImmutableSet<SourcePath> transitiveClasspaths;
+
+  private final boolean cache;
 
   public JavaBinary(
       BuildRuleParams params,
@@ -86,7 +88,8 @@ public class JavaBinary extends AbstractBuildRule
       @Nullable Path metaInfDirectory,
       ImmutableSet<Pattern> blacklist,
       ImmutableSet<JavaLibrary> transitiveClasspathDeps,
-      ImmutableSet<Path> transitiveClasspaths) {
+      ImmutableSet<SourcePath> transitiveClasspaths,
+      boolean cache) {
     super(params, resolver);
     this.javaRuntimeLauncher = javaRuntimeLauncher;
     this.mainClass = mainClass;
@@ -98,6 +101,7 @@ public class JavaBinary extends AbstractBuildRule
     this.blacklist = blacklist;
     this.transitiveClasspathDeps = transitiveClasspathDeps;
     this.transitiveClasspaths = transitiveClasspaths;
+    this.cache = cache;
   }
 
   @Override
@@ -128,20 +132,22 @@ public class JavaBinary extends AbstractBuildRule
 
       MkdirAndSymlinkFileStep link = new MkdirAndSymlinkFileStep(
           getProjectFilesystem(),
-          metaInfDirectory != null ? getResolver().getAbsolutePath(metaInfDirectory) : null,
+          metaInfDirectory != null ?
+              context.getSourcePathResolver().getAbsolutePath(metaInfDirectory) : null,
           stagingTarget);
       commands.add(link);
 
       includePaths = ImmutableSortedSet.<Path>naturalOrder()
           .add(stagingRoot)
-          .addAll(getTransitiveClasspaths())
+          .addAll(context.getSourcePathResolver().getAllAbsolutePaths(getTransitiveClasspaths()))
           .build();
     } else {
-      includePaths = ImmutableSortedSet.copyOf(getTransitiveClasspaths());
+      includePaths = context.getSourcePathResolver().getAllAbsolutePaths(getTransitiveClasspaths());
     }
 
-    Path outputFile = getPathToOutput();
-    Path manifestPath = manifestFile == null ? null : getResolver().getAbsolutePath(manifestFile);
+    Path outputFile = context.getSourcePathResolver().getRelativePath(getSourcePathToOutput());
+    Path manifestPath = manifestFile == null ?
+        null : context.getSourcePathResolver().getAbsolutePath(manifestFile);
     Step jar = new JarDirectoryStep(
         getProjectFilesystem(),
         outputFile,
@@ -157,7 +163,7 @@ public class JavaBinary extends AbstractBuildRule
   }
 
   @Override
-  public ImmutableSet<Path> getTransitiveClasspaths() {
+  public ImmutableSet<SourcePath> getTransitiveClasspaths() {
     return transitiveClasspaths;
   }
 
@@ -167,12 +173,12 @@ public class JavaBinary extends AbstractBuildRule
   }
 
   @Override
-  public ImmutableSet<Path> getImmediateClasspaths() {
+  public ImmutableSet<SourcePath> getImmediateClasspaths() {
     return ImmutableSet.of();
   }
 
   @Override
-  public ImmutableSet<Path> getOutputClasspaths() {
+  public ImmutableSet<SourcePath> getOutputClasspaths() {
     // A binary has no exported deps or classpath contributions of its own
     return ImmutableSet.of();
   }
@@ -202,5 +208,10 @@ public class JavaBinary extends AbstractBuildRule
         .addArg("-jar")
         .addArg(new SourcePathArg(getResolver(), new BuildTargetSourcePath(getBuildTarget())))
         .build();
+  }
+
+  @Override
+  public boolean isCacheable() {
+    return cache;
   }
 }

@@ -29,7 +29,7 @@ import java.nio.file.Paths;
 
 import javax.annotation.Nullable;
 
-public class FakeBuildRule extends AbstractBuildRule implements BuildRule {
+public class FakeBuildRule extends AbstractBuildRuleWithResolver implements BuildRule {
 
 
   @Nullable
@@ -73,11 +73,11 @@ public class FakeBuildRule extends AbstractBuildRule implements BuildRule {
     BuildTarget buildTarget = BuildTargetFactory.newInstance(name);
     return new FakeBuildRule(
         buildTarget,
-        new SourcePathResolver(
+        new SourcePathResolver(new SourcePathRuleFinder(
             new BuildRuleResolver(
                 TargetGraph.EMPTY,
                 new DefaultTargetNodeToBuildRuleTransformer())
-        ),
+        )),
         ImmutableSortedSet.of());
   }
 
@@ -86,8 +86,9 @@ public class FakeBuildRule extends AbstractBuildRule implements BuildRule {
     return outputFile;
   }
 
-  public void setOutputFile(@Nullable String outputFile) {
+  public FakeBuildRule setOutputFile(@Nullable String outputFile) {
     this.outputFile = outputFile == null ? null : Paths.get(outputFile);
+    return this;
   }
 
   @Override

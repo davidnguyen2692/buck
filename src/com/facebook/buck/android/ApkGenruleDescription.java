@@ -21,8 +21,8 @@ import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildTargetSourcePath;
-import com.facebook.buck.rules.InstallableApk;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.shell.AbstractGenruleDescription;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
@@ -49,7 +49,7 @@ public class ApkGenruleDescription extends AbstractGenruleDescription<ApkGenrule
       Optional<com.facebook.buck.rules.args.Arg> cmdExe) {
 
     final BuildRule installableApk = resolver.getRule(args.apk);
-    if (!(installableApk instanceof InstallableApk)) {
+    if (!(installableApk instanceof HasInstallableApk)) {
       throw new HumanReadableException("The 'apk' argument of %s, %s, must correspond to an " +
           "installable rule, such as android_binary() or apk_genrule().",
           params.getBuildTarget(),
@@ -58,6 +58,8 @@ public class ApkGenruleDescription extends AbstractGenruleDescription<ApkGenrule
 
     final Supplier<ImmutableSortedSet<BuildRule>> originalExtraDeps = params.getExtraDeps();
 
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
     return new ApkGenrule(
         params.copyWithExtraDeps(
             Suppliers.memoize(
@@ -65,11 +67,13 @@ public class ApkGenruleDescription extends AbstractGenruleDescription<ApkGenrule
                     .addAll(originalExtraDeps.get())
                     .add(installableApk)
                     .build())),
-        new SourcePathResolver(resolver),
+        pathResolver,
+        ruleFinder,
         args.srcs,
         cmd,
         bash,
         cmdExe,
+        args.type.isPresent() ? args.type : Optional.of("apk"),
         new BuildTargetSourcePath(args.apk));
   }
 

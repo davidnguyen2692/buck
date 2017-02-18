@@ -25,10 +25,12 @@ import com.facebook.buck.cxx.CxxHeaders;
 import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.cxx.CxxPreprocessables;
 import com.facebook.buck.cxx.CxxPreprocessorInput;
+import com.facebook.buck.cxx.HeaderVisibility;
 import com.facebook.buck.cxx.LinkerMapMode;
 import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
-import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.rules.AbstractBuildRuleWithResolver;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
@@ -63,7 +65,7 @@ import java.util.Optional;
  * A build rule which compiles one or more Swift sources into a Swift module.
  */
 class SwiftCompile
-    extends AbstractBuildRule {
+    extends AbstractBuildRuleWithResolver {
 
   private static final String INCLUDE_FLAG = "-I";
 
@@ -89,7 +91,6 @@ class SwiftCompile
   private final CxxPlatform cxxPlatform;
   private final ImmutableSet<FrameworkPath> frameworks;
 
-  private final boolean hasMainEntry;
   private final boolean enableObjcInterop;
   private final Optional<SourcePath> bridgingHeader;
   private final SwiftBuckConfig swiftBuckConfig;
@@ -128,9 +129,6 @@ class SwiftCompile
     this.compilerFlags = compilerFlags;
     this.enableObjcInterop = enableObjcInterop.orElse(true);
     this.bridgingHeader = bridgingHeader;
-    this.hasMainEntry = FluentIterable.from(srcs).firstMatch(
-        input -> SWIFT_MAIN_FILENAME.equalsIgnoreCase(
-            getResolver().getAbsolutePath(input).getFileName().toString())).isPresent();
     performChecks(params);
   }
 
@@ -144,18 +142,18 @@ class SwiftCompile
         !params.getBuildTarget().getFlavors().contains(CxxDescriptionEnhancer.SHARED_FLAVOR));
   }
 
-  private SwiftCompileStep makeCompileStep() {
+  private SwiftCompileStep makeCompileStep(SourcePathResolver resolver) {
     ImmutableList.Builder<String> compilerCommand = ImmutableList.builder();
-    compilerCommand.addAll(swiftCompiler.getCommandPrefix(getResolver()));
+    compilerCommand.addAll(swiftCompiler.getCommandPrefix(resolver));
 
     if (bridgingHeader.isPresent()) {
       compilerCommand.add(
           "-import-objc-header",
-          getResolver().getRelativePath(bridgingHeader.get()).toString());
+          resolver.getRelativePath(bridgingHeader.get()).toString());
     }
 
     final Function<FrameworkPath, Path> frameworkPathToSearchPath =
-        CxxDescriptionEnhancer.frameworkPathToSearchPath(cxxPlatform, getResolver());
+        CxxDescriptionEnhancer.frameworkPathToSearchPath(cxxPlatform, resolver);
 
     compilerCommand.addAll(
         frameworks.stream()
@@ -165,18 +163,22 @@ class SwiftCompile
 
     compilerCommand.addAll(
         MoreIterables.zipAndConcat(Iterables.cycle("-Xcc"),
-            getSwiftIncludeArgs()));
+            getSwiftIncludeArgs(resolver)));
     compilerCommand.addAll(MoreIterables.zipAndConcat(
         Iterables.cycle(INCLUDE_FLAG),
         FluentIterable.from(getDeps())
             .filter(SwiftCompile.class)
             .transform(SourcePaths.getToBuildTargetSourcePath())
-            .transform(input -> getResolver().getAbsolutePath(input).toString())));
+            .transform(input -> resolver.getAbsolutePath(input).toString())));
 
     Optional<Iterable<String>> configFlags = swiftBuckConfig.getFlags();
     if (configFlags.isPresent()) {
       compilerCommand.addAll(configFlags.get());
     }
+    boolean hasMainEntry = FluentIterable.from(srcs).firstMatch(
+        input -> SWIFT_MAIN_FILENAME.equalsIgnoreCase(
+            resolver.getAbsolutePath(input).getFileName().toString())).isPresent();
+
     compilerCommand.add(
         "-enable-testing",
         "-c",
@@ -193,7 +195,7 @@ class SwiftCompile
         headerPath.toString());
     compilerCommand.addAll(compilerFlags);
     for (SourcePath sourcePath : srcs) {
-      compilerCommand.add(getResolver().getRelativePath(sourcePath).toString());
+      compilerCommand.add(resolver.getRelativePath(sourcePath).toString());
     }
 
     ProjectFilesystem projectFilesystem = getProjectFilesystem();
@@ -210,7 +212,7 @@ class SwiftCompile
     buildableContext.recordArtifact(outputPath);
     return ImmutableList.of(
         new MkdirStep(getProjectFilesystem(), outputPath),
-        makeCompileStep());
+        makeCompileStep(context.getSourcePathResolver()));
   }
 
   @Override
@@ -227,8 +229,7 @@ class SwiftCompile
    * 2. swift doesn't like spaces after the "-I" flag.
    */
   @VisibleForTesting
-  ImmutableList<String> getSwiftIncludeArgs() {
-    SourcePathResolver resolver = getResolver();
+  ImmutableList<String> getSwiftIncludeArgs(SourcePathResolver resolver) {
     ImmutableList.Builder<String> args = ImmutableList.builder();
 
     // Collect the header maps and roots into buckets organized by include type, so that we can:
@@ -249,6 +250,18 @@ class SwiftCompile
           headerMaps.add(resolver.getAbsolutePath(headerMap.get()).toString());
         }
         roots.add(resolver.getAbsolutePath(cxxHeaders.getIncludeRoot()).toString());
+      }
+    }
+
+    if (bridgingHeader.isPresent()) {
+      for (HeaderVisibility headerVisibility : HeaderVisibility.values()) {
+        Path headerPath = CxxDescriptionEnhancer.getHeaderSymlinkTreePath(
+            getProjectFilesystem(),
+            BuildTarget.builder(getBuildTarget().getUnflavoredBuildTarget()).build(),
+            cxxPlatform.getFlavor(),
+            headerVisibility);
+
+        headerMaps.add(headerPath.toString());
       }
     }
 

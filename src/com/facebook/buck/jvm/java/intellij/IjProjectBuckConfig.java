@@ -21,6 +21,8 @@ import com.google.common.base.Splitter;
 import com.google.common.collect.Sets;
 
 import java.util.Collections;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 public class IjProjectBuckConfig {
@@ -46,6 +48,21 @@ public class IjProjectBuckConfig {
       excludedResourcePaths = Collections.emptyList();
     }
 
+    Optional<String> generatedSourcesMap = buckConfig.getValue(
+        INTELLIJ_BUCK_CONFIG_SECTION,
+        "generated_srcs_map");
+
+    Map<String, String> depToGeneratedSourcesMap = generatedSourcesMap
+        .map(value -> Splitter.on(',')
+            .omitEmptyStrings()
+            .trimResults()
+            .withKeyValueSeparator(Splitter.on("=>").trimResults())
+            .split(value))
+        .orElse(Collections.emptyMap());
+
+    List<String> intellijSdkTargets =
+        buckConfig.getListWithoutComments(INTELLIJ_BUCK_CONFIG_SECTION, "intellij_sdk_targets");
+
     return IjProjectConfig.builder()
         .setAutogenerateAndroidFacetSourcesEnabled(
             !buckConfig.getBooleanValue(
@@ -63,6 +80,9 @@ public class IjProjectBuckConfig {
             buckConfig.getValue(INTELLIJ_BUCK_CONFIG_SECTION, "android_module_sdk_name"))
         .setAndroidModuleSdkType(
             buckConfig.getValue(INTELLIJ_BUCK_CONFIG_SECTION, "android_module_sdk_type"))
+        .setIntellijModuleSdkName(
+            buckConfig.getValue(INTELLIJ_BUCK_CONFIG_SECTION, "intellij_module_sdk_name"))
+        .setIntellijSdkTargets(intellijSdkTargets)
         .setJavaModuleSdkName(
             buckConfig.getValue(INTELLIJ_BUCK_CONFIG_SECTION, "java_module_sdk_name"))
         .setJavaModuleSdkType(
@@ -70,6 +90,7 @@ public class IjProjectBuckConfig {
         .setProjectLanguageLevel(
             buckConfig.getValue(INTELLIJ_BUCK_CONFIG_SECTION, "language_level"))
         .setExcludedResourcePaths(excludedResourcePaths)
+        .setDepToGeneratedSourcesMap(depToGeneratedSourcesMap)
         .build();
   }
 }

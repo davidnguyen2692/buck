@@ -27,6 +27,7 @@ import com.facebook.buck.rules.SourceWithFlags;
 import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
 import com.facebook.buck.rules.coercer.SourceList;
+import com.facebook.buck.rules.macros.StringWithMacros;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -45,6 +46,7 @@ public class CxxConstructorArg extends AbstractDescriptionArg
   public SourceList headers = SourceList.EMPTY;
   public PatternMatchedCollection<SourceList> platformHeaders = PatternMatchedCollection.of();
   public Optional<SourcePath> prefixHeader;
+  public Optional<SourcePath> precompiledHeader = Optional.empty();
   public ImmutableList<String> compilerFlags = ImmutableList.of();
   public ImmutableMap<CxxSource.Type, ImmutableList<String>> langCompilerFlags = ImmutableMap.of();
   public PatternMatchedCollection<ImmutableList<String>> platformCompilerFlags =
@@ -54,8 +56,8 @@ public class CxxConstructorArg extends AbstractDescriptionArg
       PatternMatchedCollection.of();
   public ImmutableMap<CxxSource.Type, ImmutableList<String>> langPreprocessorFlags =
       ImmutableMap.of();
-  public ImmutableList<String> linkerFlags = ImmutableList.of();
-  public PatternMatchedCollection<ImmutableList<String>> platformLinkerFlags =
+  public ImmutableList<StringWithMacros> linkerFlags = ImmutableList.of();
+  public PatternMatchedCollection<ImmutableList<StringWithMacros>> platformLinkerFlags =
       PatternMatchedCollection.of();
   public ImmutableSortedSet<FrameworkPath> frameworks = ImmutableSortedSet.of();
   public ImmutableSortedSet<FrameworkPath> libraries = ImmutableSortedSet.of();

@@ -36,6 +36,7 @@ import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRules;
 import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.SourcePaths;
 import com.facebook.buck.rules.TargetGraph;
 import com.google.common.annotations.VisibleForTesting;
@@ -109,14 +110,14 @@ public class ThriftJavaEnhancer implements ThriftLanguageSpecificEnhancer {
       ThriftConstructorArg args,
       ImmutableMap<String, ThriftSource> sources,
       ImmutableSortedSet<BuildRule> deps) throws NoSuchBuildTargetException {
-    final SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
 
-    if (params.getBuildTarget().getFlavors().contains(CalculateAbi.FLAVOR)) {
-      BuildTarget libraryTarget = params.getBuildTarget().withoutFlavors(CalculateAbi.FLAVOR);
+    if (CalculateAbi.isAbiTarget(params.getBuildTarget())) {
+      BuildTarget libraryTarget = CalculateAbi.getLibraryTarget(params.getBuildTarget());
       resolver.requireRule(libraryTarget);
       return CalculateAbi.of(
           params.getBuildTarget(),
-          pathResolver,
+          ruleFinder,
           params,
           new BuildTargetSourcePath(libraryTarget));
     }
@@ -141,7 +142,6 @@ public class ThriftJavaEnhancer implements ThriftLanguageSpecificEnhancer {
                   sourceZipTarget,
                   Suppliers.ofInstance(ImmutableSortedSet.of(compilerRule)),
                   Suppliers.ofInstance(ImmutableSortedSet.of())),
-              pathResolver,
               sourceZip,
               sourceDirectory));
     }
@@ -158,15 +158,16 @@ public class ThriftJavaEnhancer implements ThriftLanguageSpecificEnhancer {
                 .addAll(sourceZips)
                 .addAll(deps)
                 .addAll(BuildRules.getExportedRules(deps))
-                .addAll(pathResolver.filterBuildRuleInputs(templateOptions.getInputs(pathResolver)))
+                .addAll(ruleFinder.filterBuildRuleInputs(templateOptions.getInputs(ruleFinder)))
                 .build()),
         Suppliers.ofInstance(ImmutableSortedSet.of()));
 
-    BuildTarget abiJarTarget = params.getBuildTarget().withAppendedFlavors(CalculateAbi.FLAVOR);
+    final SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
 
     return new DefaultJavaLibrary(
         javaParams,
         pathResolver,
+        ruleFinder,
         FluentIterable.from(sourceZips)
             .transform(SourcePaths.getToBuildTargetSourcePath())
             .toSortedSet(Ordering.natural()),
@@ -176,7 +177,6 @@ public class ThriftJavaEnhancer implements ThriftLanguageSpecificEnhancer {
         /* postprocessClassesCommands */ ImmutableList.of(),
         /* exportedDeps */ ImmutableSortedSet.of(),
         /* providedDeps */ ImmutableSortedSet.of(),
-        /* abiJar */ abiJarTarget,
         JavaLibraryRules.getAbiInputs(resolver, javaParams.getDeps()),
         templateOptions.trackClassUsage(),
         /* additionalClasspathEntries */ ImmutableSet.of(),

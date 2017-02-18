@@ -24,9 +24,6 @@ import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRules;
 import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.InstallableApk;
-import com.facebook.buck.rules.Label;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
@@ -59,7 +56,7 @@ public class AndroidInstrumentationTestDescription
       BuildRuleResolver resolver,
       A args) {
     BuildRule apk = resolver.getRule(args.apk);
-    if (!(apk instanceof InstallableApk)) {
+    if (!(apk instanceof HasInstallableApk)) {
       throw new HumanReadableException(
           "In %s, instrumentation_apk='%s' must be an android_binary(), apk_genrule() or " +
           "android_instrumentation_apk(), but was %s().",
@@ -72,8 +69,7 @@ public class AndroidInstrumentationTestDescription
         params.appendExtraDeps(
             BuildRules.getExportedRules(
                 params.getDeclaredDeps().get())),
-        new SourcePathResolver(resolver),
-        (InstallableApk) apk,
+        (HasInstallableApk) apk,
         args.labels,
         args.contacts,
         javaOptions.getJavaRuntimeLauncher(),
@@ -83,7 +79,6 @@ public class AndroidInstrumentationTestDescription
   @SuppressFieldNotInitialized
   public static class Arg extends AbstractDescriptionArg {
     public BuildTarget apk;
-    public ImmutableSortedSet<Label> labels = ImmutableSortedSet.of();
     public ImmutableSortedSet<String> contacts = ImmutableSortedSet.of();
     public Optional<Long> testRuleTimeoutMs;
   }

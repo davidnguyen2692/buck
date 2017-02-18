@@ -18,9 +18,10 @@ package com.facebook.buck.ocaml;
 
 import com.facebook.buck.cxx.CxxPlatforms;
 import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.model.Flavor;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
-import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.AbstractDescriptionArg;
+import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CellPathResolver;
@@ -28,15 +29,18 @@ import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.coercer.OcamlSource;
+import com.facebook.buck.versions.VersionRoot;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 
 import java.util.Optional;
 
 public class OcamlBinaryDescription implements
     Description<OcamlBinaryDescription.Arg>,
-    ImplicitDepsInferringDescription<OcamlBinaryDescription.Arg> {
+    ImplicitDepsInferringDescription<OcamlBinaryDescription.Arg>,
+    VersionRoot<OcamlBinaryDescription.Arg> {
 
   private final OcamlBuckConfig ocamlBuckConfig;
 
@@ -50,7 +54,7 @@ public class OcamlBinaryDescription implements
   }
 
   @Override
-  public <A extends Arg> AbstractBuildRule createBuildRule(
+  public <A extends Arg> BuildRule createBuildRule(
       TargetGraph targetGraph,
       BuildRuleParams params,
       BuildRuleResolver resolver,
@@ -74,7 +78,8 @@ public class OcamlBinaryDescription implements
          /*isLibrary*/ false,
         args.bytecodeOnly.orElse(false),
         flags.build(),
-        linkerFlags);
+        linkerFlags,
+        /*buildNativePlugin*/ false);
   }
 
   @Override
@@ -83,6 +88,11 @@ public class OcamlBinaryDescription implements
       CellPathResolver cellRoots,
       Arg constructorArg) {
     return CxxPlatforms.getParseTimeDeps(ocamlBuckConfig.getCxxPlatform());
+  }
+
+  @Override
+  public boolean isVersionRoot(ImmutableSet<Flavor> flavors) {
+    return true;
   }
 
   @SuppressFieldNotInitialized

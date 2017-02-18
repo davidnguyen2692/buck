@@ -31,19 +31,21 @@ import com.facebook.buck.cxx.OmnibusRoots;
 import com.facebook.buck.graph.AbstractBreadthFirstThrowingTraversal;
 import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.HasBuildTarget;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
 import com.facebook.buck.rules.coercer.SourceList;
+import com.facebook.buck.rules.coercer.VersionMatchedCollection;
 import com.facebook.buck.rules.macros.LocationMacroExpander;
 import com.facebook.buck.rules.macros.MacroHandler;
 import com.facebook.buck.util.HumanReadableException;
+import com.facebook.buck.versions.Version;
 import com.google.common.base.CaseFormat;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.FluentIterable;
@@ -78,7 +80,9 @@ public class PythonUtil {
       Path baseModule,
       SourceList items,
       PatternMatchedCollection<SourceList> platformItems,
-      PythonPlatform pythonPlatform) {
+      PythonPlatform pythonPlatform,
+      Optional<VersionMatchedCollection<SourceList>> versionItems,
+      Optional<ImmutableMap<BuildTarget, Version>> versions) {
     return ImmutableMap.<Path, SourcePath>builder()
         .putAll(
             PythonUtil.toModuleMap(
@@ -94,6 +98,15 @@ public class PythonUtil {
                 "platform" + CaseFormat.LOWER_HYPHEN.to(CaseFormat.UPPER_CAMEL, parameter),
                 baseModule,
                 platformItems.getMatchingValues(pythonPlatform.getFlavor().toString())))
+        .putAll(
+            PythonUtil.toModuleMap(
+                target,
+                resolver,
+                "versioned" + CaseFormat.LOWER_HYPHEN.to(CaseFormat.UPPER_CAMEL, parameter),
+                baseModule,
+                versions.isPresent() && versionItems.isPresent() ?
+                    versionItems.get().getMatchingValues(versions.get()) :
+                    ImmutableList.of()))
         .build();
   }
 
@@ -141,13 +154,13 @@ public class PythonUtil {
   }
 
   public static ImmutableSortedSet<BuildRule> getDepsFromComponents(
-      SourcePathResolver resolver,
+      SourcePathRuleFinder ruleFinder,
       PythonPackageComponents components) {
     return ImmutableSortedSet.<BuildRule>naturalOrder()
-        .addAll(resolver.filterBuildRuleInputs(components.getModules().values()))
-        .addAll(resolver.filterBuildRuleInputs(components.getResources().values()))
-        .addAll(resolver.filterBuildRuleInputs(components.getNativeLibraries().values()))
-        .addAll(resolver.filterBuildRuleInputs(components.getPrebuiltLibraries()))
+        .addAll(ruleFinder.filterBuildRuleInputs(components.getModules().values()))
+        .addAll(ruleFinder.filterBuildRuleInputs(components.getResources().values()))
+        .addAll(ruleFinder.filterBuildRuleInputs(components.getNativeLibraries().values()))
+        .addAll(ruleFinder.filterBuildRuleInputs(components.getPrebuiltLibraries()))
         .build();
   }
 
@@ -155,6 +168,7 @@ public class PythonUtil {
       BuildRuleParams params,
       BuildRuleResolver ruleResolver,
       SourcePathResolver pathResolver,
+      SourcePathRuleFinder ruleFinder,
       final PythonPackageComponents packageComponents,
       final PythonPlatform pythonPlatform,
       CxxBuckConfig cxxBuckConfig,
@@ -228,6 +242,7 @@ public class PythonUtil {
               params,
               ruleResolver,
               pathResolver,
+              ruleFinder,
               cxxBuckConfig,
               cxxPlatform,
               extraLdflags,
@@ -280,7 +295,7 @@ public class PythonUtil {
             Maps.uniqueIndex(
                 entry.getValue().getNativeLinkTarget(pythonPlatform)
                     .getNativeLinkTargetDeps(cxxPlatform),
-                HasBuildTarget::getBuildTarget));
+                NativeLinkable::getBuildTarget));
       }
 
       // Add all the native libraries.

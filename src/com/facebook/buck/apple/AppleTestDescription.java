@@ -44,10 +44,9 @@ import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
-import com.facebook.buck.rules.Label;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
@@ -130,6 +129,11 @@ public class AppleTestDescription implements
   @Override
   public Arg createUnpopulatedConstructorArg() {
     return new Arg();
+  }
+
+  @Override
+  public Optional<ImmutableSet<FlavorDomain<?>>> flavorDomains() {
+    return appleLibraryDescription.flavorDomains();
   }
 
   @Override
@@ -227,8 +231,6 @@ public class AppleTestDescription implements
       return library;
     }
 
-
-    SourcePathResolver sourcePathResolver = new SourcePathResolver(resolver);
     String platformName = appleCxxPlatform.getAppleSdk().getApplePlatform().getName();
 
     BuildRule bundle = AppleDescriptions.createAppleBundle(
@@ -263,9 +265,11 @@ public class AppleTestDescription implements
         debugFormat,
         appleConfig.useDryRunCodeSigning(),
         appleConfig.cacheBundlesAndPackages());
+    resolver.addToIndex(bundle);
 
-    Optional<SourcePath> xctool = getXctool(params, resolver, sourcePathResolver);
+    Optional<SourcePath> xctool = getXctool(params, resolver);
 
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
     return new AppleTest(
         xctool,
         appleConfig.getXctoolStutterTimeoutMs(),
@@ -277,7 +281,6 @@ public class AppleTestDescription implements
         params.copyWithDeps(
             Suppliers.ofInstance(ImmutableSortedSet.of(bundle)),
             Suppliers.ofInstance(ImmutableSortedSet.of())),
-        sourcePathResolver,
         bundle,
         testHostInfo.map(TestHostInfo::getTestHostApp),
         args.contacts,
@@ -288,13 +291,14 @@ public class AppleTestDescription implements
         appleConfig.getTestLogLevelEnvironmentVariable(),
         appleConfig.getTestLogLevel(),
         args.testRuleTimeoutMs.map(Optional::of).orElse(defaultTestRuleTimeoutMs),
-        args.isUiTest());
+        args.isUiTest(),
+        args.snapshotReferenceImagesPath,
+        ruleFinder);
   }
 
   private Optional<SourcePath> getXctool(
       BuildRuleParams params,
-      BuildRuleResolver resolver,
-      final SourcePathResolver sourcePathResolver) {
+      BuildRuleResolver resolver) {
     // If xctool is specified as a build target in the buck config, it's wrapping ZIP file which
     // we need to unpack to get at the actual binary.  Otherwise, if it's specified as a path, we
     // can use that directly.
@@ -313,7 +317,7 @@ public class AppleTestDescription implements
                 Suppliers.ofInstance(ImmutableSortedSet.of(xctoolZipBuildRule)),
                 Suppliers.ofInstance(ImmutableSortedSet.of()));
         resolver.addToIndex(
-            new AbstractBuildRule(unzipXctoolParams, sourcePathResolver) {
+            new AbstractBuildRule(unzipXctoolParams) {
               @Override
               public ImmutableList<Step> getBuildSteps(
                   BuildContext context,
@@ -323,7 +327,8 @@ public class AppleTestDescription implements
                     new MakeCleanDirectoryStep(getProjectFilesystem(), outputDirectory),
                     new UnzipStep(
                         getProjectFilesystem(),
-                        Preconditions.checkNotNull(xctoolZipBuildRule.getPathToOutput()),
+                        context.getSourcePathResolver().getAbsolutePath(
+                            Preconditions.checkNotNull(xctoolZipBuildRule.getSourcePathToOutput())),
                         outputDirectory));
               }
               @Override
@@ -457,10 +462,12 @@ public class AppleTestDescription implements
   @SuppressFieldNotInitialized
   public static class Arg extends AppleNativeTargetDescriptionArg implements HasAppleBundleFields {
     public ImmutableSortedSet<String> contacts = ImmutableSortedSet.of();
-    public ImmutableSortedSet<Label> labels = ImmutableSortedSet.of();
     public Optional<Boolean> runTestSeparately;
     public Optional<Boolean> isUiTest;
     public Optional<BuildTarget> testHostApp;
+
+    // for use with FBSnapshotTestcase, injects the path as FB_REFERENCE_IMAGE_DIR
+    public Optional<Either<SourcePath, String>> snapshotReferenceImagesPath;
 
     // Bundle related fields.
     public SourcePath infoPlist;

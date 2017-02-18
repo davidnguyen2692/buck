@@ -30,9 +30,7 @@ import com.facebook.buck.shell.GenruleBuilder;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.MoreAsserts;
-import com.facebook.buck.testutil.packaged_resource.PackagedResourceTestUtil;
 import com.facebook.buck.util.HumanReadableException;
-import com.facebook.buck.util.PackagedResource;
 import com.google.common.collect.ImmutableList;
 
 import org.hamcrest.Matchers;
@@ -52,20 +50,20 @@ public class SourcePathResolverTest {
   @Test
   public void resolvePathSourcePath() {
     ProjectFilesystem projectFilesystem = new FakeProjectFilesystem();
-    SourcePathResolver pathResolver = new SourcePathResolver(
+    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())
-    );
+    ));
     Path expectedPath = Paths.get("foo");
     SourcePath sourcePath = new PathSourcePath(projectFilesystem, expectedPath);
 
-    assertEquals(expectedPath, pathResolver.deprecatedGetPath(sourcePath));
+    assertEquals(expectedPath, pathResolver.getRelativePath(sourcePath));
   }
 
   @Test
   public void resolveBuildTargetSourcePath() {
     BuildRuleResolver resolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
     Path expectedPath = Paths.get("foo");
     BuildRule rule = new PathReferenceRule(
         new FakeBuildRuleParamsBuilder(BuildTargetFactory.newInstance("//:foo")).build(),
@@ -74,125 +72,54 @@ public class SourcePathResolverTest {
     resolver.addToIndex(rule);
     SourcePath sourcePath = new BuildTargetSourcePath(rule.getBuildTarget());
 
-    assertEquals(expectedPath, pathResolver.deprecatedGetPath(sourcePath));
-  }
-
-  @Test
-  public void resolveResourceSourceAbsolutePathSuccess() {
-    BuildRuleResolver resolver =
-        new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
-    ProjectFilesystem filesystem = new FakeProjectFilesystem();
-
-    PackagedResource packagedResource =
-        PackagedResourceTestUtil.getPackagedResource(
-            filesystem,
-            "testdata/packaged_resource_one");
-    ResourceSourcePath resourceSourcePathOne =
-        new ResourceSourcePath(
-            packagedResource);
-
-    assertEquals(packagedResource.get(), pathResolver.getAbsolutePath(resourceSourcePathOne));
-  }
-
-  @Test
-  public void resolveResourceSourceRelativePathThrowsIllegalStateException() {
-    BuildRuleResolver resolver =
-        new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
-    ProjectFilesystem filesystem = new FakeProjectFilesystem();
-
-    ResourceSourcePath resourceSourcePathOne =
-        new ResourceSourcePath(
-            PackagedResourceTestUtil.getPackagedResource(
-                filesystem,
-                "testdata/packaged_resource_one"));
-
-    exception.expect(IllegalStateException.class);
-    pathResolver.getRelativePath(resourceSourcePathOne);
+    assertEquals(expectedPath, pathResolver.getRelativePath(sourcePath));
   }
 
   @Test
   public void resolveBuildTargetSourcePathWithOverriddenOutputPath() {
     BuildRuleResolver resolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
     Path expectedPath = Paths.get("foo");
     FakeBuildRule rule = new FakeBuildRule("//:foo", pathResolver);
     rule.setOutputFile("notfoo");
     resolver.addToIndex(rule);
     SourcePath sourcePath = new BuildTargetSourcePath(rule.getBuildTarget(), expectedPath);
 
-    assertEquals(expectedPath, pathResolver.deprecatedGetPath(sourcePath));
-  }
-
-  @Test
-  public void resolveMixedPaths() {
-    ProjectFilesystem projectFilesystem = new FakeProjectFilesystem();
-    BuildRuleResolver resolver =
-        new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
-    Path pathSourcePathExpectedPath = Paths.get("foo");
-    Path buildTargetSourcePathExpectedPath = Paths.get("bar");
-    Path buildRuleWithOverriddenOutputPathExpectedPath = Paths.get("baz");
-    SourcePath pathSourcePath = new PathSourcePath(projectFilesystem, pathSourcePathExpectedPath);
-    BuildRule rule = new PathReferenceRule(
-        new FakeBuildRuleParamsBuilder(BuildTargetFactory.newInstance("//:bar")).build(),
-        pathResolver,
-        buildTargetSourcePathExpectedPath);
-    resolver.addToIndex(rule);
-    SourcePath buildTargetSourcePath = new BuildTargetSourcePath(rule.getBuildTarget());
-    BuildRule ruleWithOverriddenOutputPath = new PathReferenceRule(
-        new FakeBuildRuleParamsBuilder(BuildTargetFactory.newInstance("//:baz")).build(),
-        pathResolver,
-        Paths.get("notbaz"));
-    resolver.addToIndex(ruleWithOverriddenOutputPath);
-    SourcePath buildTargetSourcePathWithOverriddenOutputPath = new BuildTargetSourcePath(
-        ruleWithOverriddenOutputPath.getBuildTarget(),
-        buildRuleWithOverriddenOutputPathExpectedPath);
-
-    assertEquals(
-        ImmutableList.of(
-            pathSourcePathExpectedPath,
-            buildTargetSourcePathExpectedPath,
-            buildRuleWithOverriddenOutputPathExpectedPath),
-        pathResolver.deprecatedAllPaths(
-            ImmutableList.of(
-                pathSourcePath,
-                buildTargetSourcePath,
-                buildTargetSourcePathWithOverriddenOutputPath)));
+    assertEquals(expectedPath, pathResolver.getRelativePath(sourcePath));
   }
 
   @Test
   public void getRuleCanGetRuleOfBuildRuleSoucePath() {
     BuildRuleResolver resolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
     FakeBuildRule rule = new FakeBuildRule("//:foo", pathResolver);
     rule.setOutputFile("foo");
     resolver.addToIndex(rule);
     SourcePath sourcePath = new BuildTargetSourcePath(rule.getBuildTarget());
 
-    assertEquals(Optional.of(rule), pathResolver.getRule(sourcePath));
+    assertEquals(Optional.of(rule), ruleFinder.getRule(sourcePath));
   }
 
   @Test
   public void getRuleCannotGetRuleOfPathSoucePath() {
     ProjectFilesystem projectFilesystem = new FakeProjectFilesystem();
-    SourcePathResolver pathResolver = new SourcePathResolver(
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())
     );
     SourcePath sourcePath = new PathSourcePath(projectFilesystem, Paths.get("foo"));
 
-    assertEquals(Optional.empty(), pathResolver.getRule(sourcePath));
+    assertEquals(Optional.empty(), ruleFinder.getRule(sourcePath));
   }
 
   @Test
   public void getRelativePathCanGetRelativePathOfPathSourcePath() {
     ProjectFilesystem projectFilesystem = new FakeProjectFilesystem();
-    SourcePathResolver pathResolver = new SourcePathResolver(
+    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())
-    );
+    ));
     Path expectedPath = Paths.get("foo");
     SourcePath sourcePath = new PathSourcePath(projectFilesystem, expectedPath);
 
@@ -203,7 +130,7 @@ public class SourcePathResolverTest {
   public void relativePathForABuildTargetSourcePathIsTheRulesOutputPath() {
     BuildRuleResolver resolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
     FakeBuildRule rule = new FakeBuildRule("//:foo", pathResolver);
     rule.setOutputFile("foo");
     resolver.addToIndex(rule);
@@ -215,9 +142,9 @@ public class SourcePathResolverTest {
   @Test
   public void testEmptyListAsInputToFilterInputsToCompareToOutput() {
     Iterable<SourcePath> sourcePaths = ImmutableList.of();
-    SourcePathResolver resolver = new SourcePathResolver(
+    SourcePathResolver resolver = new SourcePathResolver(new SourcePathRuleFinder(
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())
-     );
+     ));
     Iterable<Path> inputs = resolver.filterInputsToCompareToOutput(sourcePaths);
     MoreAsserts.assertIterablesEquals(ImmutableList.<String>of(), inputs);
   }
@@ -226,7 +153,7 @@ public class SourcePathResolverTest {
   public void testFilterInputsToCompareToOutputExcludesBuildTargetSourcePaths() {
     BuildRuleResolver resolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
     FakeBuildRule rule = new FakeBuildRule(
         BuildTargetFactory.newInstance("//java/com/facebook:facebook"),
         pathResolver);
@@ -249,7 +176,8 @@ public class SourcePathResolverTest {
   public void testFilterBuildRuleInputsExcludesPathSourcePaths() {
     BuildRuleResolver resolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
     FakeBuildRule rule = new FakeBuildRule(
         BuildTargetFactory.newInstance("//java/com/facebook:facebook"),
         pathResolver);
@@ -264,7 +192,7 @@ public class SourcePathResolverTest {
         new BuildTargetSourcePath(rule.getBuildTarget()),
         new FakeSourcePath("java/com/facebook/BuckConfig.java"),
         new BuildTargetSourcePath(rule2.getBuildTarget()));
-    Iterable<BuildRule> inputs = pathResolver.filterBuildRuleInputs(sourcePaths);
+    Iterable<BuildRule> inputs = ruleFinder.filterBuildRuleInputs(sourcePaths);
     MoreAsserts.assertIterablesEquals(
         "Iteration order should be preserved: results should not be alpha-sorted.",
         ImmutableList.of(
@@ -281,9 +209,9 @@ public class SourcePathResolverTest {
     // Test that constructing a PathSourcePath without an explicit name resolves to the
     // string representation of the path.
     PathSourcePath pathSourcePath1 = new PathSourcePath(projectFilesystem, path);
-    SourcePathResolver resolver = new SourcePathResolver(
+    SourcePathResolver resolver = new SourcePathResolver(new SourcePathRuleFinder(
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())
-     );
+     ));
     String actual1 = resolver.getSourcePathName(
         BuildTargetFactory.newInstance("//:test"),
         pathSourcePath1);
@@ -294,12 +222,12 @@ public class SourcePathResolverTest {
   public void getSourcePathNameOnBuildTargetSourcePath() throws Exception {
     BuildRuleResolver resolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
 
     // Verify that wrapping a genrule in a BuildTargetSourcePath resolves to the output name of
     // that genrule.
     String out = "test/blah.txt";
-    Genrule genrule = (Genrule) GenruleBuilder
+    Genrule genrule = GenruleBuilder
         .newGenruleBuilder(BuildTargetFactory.newInstance("//:genrule"))
         .setOut(out)
         .build(resolver);
@@ -328,10 +256,10 @@ public class SourcePathResolverTest {
   public void getSourcePathNameOnArchiveMemberSourcePath() throws Exception {
     BuildRuleResolver resolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
 
     String out = "test/blah.jar";
-    Genrule genrule = (Genrule) GenruleBuilder
+    Genrule genrule = GenruleBuilder
         .newGenruleBuilder(BuildTargetFactory.newInstance("//:genrule"))
         .setOut(out)
         .build(resolver);
@@ -356,10 +284,10 @@ public class SourcePathResolverTest {
     // exception is thrown.
     try {
       SourcePathResolver resolver =
-          new SourcePathResolver(
+          new SourcePathResolver(new SourcePathRuleFinder(
               new BuildRuleResolver(
                   TargetGraph.EMPTY,
-                  new DefaultTargetNodeToBuildRuleTransformer()));
+                  new DefaultTargetNodeToBuildRuleTransformer())));
       resolver.getSourcePathNames(
           target,
           parameter,
@@ -375,7 +303,7 @@ public class SourcePathResolverTest {
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
     BuildRuleResolver resolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
     BuildRule rule = resolver.addToIndex(new FakeBuildRule("//foo:bar", pathResolver));
     assertThat(
         pathResolver.getSourcePathName(
@@ -391,7 +319,7 @@ public class SourcePathResolverTest {
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
     BuildRuleResolver resolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
     BuildRule rule = resolver.addToIndex(new FakeBuildRule("//foo:bar", pathResolver));
     SourcePath sourcePath1 =
         new BuildTargetSourcePath(
@@ -411,7 +339,7 @@ public class SourcePathResolverTest {
   public void getRelativePathCanOnlyReturnARelativePath() {
     BuildRuleResolver resolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
 
     PathSourcePath path = new PathSourcePath(
         new FakeProjectFilesystem(),
@@ -425,7 +353,7 @@ public class SourcePathResolverTest {
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
     BuildRuleResolver resolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
 
     BuildRule rule = resolver.addToIndex(new FakeBuildRule("//foo:bar", pathResolver));
     Path archivePath = filesystem.getBuckPaths().getGenDir().resolve("foo.jar");
@@ -447,7 +375,7 @@ public class SourcePathResolverTest {
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
     BuildRuleResolver resolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
 
     BuildRule rule = resolver.addToIndex(
         new FakeBuildRule(BuildTargetFactory.newInstance("//foo:bar"), filesystem, pathResolver));
@@ -466,7 +394,7 @@ public class SourcePathResolverTest {
     assertEquals(memberPath, absolutePath.getMemberPath());
   }
 
-  private static class PathReferenceRule extends AbstractBuildRule {
+  private static class PathReferenceRule extends AbstractBuildRuleWithResolver {
 
     private final Path source;
 

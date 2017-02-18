@@ -28,7 +28,6 @@ import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.BuildableProperties;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.AbstractExecutionStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
@@ -92,7 +91,6 @@ public class NdkLibrary extends AbstractBuildRule
 
   protected NdkLibrary(
       BuildRuleParams params,
-      SourcePathResolver resolver,
       Path makefile,
       String makefileContents,
       Set<SourcePath> sources,
@@ -100,7 +98,7 @@ public class NdkLibrary extends AbstractBuildRule
       boolean isAsset,
       Optional<String> ndkVersion,
       Function<String, String> macroExpander) {
-    super(params, resolver);
+    super(params);
     this.isAsset = isAsset;
 
     BuildTarget buildTarget = params.getBuildTarget();
@@ -147,7 +145,7 @@ public class NdkLibrary extends AbstractBuildRule
     // .so files are written to the libs/ subdirectory of the output directory.
     // All of them should be recorded via the BuildableContext.
     Path binDirectory = buildArtifactsDirectory.resolve("libs");
-    steps.add(new RmStep(getProjectFilesystem(), makefile, true));
+    steps.add(new RmStep(getProjectFilesystem(), makefile));
     steps.add(new MkdirStep(getProjectFilesystem(), makefile.getParent()));
     steps.add(new WriteFileStep(getProjectFilesystem(), makefileContents, makefile, false));
     steps.add(

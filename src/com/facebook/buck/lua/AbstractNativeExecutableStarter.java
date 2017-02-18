@@ -44,6 +44,7 @@ import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.WriteStringTemplateRule;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.args.StringArg;
@@ -80,6 +81,7 @@ abstract class AbstractNativeExecutableStarter implements Starter, NativeLinkTar
   abstract BuildRuleParams getBaseParams();
   abstract BuildRuleResolver getRuleResolver();
   abstract SourcePathResolver getPathResolver();
+  abstract SourcePathRuleFinder getRuleFinder();
   abstract LuaConfig getLuaConfig();
   abstract CxxBuckConfig getCxxBuckConfig();
   abstract CxxPlatform getCxxPlatform();
@@ -116,7 +118,6 @@ abstract class AbstractNativeExecutableStarter implements Starter, NativeLinkTar
                   templateTarget,
                   Suppliers.ofInstance(ImmutableSortedSet.of()),
                   Suppliers.ofInstance(ImmutableSortedSet.of())),
-              getPathResolver(),
               getNativeStarterCxxSourceTemplate(),
               BuildTargets.getGenPath(
                   getBaseParams().getProjectFilesystem(),
@@ -132,7 +133,7 @@ abstract class AbstractNativeExecutableStarter implements Starter, NativeLinkTar
       getRuleResolver().addToIndex(
           WriteStringTemplateRule.from(
               getBaseParams(),
-              getPathResolver(),
+              getRuleFinder(),
               target,
               output,
               new BuildTargetSourcePath(templateTarget),
@@ -191,6 +192,7 @@ abstract class AbstractNativeExecutableStarter implements Starter, NativeLinkTar
             getBaseParams(),
             getRuleResolver(),
             getPathResolver(),
+            getRuleFinder(),
             getCxxBuckConfig(),
             getCxxPlatform(),
             ImmutableList.<CxxPreprocessorInput>builder()
@@ -205,6 +207,7 @@ abstract class AbstractNativeExecutableStarter implements Starter, NativeLinkTar
                 .addAll(getTransitiveCxxPreprocessorInput(getCxxPlatform(), nativeStarterDeps))
                 .build(),
             ImmutableMultimap.of(),
+            Optional.empty(),
             Optional.empty(),
             ImmutableMap.of("native-starter.cpp", getNativeStarterCxxSource()),
             CxxSourceRuleFactory.PicType.PDC,
@@ -234,6 +237,7 @@ abstract class AbstractNativeExecutableStarter implements Starter, NativeLinkTar
             getBaseParams(),
             getRuleResolver(),
             getPathResolver(),
+            getRuleFinder(),
             linkTarget,
             Linker.LinkType.EXECUTABLE,
             Optional.empty(),

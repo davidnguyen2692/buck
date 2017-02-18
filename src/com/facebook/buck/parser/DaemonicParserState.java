@@ -446,8 +446,9 @@ class DaemonicParserState {
           }
         } catch (ExecutionException | UncheckedExecutionException e) {
           try {
-            Throwables.propagateIfInstanceOf(e, BuildFileParseException.class);
-            Throwables.propagate(e);
+            Throwables.throwIfInstanceOf(e, BuildFileParseException.class);
+            Throwables.throwIfUnchecked(e);
+            throw new RuntimeException(e);
           } catch (BuildFileParseException bfpe) {
             LOG.warn("Unable to parse already parsed build file.", bfpe);
           }
@@ -576,7 +577,7 @@ class DaemonicParserState {
 
     boolean invalidatedByDefaultIncludesChange = false;
     Iterable<String> expected;
-    try (AutoCloseableLock updateLock = cachedStateLock.updateLock()) {
+    try (AutoCloseableLock readLock = cachedStateLock.readLock()) {
       expected = cachedIncludes.get(cell.getRoot());
 
       if (expected == null || !Iterables.elementsEqual(defaultIncludes, expected)) {
@@ -588,10 +589,9 @@ class DaemonicParserState {
       if (!invalidatedByDefaultIncludesChange) {
         return;
       }
-
-      try (AutoCloseableLock writeLock = cachedStateLock.writeLock()) {
-        cachedIncludes.put(cell.getRoot(), defaultIncludes);
-      }
+    }
+    try (AutoCloseableLock writeLock = cachedStateLock.writeLock()) {
+      cachedIncludes.put(cell.getRoot(), defaultIncludes);
     }
     synchronized (this) {
       if (invalidateCellCaches(cell) && invalidatedByDefaultIncludesChange) {

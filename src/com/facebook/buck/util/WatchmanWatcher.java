@@ -18,6 +18,7 @@ package com.facebook.buck.util;
 
 
 import com.facebook.buck.event.BuckEventBus;
+import com.facebook.buck.event.WatchmanStatusEvent;
 import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.io.PathOrGlobMatcher;
 import com.facebook.buck.io.ProjectWatch;
@@ -263,6 +264,15 @@ public class WatchmanWatcher {
         throw e;
       }
 
+      if (cursor.get().startsWith("c:")) {
+        // Update the clockId
+        String newCursor = Optional
+          .ofNullable((String) response.get("clock"))
+          .orElse(Watchman.NULL_CLOCK);
+        LOG.debug("Updating Watchman Cursor from %s to %s", cursor.get(), newCursor);
+        cursor.set(newCursor);
+      }
+
       String warning = (String) response.get("warning");
       if (warning != null) {
         buckEventBus.post(
@@ -283,14 +293,6 @@ public class WatchmanWatcher {
             break;
         }
         return;
-      }
-      if (cursor.get().startsWith("c:")) {
-        // Update the clockId
-        String newCursor = Optional
-          .ofNullable((String) response.get("clock"))
-          .orElse(Watchman.NULL_CLOCK);
-        LOG.debug("Updating Watchman Cursor from %s to %s", cursor.get(), newCursor);
-        cursor.set(newCursor);
       }
 
       List<Map<String, Object>> files = (List<Map<String, Object>>) response.get("files");
@@ -315,7 +317,15 @@ public class WatchmanWatcher {
           postWatchEvent(builder.build());
         }
 
+        if (files.isEmpty() && freshInstanceAction != FreshInstanceAction.NONE) {
+          buckEventBus.post(WatchmanStatusEvent.zeroFileChanges());
+        }
+
         LOG.debug("Posted %d Watchman events.", files.size());
+      } else {
+        if (freshInstanceAction != FreshInstanceAction.NONE) {
+          buckEventBus.post(WatchmanStatusEvent.zeroFileChanges());
+        }
       }
     } catch (InterruptedException e) {
       String message = "Watchman communication interrupted";

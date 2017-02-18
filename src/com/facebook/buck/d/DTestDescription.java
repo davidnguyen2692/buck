@@ -29,8 +29,8 @@ import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
-import com.facebook.buck.rules.Label;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.SymlinkTree;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.coercer.SourceList;
@@ -78,13 +78,15 @@ public class DTestDescription implements
 
     BuildTarget target = params.getBuildTarget();
 
-    SourcePathResolver pathResolver = new SourcePathResolver(buildRuleResolver);
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(buildRuleResolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
 
     SymlinkTree sourceTree =
         buildRuleResolver.addToIndex(
             DDescriptionUtils.createSourceSymlinkTree(
                 DDescriptionUtils.getSymlinkTreeTarget(params.getBuildTarget()),
                 params,
+                ruleFinder,
                 pathResolver,
                 args.srcs));
 
@@ -111,10 +113,10 @@ public class DTestDescription implements
                 .setLinkTree(new BuildTargetSourcePath(sourceTree.getBuildTarget()))
                 .addAllSources(args.srcs.getPaths())
                 .build());
+    buildRuleResolver.addToIndex(binaryRule);
 
     return new DTest(
         params.appendExtraDeps(ImmutableList.of(binaryRule)),
-        new SourcePathResolver(buildRuleResolver),
         binaryRule,
         args.contacts,
         args.labels,
@@ -138,7 +140,6 @@ public class DTestDescription implements
   public static class Arg extends AbstractDescriptionArg {
     public SourceList srcs;
     public ImmutableSortedSet<String> contacts = ImmutableSortedSet.of();
-    public ImmutableSortedSet<Label> labels = ImmutableSortedSet.of();
     public Optional<Long> testRuleTimeoutMs;
     public ImmutableSortedSet<BuildTarget> deps;
     public ImmutableList<String> linkerFlags = ImmutableList.of();

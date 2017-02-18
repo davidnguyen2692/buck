@@ -38,8 +38,10 @@ import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.FakeExportDependenciesRule;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
+import com.facebook.buck.rules.query.Query;
 import com.facebook.buck.testutil.TargetGraphFactory;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
@@ -60,7 +62,7 @@ public class AndroidLibraryDescriptionTest {
   public void rulesExportedFromDepsBecomeFirstOrderDeps() throws Exception {
     BuildRuleResolver resolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
 
     FakeBuildRule transitiveExportedRule =
         resolver.addToIndex(new FakeBuildRule("//:transitive_exported_rule", pathResolver));
@@ -109,7 +111,7 @@ public class AndroidLibraryDescriptionTest {
         sublibNode);
     BuildRuleResolver resolver =
         new BuildRuleResolver(targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
 
     FakeBuildRule bottomRule = resolver.addToIndex(
         new FakeBuildRule(bottomNode.getBuildTarget(), pathResolver));
@@ -128,7 +130,7 @@ public class AndroidLibraryDescriptionTest {
 
     BuildRule javaLibrary = AndroidLibraryBuilder.createBuilder(target)
         .addDep(libNode.getBuildTarget())
-        .setDepsQuery("filter('.*lib', deps($declared_deps))")
+        .setDepsQuery(Query.of("filter('.*lib', deps($declared_deps))"))
         .build(resolver, targetGraph);
 
     assertThat(
@@ -144,7 +146,7 @@ public class AndroidLibraryDescriptionTest {
   public void rulesExportedFromProvidedDepsBecomeFirstOrderDeps() throws Exception {
     BuildRuleResolver resolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
 
     FakeBuildRule transitiveExportedRule =
         resolver.addToIndex(new FakeBuildRule("//:transitive_exported_rule", pathResolver));
@@ -176,6 +178,7 @@ public class AndroidLibraryDescriptionTest {
 
     // Set to non-null values.
     builder.setActionGraph(createMock(ActionGraph.class));
+    builder.setSourcePathResolver(createMock(SourcePathResolver.class));
     builder.setJavaPackageFinder(createMock(JavaPackageFinder.class));
     builder.setEventBus(BuckEventBusFactory.newInstance());
 

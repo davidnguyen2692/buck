@@ -16,6 +16,7 @@
 
 package com.facebook.buck.python;
 
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.Pair;
 import com.facebook.buck.rules.AbstractBuildRule;
@@ -30,6 +31,7 @@ import com.facebook.buck.rules.ExternalTestRunnerTestSpec;
 import com.facebook.buck.rules.HasRuntimeDeps;
 import com.facebook.buck.rules.Label;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TestRule;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.step.ExecutionContext;
@@ -47,11 +49,11 @@ import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.ImmutableSortedSet;
 
 import java.nio.file.Path;
 import java.util.Optional;
 import java.util.concurrent.Callable;
+import java.util.stream.Stream;
 
 @SuppressWarnings("PMD.TestClassWithoutTestCases")
 public class PythonTest
@@ -65,10 +67,11 @@ public class PythonTest
   private final Optional<Long> testRuleTimeoutMs;
   private final ImmutableSet<String> contacts;
   private final ImmutableList<Pair<Float, ImmutableSet<Path>>> neededCoverage;
+  private final SourcePathRuleFinder ruleFinder;
 
   public PythonTest(
       BuildRuleParams params,
-      SourcePathResolver resolver,
+      SourcePathRuleFinder ruleFinder,
       final Supplier<ImmutableMap<String, String>> env,
       final PythonBinary binary,
       ImmutableSet<Label> labels,
@@ -76,7 +79,8 @@ public class PythonTest
       Optional<Long> testRuleTimeoutMs,
       ImmutableSet<String> contacts) {
 
-    super(params, resolver);
+    super(params);
+    this.ruleFinder = ruleFinder;
 
     this.env = Suppliers.memoize(
         () -> {
@@ -108,13 +112,14 @@ public class PythonTest
   public ImmutableList<Step> runTests(
       ExecutionContext executionContext,
       TestRunningOptions options,
+      SourcePathResolver pathResolver,
       TestReportingCallback testReportingCallback) {
     return ImmutableList.of(
         new MakeCleanDirectoryStep(getProjectFilesystem(), getPathToTestOutputDirectory()),
         new PythonRunTestsStep(
             getProjectFilesystem().getRootPath(),
             getBuildTarget().getFullyQualifiedName(),
-            binary.getExecutableCommand().getCommandPrefix(getResolver()),
+            binary.getExecutableCommand().getCommandPrefix(pathResolver),
             env,
             options.getTestSelectorList(),
             testRuleTimeoutMs,
@@ -182,11 +187,12 @@ public class PythonTest
   // a {@link PythonBinary} rule, which is the actual test binary.  Therefore, we *need* this
   // rule around to run this test, so model this via the {@link HasRuntimeDeps} interface.
   @Override
-  public ImmutableSortedSet<BuildRule> getRuntimeDeps() {
-    return ImmutableSortedSet.<BuildRule>naturalOrder()
-        .addAll(binary.getExecutableCommand().getDeps(getResolver()))
-        .addAll(getDeclaredDeps())
-        .build();
+  public Stream<BuildTarget> getRuntimeDeps() {
+    return Stream
+        .concat(
+            binary.getExecutableCommand().getDeps(ruleFinder).stream(),
+            getDeclaredDeps().stream())
+        .map(BuildRule::getBuildTarget);
   }
 
   @Override
@@ -207,12 +213,13 @@ public class PythonTest
   @Override
   public ExternalTestRunnerTestSpec getExternalTestRunnerSpec(
       ExecutionContext executionContext,
-      TestRunningOptions testRunningOptions) {
+      TestRunningOptions testRunningOptions,
+      SourcePathResolver pathResolver) {
     return ExternalTestRunnerTestSpec.builder()
         .setTarget(getBuildTarget())
         .setType("pyunit")
         .setNeededCoverage(neededCoverage)
-        .addAllCommand(binary.getExecutableCommand().getCommandPrefix(getResolver()))
+        .addAllCommand(binary.getExecutableCommand().getCommandPrefix(pathResolver))
         .putAllEnv(env.get())
         .addAllLabels(getLabels())
         .addAllContacts(getContacts())

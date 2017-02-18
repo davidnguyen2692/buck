@@ -29,14 +29,15 @@ import com.google.common.collect.ImmutableSortedSet;
 import java.util.Optional;
 
 public class JavaBinaryRuleBuilder
-    extends AbstractNodeBuilder<JavaBinaryDescription.Args, JavaBinaryDescription> {
+    extends AbstractNodeBuilder<JavaBinaryDescription.Args, JavaBinaryDescription, JavaBinary> {
 
   public JavaBinaryRuleBuilder(BuildTarget target) {
     super(
         new JavaBinaryDescription(
             DEFAULT_JAVA_OPTIONS,
             DEFAULT_JAVAC_OPTIONS,
-            CxxPlatformUtils.build(new CxxBuckConfig(FakeBuckConfig.builder().build()))),
+            CxxPlatformUtils.build(new CxxBuckConfig(FakeBuckConfig.builder().build())),
+            JavaBuckConfig.of(FakeBuckConfig.builder().build())),
         target);
   }
 

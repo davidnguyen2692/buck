@@ -29,6 +29,7 @@ import com.facebook.buck.cxx.CxxPlatforms;
 import com.facebook.buck.cxx.CxxToolProvider;
 import com.facebook.buck.cxx.DebugPathSanitizer;
 import com.facebook.buck.cxx.DefaultLinkerProvider;
+import com.facebook.buck.cxx.HeaderVerification;
 import com.facebook.buck.cxx.LinkerProvider;
 import com.facebook.buck.cxx.Linkers;
 import com.facebook.buck.cxx.MungingDebugPathSanitizer;
@@ -48,6 +49,7 @@ import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.Optionals;
 import com.facebook.buck.util.ProcessExecutor;
+import com.facebook.buck.util.environment.Platform;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableBiMap;
@@ -65,6 +67,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.text.ParseException;
 import java.util.Optional;
+import java.util.regex.Pattern;
 
 import javax.xml.parsers.ParserConfigurationException;
 
@@ -135,6 +138,7 @@ public class AppleCxxPlatforms {
     // TODO(bhamiltoncx): Add more and better cflags.
     ImmutableList.Builder<String> cflagsBuilder = ImmutableList.builder();
     cflagsBuilder.add("-isysroot", sdkPaths.getSdkPath().toString());
+    cflagsBuilder.add("-iquote", filesystem.getRootPath().toString());
     cflagsBuilder.add("-arch", targetArchitecture);
     cflagsBuilder.add(targetSdk.getApplePlatform().getMinVersionFlagPrefix() + minVersion);
 
@@ -299,7 +303,8 @@ public class AppleCxxPlatforms {
         Paths.get("."),
         sanitizerPaths.build(),
         filesystem.getRootPath().toAbsolutePath(),
-        CxxToolProvider.Type.CLANG);
+        CxxToolProvider.Type.CLANG,
+        filesystem);
     DebugPathSanitizer assemblerDebugPathSanitizer = new MungingDebugPathSanitizer(
         config.getDebugPathSanitizerLimit(),
         File.separatorChar,
@@ -317,23 +322,28 @@ public class AppleCxxPlatforms {
     }
     ImmutableMap<String, String> macros = macrosBuilder.build();
 
-    Optional<String> buildVersion;
+    Optional<String> buildVersion = Optional.empty();
     Path platformVersionPlistPath = sdkPaths.getPlatformPath().resolve("version.plist");
     try (InputStream versionPlist = Files.newInputStream(platformVersionPlistPath)) {
       NSDictionary versionInfo = (NSDictionary) PropertyListParser.parse(versionPlist);
-      try {
-        buildVersion = Optional.of(versionInfo.objectForKey("ProductBuildVersion").toString());
-      } catch (NullPointerException e) {
+      if (versionInfo != null) {
+        NSObject productBuildVersion = versionInfo.objectForKey("ProductBuildVersion");
+        if (productBuildVersion != null) {
+          buildVersion = Optional.of(productBuildVersion.toString());
+        } else {
+          LOG.warn(
+              "In %s, missing ProductBuildVersion. Build version will be unset for this platform.",
+              platformVersionPlistPath);
+        }
+      } else {
         LOG.warn(
-            "In %s, missing ProductBuildVersion. Build version will be unset for this platform.",
+            "Empty version plist in %s. Build version will be unset for this platform.",
             platformVersionPlistPath);
-        buildVersion = Optional.empty();
       }
     } catch (NoSuchFileException e) {
       LOG.warn(
           "%s does not exist. Build version will be unset for this platform.",
           platformVersionPlistPath);
-      buildVersion = Optional.empty();
     } catch (PropertyListFormatException | SAXException | ParserConfigurationException |
         ParseException | IOException e) {
       // Some other error occurred, print the exception since it may contain error details.
@@ -341,7 +351,6 @@ public class AppleCxxPlatforms {
           e,
           "Failed to parse %s. Build version will be unset for this platform.",
           platformVersionPlistPath);
-      buildVersion = Optional.empty();
     }
 
     PreprocessorProvider aspp =
@@ -368,9 +377,19 @@ public class AppleCxxPlatforms {
         new CompilerProvider(
             new ConstantToolProvider(clangXxPath),
             CxxToolProvider.Type.CLANG);
+    ImmutableList.Builder<String> whitelistBuilder = ImmutableList.builder();
+    whitelistBuilder.add("^" + Pattern.quote(sdkPaths.getSdkPath().toString()) + "\\/.*");
+    whitelistBuilder.add("^" + Pattern.quote(sdkPaths.getPlatformPath().toString() +
+                         "/Developer/Library/Frameworks") + "\\/.*");
+    for (Path toolchainPath : sdkPaths.getToolchainPaths()) {
+      whitelistBuilder.add("^" + Pattern.quote(toolchainPath.toString()) + "\\/.*");
+    }
+    HeaderVerification headerVerification =
+        config.getHeaderVerification().withPlatformWhitelist(whitelistBuilder.build());
 
     CxxPlatform cxxPlatform = CxxPlatforms.build(
         targetFlavor,
+        Platform.MACOS,
         config,
         as,
         aspp,
@@ -399,7 +418,9 @@ public class AppleCxxPlatforms {
         "o",
         compilerDebugPathSanitizer,
         assemblerDebugPathSanitizer,
-        macros);
+        macros,
+        Optional.empty(),
+        headerVerification);
 
     ApplePlatform applePlatform = targetSdk.getApplePlatform();
     ImmutableList.Builder<Path> swiftOverrideSearchPathBuilder = ImmutableList.builder();

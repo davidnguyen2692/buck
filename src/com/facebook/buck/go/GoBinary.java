@@ -18,7 +18,7 @@ package com.facebook.buck.go;
 
 import com.facebook.buck.cxx.Linker;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.rules.AbstractBuildRuleWithResolver;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BinaryBuildRule;
 import com.facebook.buck.rules.BuildContext;
@@ -39,7 +39,7 @@ import com.google.common.collect.ImmutableMap;
 import java.nio.file.Path;
 import java.util.Optional;
 
-public class GoBinary extends AbstractBuildRule implements BinaryBuildRule {
+public class GoBinary extends AbstractBuildRuleWithResolver implements BinaryBuildRule {
 
   @AddToRuleKey
   private final Tool linker;
@@ -102,7 +102,7 @@ public class GoBinary extends AbstractBuildRule implements BinaryBuildRule {
     ImmutableMap.Builder<String, String> environment = ImmutableMap.builder();
     if (cxxLinker.isPresent()) {
       environment.putAll(cxxLinker.get().getEnvironment());
-      cxxLinkerCommand = cxxLinker.get().getCommandPrefix(getResolver());
+      cxxLinkerCommand = cxxLinker.get().getCommandPrefix(context.getSourcePathResolver());
     }
     environment.putAll(linker.getEnvironment());
     return ImmutableList.of(
@@ -111,11 +111,11 @@ public class GoBinary extends AbstractBuildRule implements BinaryBuildRule {
             getProjectFilesystem().getRootPath(),
             environment.build(),
             cxxLinkerCommand,
-            linker.getCommandPrefix(getResolver()),
+            linker.getCommandPrefix(context.getSourcePathResolver()),
             linkerFlags,
             ImmutableList.of(linkTree.getRoot()),
             platform,
-            mainObject.getPathToOutput(),
+            context.getSourcePathResolver().getRelativePath(mainObject.getSourcePathToOutput()),
             GoLinkStep.LinkMode.EXECUTABLE,
             output)
         );

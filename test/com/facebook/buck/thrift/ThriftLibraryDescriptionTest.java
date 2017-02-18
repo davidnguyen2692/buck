@@ -41,6 +41,7 @@ import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.shell.Genrule;
 import com.facebook.buck.shell.GenruleBuilder;
@@ -84,8 +85,8 @@ public class ThriftLibraryDescriptionTest {
 
   private static HeaderSymlinkTree createFakeSymlinkTree(
       BuildTarget target,
-      SourcePathResolver resolver,
       Path root,
+      SourcePathRuleFinder ruleFinder,
       BuildRule... deps) {
     BuildRuleParams params =
         new FakeBuildRuleParamsBuilder(target)
@@ -93,9 +94,9 @@ public class ThriftLibraryDescriptionTest {
             .build();
     return new HeaderSymlinkTree(
         params,
-        resolver,
         root,
-        ImmutableMap.of());
+        ImmutableMap.of(),
+        ruleFinder);
   }
 
   private static class FakeThriftLanguageSpecificEnhancer
@@ -154,7 +155,7 @@ public class ThriftLibraryDescriptionTest {
 
       return new FakeBuildRule(
           new FakeBuildRuleParamsBuilder("//:fake-lang").build(),
-          new SourcePathResolver(resolver));
+          new SourcePathResolver(new SourcePathRuleFinder(resolver)));
     }
 
     @Override
@@ -182,7 +183,8 @@ public class ThriftLibraryDescriptionTest {
   public void createThriftCompilerBuildRulesHasCorrectDeps() throws Exception {
     BuildRuleResolver resolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
     FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
 
     String language = "fake";
@@ -247,11 +249,11 @@ public class ThriftLibraryDescriptionTest {
         rule.getDeps());
 
     // Lets do this again, but pass in a ThriftLibrary deps, wrapping some includes we need.
-    Path includeRoot = filesystem.resolve(desc.getIncludeRoot(unflavoredTarget, filesystem));
+    Path includeRoot = desc.getIncludeRoot(unflavoredTarget, filesystem);
     HeaderSymlinkTree thriftIncludeSymlinkTree = createFakeSymlinkTree(
         desc.createThriftIncludeSymlinkTreeTarget(unflavoredTarget),
-        pathResolver,
-        includeRoot);
+        includeRoot,
+        ruleFinder);
     ThriftLibrary lib = new ThriftLibrary(
         unflavoredParams,
         pathResolver,
@@ -281,7 +283,7 @@ public class ThriftLibraryDescriptionTest {
         rule.getDeps());
 
     // Setup a simple genrule that creates the thrift source and verify its dep is propagated.
-    Genrule genrule = (Genrule) GenruleBuilder
+    Genrule genrule = GenruleBuilder
         .newGenruleBuilder(BuildTargetFactory.newInstance("//:genrule"))
         .setOut(sourceName)
         .build(resolver);
@@ -310,7 +312,7 @@ public class ThriftLibraryDescriptionTest {
 
     // Create a build rule that represents the thrift rule.
     ShBinary thriftRule =
-        (ShBinary) new ShBinaryBuilder(BuildTargetFactory.newInstance("//thrift:target"))
+        new ShBinaryBuilder(BuildTargetFactory.newInstance("//thrift:target"))
             .setMain(new FakeSourcePath("thrift.sh"))
             .build(resolver);
     filesystem.mkdirs(thriftRule.getBuildTarget().getBasePath());
@@ -354,7 +356,8 @@ public class ThriftLibraryDescriptionTest {
   public void createBuildRuleForUnflavoredTargetCreateThriftLibrary() throws Exception {
     BuildRuleResolver resolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
     BuildTarget unflavoredTarget = BuildTargetFactory.newInstance("//:thrift");
     BuildRuleParams unflavoredParams =
         new FakeBuildRuleParamsBuilder(unflavoredTarget).build();
@@ -373,9 +376,9 @@ public class ThriftLibraryDescriptionTest {
 
     // Create a dep and verify it gets attached.
     BuildTarget depTarget = BuildTargetFactory.newInstance("//:dep");
-    Path depIncludeRoot = filesystem.resolve(desc.getIncludeRoot(depTarget, filesystem));
+    Path depIncludeRoot = desc.getIncludeRoot(depTarget, filesystem);
     HeaderSymlinkTree depIncludeSymlinkTree =
-        createFakeSymlinkTree(depTarget, pathResolver, depIncludeRoot);
+        createFakeSymlinkTree(depTarget, depIncludeRoot, ruleFinder);
     ThriftLibrary dep = new ThriftLibrary(
         new FakeBuildRuleParamsBuilder(depTarget).build(),
         pathResolver,
@@ -407,7 +410,7 @@ public class ThriftLibraryDescriptionTest {
   public void createBuildRuleWithFlavoredTargetCallsEnhancerCorrectly() throws Exception {
     BuildRuleResolver resolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
     FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
 
     // Setup the default values returned by the language specific enhancer.
@@ -437,7 +440,7 @@ public class ThriftLibraryDescriptionTest {
     // Setup a thrift source file generated by a genrule.
     final String thriftSourceName1 = "foo.thrift";
     BuildTarget genruleTarget = BuildTargetFactory.newInstance("//:genrule");
-    final Genrule genrule = (Genrule) GenruleBuilder
+    final Genrule genrule = GenruleBuilder
         .newGenruleBuilder(genruleTarget)
         .setOut(thriftSourceName1)
         .build(resolver);
@@ -451,7 +454,7 @@ public class ThriftLibraryDescriptionTest {
 
     // Create a build rule that represents the thrift rule.
     final ShBinary thriftRule =
-        (ShBinary) new ShBinaryBuilder(BuildTargetFactory.newInstance("//thrift:target"))
+        new ShBinaryBuilder(BuildTargetFactory.newInstance("//thrift:target"))
             .setMain(new FakeSourcePath("thrift.sh"))
             .build(resolver);
     resolver.addToIndex(thriftRule);
@@ -571,9 +574,9 @@ public class ThriftLibraryDescriptionTest {
   public void findDepsFromParamsSetsUpDepsForFlavoredTarget() {
     // Create the thrift target and implicit dep.
     BuildTarget thriftTarget = BuildTargetFactory.newInstance("//bar:thrift_compiler");
-    SourcePathResolver resolver = new SourcePathResolver(
+    SourcePathResolver resolver = new SourcePathResolver(new SourcePathRuleFinder(
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())
-     );
+     ));
     FakeBuildRule implicitDep = createFakeBuildRule("//foo:implicit_dep", resolver);
 
     // Setup the default values returned by the language specific enhancer.

@@ -25,11 +25,15 @@ import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.Hint;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
 import com.facebook.buck.rules.coercer.SourceList;
+import com.facebook.buck.rules.coercer.VersionMatchedCollection;
+import com.facebook.buck.versions.Version;
 import com.facebook.buck.versions.VersionPropagator;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedSet;
 
 import java.nio.file.Path;
@@ -49,8 +53,10 @@ public class PythonLibraryDescription
       final BuildRuleParams params,
       BuildRuleResolver resolver,
       final A args) {
-    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
     Path baseModule = PythonUtil.getBasePath(params.getBuildTarget(), args.baseModule);
+    Optional<ImmutableMap<BuildTarget, Version>> selectedVersions =
+        targetGraph.get(params.getBuildTarget()).getSelectedVersions();
     return new PythonLibrary(
         params,
         pathResolver,
@@ -62,7 +68,9 @@ public class PythonLibraryDescription
                 baseModule,
                 args.srcs,
                 args.platformSrcs,
-                pythonPlatform),
+                pythonPlatform,
+                args.versionedSrcs,
+                selectedVersions),
         pythonPlatform ->
             PythonUtil.getModules(
                 params.getBuildTarget(),
@@ -71,15 +79,19 @@ public class PythonLibraryDescription
                 baseModule,
                 args.resources,
                 args.platformResources,
-                pythonPlatform),
+                pythonPlatform,
+                args.versionedResources,
+                selectedVersions),
         args.zipSafe);
   }
 
   @SuppressFieldNotInitialized
   public static class Arg extends AbstractDescriptionArg implements HasTests {
     public SourceList srcs = SourceList.EMPTY;
+    public Optional<VersionMatchedCollection<SourceList>> versionedSrcs;
     public PatternMatchedCollection<SourceList> platformSrcs = PatternMatchedCollection.of();
     public SourceList resources = SourceList.EMPTY;
+    public Optional<VersionMatchedCollection<SourceList>> versionedResources;
     public PatternMatchedCollection<SourceList> platformResources = PatternMatchedCollection.of();
     public ImmutableSortedSet<BuildTarget> deps = ImmutableSortedSet.of();
     public Optional<String> baseModule;

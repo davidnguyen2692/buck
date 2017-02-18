@@ -18,16 +18,20 @@ package com.facebook.buck.cxx;
 
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.FlavorDomain;
+import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
 import com.facebook.buck.rules.coercer.SourceList;
+import com.facebook.buck.rules.coercer.VersionMatchedCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
 
 import java.util.Optional;
 import java.util.regex.Pattern;
 
-public class PrebuiltCxxLibraryBuilder
-    extends AbstractCxxBuilder<PrebuiltCxxLibraryDescription.Arg, PrebuiltCxxLibraryDescription> {
+public class PrebuiltCxxLibraryBuilder extends AbstractCxxBuilder<
+    PrebuiltCxxLibraryDescription.Arg,
+    PrebuiltCxxLibraryDescription,
+    BuildRule> {
 
   public PrebuiltCxxLibraryBuilder(
       BuildTarget target,
@@ -112,6 +116,12 @@ public class PrebuiltCxxLibraryBuilder
 
   public PrebuiltCxxLibraryBuilder setSupportedPlatformsRegex(Pattern supportedPlatformsRegex) {
     arg.supportedPlatformsRegex = Optional.of(supportedPlatformsRegex);
+    return this;
+  }
+
+  public PrebuiltCxxLibraryBuilder setVersionedSubDir(
+      VersionMatchedCollection<String> versionedSubDir) {
+    arg.versionedSubDir = Optional.of(versionedSubDir);
     return this;
   }
 

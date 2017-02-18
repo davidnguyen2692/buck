@@ -19,6 +19,7 @@ package com.facebook.buck.rules.query;
 
 import com.facebook.buck.jvm.java.HasClasspathEntries;
 import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.model.BuildTargetPattern;
 import com.facebook.buck.parser.BuildTargetParseException;
 import com.facebook.buck.parser.BuildTargetParser;
 import com.facebook.buck.parser.BuildTargetPatternParser;
@@ -47,6 +48,7 @@ import com.google.common.util.concurrent.ListeningExecutorService;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 /**
@@ -75,14 +77,14 @@ public class GraphEnhancementQueryEnvironment implements QueryEnvironment {
   private Optional<BuildRuleResolver> resolver;
   private Optional<TargetGraph> targetGraph;
   private CellPathResolver cellNames;
-  private BuildTarget context;
+  private final BuildTargetPatternParser<BuildTargetPattern> context;
   private Set<BuildTarget> declaredDeps;
 
   public GraphEnhancementQueryEnvironment(
       Optional<BuildRuleResolver> resolver,
       Optional<TargetGraph> targetGraph,
       CellPathResolver cellNames,
-      BuildTarget context,
+      BuildTargetPatternParser<BuildTargetPattern> context,
       Set<BuildTarget> declaredDeps) {
     this.resolver = resolver;
     this.targetGraph = targetGraph;
@@ -102,10 +104,7 @@ public class GraphEnhancementQueryEnvironment implements QueryEnvironment {
           .collect(Collectors.toSet());
     }
     try {
-      BuildTarget buildTarget = BuildTargetParser.INSTANCE.parse(
-          pattern,
-          BuildTargetPatternParser.forBaseName(context.getBaseName()),
-          cellNames);
+      BuildTarget buildTarget = BuildTargetParser.INSTANCE.parse(pattern, context, cellNames);
       return ImmutableSet.<QueryTarget>of(QueryBuildTarget.of(buildTarget));
     } catch (BuildTargetParseException e) {
       throw new QueryException(e.getMessage(), e);
@@ -125,6 +124,22 @@ public class GraphEnhancementQueryEnvironment implements QueryEnvironment {
       builder.addAll(deps);
     }
     return builder.build();
+  }
+
+  @Override
+  public void forEachFwdDep(
+      Iterable<QueryTarget> targets,
+      Consumer<? super QueryTarget> action)
+      throws QueryException, InterruptedException {
+    for (QueryTarget target : targets) {
+      TargetNode<?, ?> node = getNode(target);
+      for (BuildTarget dep : node.getDeclaredDeps()) {
+        action.accept(QueryBuildTarget.of(dep));
+      }
+      for (BuildTarget dep : node.getExtraDeps()) {
+        action.accept(QueryBuildTarget.of(dep));
+      }
+    }
   }
 
   @Override
@@ -219,6 +234,7 @@ public class GraphEnhancementQueryEnvironment implements QueryEnvironment {
         new AttrFilterFunction(),
         new ClasspathFunction(),
         new DepsFunction(),
+        new DepsFunction.FirstOrderDepsFunction(),
         new KindFunction(),
         new FilterFunction()
     );

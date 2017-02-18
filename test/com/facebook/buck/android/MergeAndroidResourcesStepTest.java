@@ -18,6 +18,7 @@ package com.facebook.buck.android;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.android.MergeAndroidResourcesStep.DuplicateResourceException;
@@ -30,8 +31,10 @@ import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.step.ExecutionContext;
+import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.step.TestExecutionContext;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.google.common.collect.ImmutableList;
@@ -40,6 +43,7 @@ import com.google.common.collect.Sets;
 import com.google.common.collect.SortedSetMultimap;
 
 import org.hamcrest.CoreMatchers;
+import org.hamcrest.Matchers;
 import org.hamcrest.core.StringContains;
 import org.junit.Rule;
 import org.junit.Test;
@@ -138,7 +142,7 @@ public class MergeAndroidResourcesStepTest {
     thrown.expectMessage("Resource 'c1' (string) is duplicated across: ");
 
     BuildTarget resTarget = BuildTargetFactory.newInstance("//:res1");
-    SourcePathResolver resolver = new SourcePathResolver(
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())
     );
     MergeAndroidResourcesStep.sortSymbols(
@@ -147,21 +151,21 @@ public class MergeAndroidResourcesStepTest {
         ImmutableMap.of(
             Paths.get("a-R.txt"),
             (HasAndroidResourceDeps) AndroidResourceRuleBuilder.newBuilder()
-                .setResolver(resolver)
+                .setRuleFinder(ruleFinder)
                 .setBuildTarget(resTarget)
                 .setRes(new FakeSourcePath("a/res"))
                 .setRDotJavaPackage("com.res.a")
                 .build(),
             Paths.get("b-R.txt"),
             (HasAndroidResourceDeps) AndroidResourceRuleBuilder.newBuilder()
-                .setResolver(resolver)
+                .setRuleFinder(ruleFinder)
                 .setBuildTarget(resTarget)
                 .setRes(new FakeSourcePath("b/res"))
                 .setRDotJavaPackage("com.res.b")
                 .build(),
             Paths.get("c-R.txt"),
             (HasAndroidResourceDeps) AndroidResourceRuleBuilder.newBuilder()
-                .setResolver(resolver)
+                .setRuleFinder(ruleFinder)
                 .setBuildTarget(resTarget)
                 .setRes(new FakeSourcePath("c/res"))
                 .setRDotJavaPackage("com.res.c")
@@ -185,12 +189,13 @@ public class MergeAndroidResourcesStepTest {
 
     FakeProjectFilesystem filesystem = entriesBuilder.getProjectFilesystem();
 
-    SourcePathResolver resolver = new SourcePathResolver(
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())
     );
+    SourcePathResolver resolver = new SourcePathResolver(ruleFinder);
 
     HasAndroidResourceDeps res = AndroidResourceRuleBuilder.newBuilder()
-        .setResolver(resolver)
+        .setRuleFinder(ruleFinder)
         .setBuildTarget(resTarget)
         .setRes(new FakeSourcePath("res"))
         .setRDotJavaPackage("com.res1")
@@ -245,12 +250,13 @@ public class MergeAndroidResourcesStepTest {
     Path uberRDotTxt = filesystem.resolve("R.txt").toAbsolutePath();
     filesystem.writeLinesToPath(outputTextSymbols, uberRDotTxt);
 
-    SourcePathResolver resolver = new SourcePathResolver(
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())
-     );
+    );
+    SourcePathResolver resolver = new SourcePathResolver(ruleFinder);
 
     HasAndroidResourceDeps resource = AndroidResourceRuleBuilder.newBuilder()
-        .setResolver(resolver)
+        .setRuleFinder(ruleFinder)
         .setBuildTarget(target)
         .setRes(new FakeSourcePath("res"))
         .setRDotJavaPackage("com.facebook")
@@ -321,12 +327,13 @@ public class MergeAndroidResourcesStepTest {
     Path uberRDotTxt = filesystem.resolve("R.txt").toAbsolutePath();
     filesystem.writeLinesToPath(outputTextSymbols, uberRDotTxt);
 
-    SourcePathResolver resolver = new SourcePathResolver(
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())
-     );
+    );
+    SourcePathResolver resolver = new SourcePathResolver(ruleFinder);
 
     HasAndroidResourceDeps resource = AndroidResourceRuleBuilder.newBuilder()
-        .setResolver(resolver)
+        .setRuleFinder(ruleFinder)
         .setBuildTarget(target)
         .setRes(new FakeSourcePath("res"))
         .setRDotJavaPackage("com.facebook")
@@ -388,19 +395,20 @@ public class MergeAndroidResourcesStepTest {
 
     FakeProjectFilesystem filesystem = entriesBuilder.getProjectFilesystem();
 
-    SourcePathResolver resolver = new SourcePathResolver(
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())
-     );
+    );
+    SourcePathResolver resolver = new SourcePathResolver(ruleFinder);
 
     HasAndroidResourceDeps res1 = AndroidResourceRuleBuilder.newBuilder()
-        .setResolver(resolver)
+        .setRuleFinder(ruleFinder)
         .setBuildTarget(res1Target)
         .setRes(new FakeSourcePath("res1"))
         .setRDotJavaPackage("res1")
         .build();
 
     HasAndroidResourceDeps res2 = AndroidResourceRuleBuilder.newBuilder()
-        .setResolver(resolver)
+        .setRuleFinder(ruleFinder)
         .setBuildTarget(res2Target)
         .setRes(new FakeSourcePath("res2"))
         .setRDotJavaPackage("res2")
@@ -440,12 +448,13 @@ public class MergeAndroidResourcesStepTest {
                 "__%s_text_symbols__/R.txt").toString(),
             ImmutableList.of("int id id1 0x7f020000")));
     FakeProjectFilesystem filesystem = entriesBuilder.getProjectFilesystem();
-    SourcePathResolver resolver = new SourcePathResolver(
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())
     );
+    SourcePathResolver resolver = new SourcePathResolver(ruleFinder);
 
     HasAndroidResourceDeps res1 = AndroidResourceRuleBuilder.newBuilder()
-        .setResolver(resolver)
+        .setRuleFinder(ruleFinder)
         .setBuildTarget(res1Target)
         .setRes(new FakeSourcePath("res1"))
         .setRDotJavaPackage("res1")
@@ -485,12 +494,13 @@ public class MergeAndroidResourcesStepTest {
 
     FakeProjectFilesystem filesystem = entriesBuilder.getProjectFilesystem();
 
-    SourcePathResolver resolver = new SourcePathResolver(
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())
     );
+    SourcePathResolver resolver = new SourcePathResolver(ruleFinder);
 
     HasAndroidResourceDeps res1 = AndroidResourceRuleBuilder.newBuilder()
-        .setResolver(resolver)
+        .setRuleFinder(ruleFinder)
         .setBuildTarget(res1Target)
         .setRes(new FakeSourcePath("res1"))
         .setRDotJavaPackage("res1")
@@ -514,13 +524,128 @@ public class MergeAndroidResourcesStepTest {
     assertThat(resR2Java, StringContains.containsString("static final int id2=0x07f01002;"));
   }
 
+  @Test
+  public void testDuplicateBanning() throws Exception {
+    BuildTarget res1Target = BuildTargetFactory.newInstance("//:res1");
+    BuildTarget res2Target = BuildTargetFactory.newInstance("//:res2");
+
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(
+        new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())
+    );
+    SourcePathResolver resolver = new SourcePathResolver(ruleFinder);
+
+    FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
+    RDotTxtEntryBuilder entriesBuilder = new RDotTxtEntryBuilder(filesystem);
+    entriesBuilder.add(
+        new RDotTxtFile(
+            "package",
+            BuildTargets.getGenPath(
+                filesystem,
+                res1Target,
+                "__%s_text_symbols__/R.txt").toString(),
+            ImmutableList.of(
+                "int string app_name 0x7f020000",
+                "int drawable android_drawable 0x7f010000"
+            )));
+    entriesBuilder.add(
+        new RDotTxtFile(
+            "package",
+            BuildTargets.getGenPath(
+                filesystem,
+                res2Target,
+                "__%s_text_symbols__/R.txt").toString(),
+            ImmutableList.of(
+                "int string app_name 0x7f020000",
+                "int drawable android_drawable 0x7f010000")));
+
+    HasAndroidResourceDeps res1 = AndroidResourceRuleBuilder.newBuilder()
+        .setRuleFinder(ruleFinder)
+        .setBuildTarget(res1Target)
+        .setRes(new FakeSourcePath("res1"))
+        .setRDotJavaPackage("package")
+        .build();
+
+    HasAndroidResourceDeps res2 = AndroidResourceRuleBuilder.newBuilder()
+        .setRuleFinder(ruleFinder)
+        .setBuildTarget(res2Target)
+        .setRes(new FakeSourcePath("res2"))
+        .setRDotJavaPackage("package")
+        .build();
+
+    ImmutableList<HasAndroidResourceDeps> resourceDeps = ImmutableList.of(res1, res2);
+
+    checkDuplicatesDetected(
+        resolver,
+        filesystem,
+        resourceDeps,
+        EnumSet.noneOf(RType.class),
+        ImmutableList.of(),
+        ImmutableList.of("app_name", "android_drawable"));
+
+    checkDuplicatesDetected(
+        resolver,
+        filesystem,
+        resourceDeps,
+        EnumSet.of(RType.STRING),
+        ImmutableList.of("app_name"),
+        ImmutableList.of("android_drawable"));
+
+    checkDuplicatesDetected(
+        resolver,
+        filesystem,
+        resourceDeps,
+        EnumSet.allOf(RType.class),
+        ImmutableList.of("app_name", "android_drawable"),
+        ImmutableList.of());
+
+  }
+
+  private void checkDuplicatesDetected(
+      SourcePathResolver resolver,
+      FakeProjectFilesystem filesystem,
+      ImmutableList<HasAndroidResourceDeps> resourceDeps,
+      EnumSet<RType> rtypes,
+      ImmutableList<String> duplicateResources,
+      ImmutableList<String> ignoredDuplicates) {
+    MergeAndroidResourcesStep mergeStep = new MergeAndroidResourcesStep(
+        filesystem,
+        resolver,
+        resourceDeps,
+        /* uberRDotTxt */ Optional.empty(),
+        Paths.get("output"),
+        true,
+        rtypes,
+        Optional.empty(),
+        Optional.empty());
+
+    StepExecutionResult result = mergeStep.execute(TestExecutionContext.newInstance());
+    String message = result.getStderr().orElse("");
+    if (duplicateResources.isEmpty()) {
+      assertEquals(0, result.getExitCode());
+    } else {
+      assertNotEquals(0, result.getExitCode());
+      assertThat(message, Matchers.containsString("duplicated"));
+    }
+    for (String duplicateResource : duplicateResources) {
+      assertThat(message, Matchers.containsString(duplicateResource));
+    }
+    for (String ignoredDuplicate : ignoredDuplicates) {
+      assertThat(message, Matchers.not(Matchers.containsString(ignoredDuplicate)));
+    }
+  }
+
   // sortSymbols has a goofy API.  This will help.
   private static class RDotTxtEntryBuilder {
-    private final FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
+    private final FakeProjectFilesystem filesystem;
     private final ImmutableMap.Builder<Path, String> filePathToPackageName =
         ImmutableMap.builder();
 
     public RDotTxtEntryBuilder() {
+      this(new FakeProjectFilesystem());
+    }
+
+    public RDotTxtEntryBuilder(FakeProjectFilesystem filesystem) {
+      this.filesystem = filesystem;
     }
 
     public void add(RDotTxtFile entry) throws IOException {

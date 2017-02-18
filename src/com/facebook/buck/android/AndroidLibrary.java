@@ -23,12 +23,14 @@ import com.facebook.buck.jvm.java.CompileToJarStepFactory;
 import com.facebook.buck.jvm.java.DefaultJavaLibrary;
 import com.facebook.buck.jvm.java.JavacOptions;
 import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.model.Either;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableProperties;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -53,15 +55,15 @@ public class AndroidLibrary extends DefaultJavaLibrary implements AndroidPackage
   public AndroidLibrary(
       BuildRuleParams params,
       SourcePathResolver resolver,
+      SourcePathRuleFinder ruleFinder,
       Set<? extends SourcePath> srcs,
       Set<? extends SourcePath> resources,
       Optional<SourcePath> proguardConfig,
       ImmutableList<String> postprocessClassesCommands,
       ImmutableSortedSet<BuildRule> exportedDeps,
       ImmutableSortedSet<BuildRule> providedDeps,
-      BuildTarget abiJar,
       ImmutableSortedSet<SourcePath> abiInputs,
-      ImmutableSet<Path> additionalClasspathEntries,
+      ImmutableSet<Either<SourcePath, Path>> additionalClasspathEntries,
       JavacOptions javacOptions,
       boolean trackClassUsage,
       CompileToJarStepFactory compileStepFactory,
@@ -72,6 +74,7 @@ public class AndroidLibrary extends DefaultJavaLibrary implements AndroidPackage
     super(
         params,
         resolver,
+        ruleFinder,
         srcs,
         resources,
         javacOptions.getGeneratedSourceFolderName(),
@@ -79,7 +82,6 @@ public class AndroidLibrary extends DefaultJavaLibrary implements AndroidPackage
         postprocessClassesCommands,
         exportedDeps,
         providedDeps,
-        abiJar,
         abiInputs,
         trackClassUsage,
         additionalClasspathEntries,

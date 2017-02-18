@@ -25,6 +25,7 @@ import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.TestExecutionContext;
@@ -64,12 +65,12 @@ public class ArchiveStepIntegrationTest {
         new CxxBuckConfig(FakeBuckConfig.builder().build()));
 
     // Build up the paths to various files the archive step will use.
-    SourcePathResolver sourcePathResolver = new SourcePathResolver(
+    SourcePathResolver sourcePathResolver = new SourcePathResolver(new SourcePathRuleFinder(
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())
-    );
+    ));
     Archiver archiver = platform.getAr();
-    Path output = filesystem.getRootPath().getFileSystem().getPath("output.a");
-    Path input = filesystem.getRootPath().getFileSystem().getPath("input.dat");
+    Path output = filesystem.getPath("output.a");
+    Path input = filesystem.getPath("input.dat");
     filesystem.writeContentsToPath("blah", input);
     Preconditions.checkState(filesystem.resolve(input).toFile().setExecutable(true));
 
@@ -117,11 +118,11 @@ public class ArchiveStepIntegrationTest {
         CxxPlatformUtils.build(new CxxBuckConfig(FakeBuckConfig.builder().build()));
 
     // Build up the paths to various files the archive step will use.
-    SourcePathResolver sourcePathResolver = new SourcePathResolver(
+    SourcePathResolver sourcePathResolver = new SourcePathResolver(new SourcePathRuleFinder(
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())
-    );
+    ));
     Archiver archiver = platform.getAr();
-    Path output = filesystem.getRootPath().getFileSystem().getPath("output.a");
+    Path output = filesystem.getPath("output.a");
 
     // Build an archive step.
     ArchiveStep archiveStep =
@@ -157,13 +158,13 @@ public class ArchiveStepIntegrationTest {
 
     // Build up the paths to various files the archive step will use.
     SourcePathResolver sourcePathResolver =
-        new SourcePathResolver(
+        new SourcePathResolver(new SourcePathRuleFinder(
             new BuildRuleResolver(
                 TargetGraph.EMPTY,
-                new DefaultTargetNodeToBuildRuleTransformer()));
+                new DefaultTargetNodeToBuildRuleTransformer())));
     Archiver archiver = platform.getAr();
-    Path output = filesystem.getRootPath().getFileSystem().getPath("output.a");
-    Path input = filesystem.getRootPath().getFileSystem().getPath("foo/blah.dat");
+    Path output = filesystem.getPath("output.a");
+    Path input = filesystem.getPath("foo/blah.dat");
     filesystem.mkdirs(input.getParent());
     filesystem.writeContentsToPath("blah", input);
 
@@ -204,17 +205,17 @@ public class ArchiveStepIntegrationTest {
 
     // Build up the paths to various files the archive step will use.
     SourcePathResolver sourcePathResolver =
-        new SourcePathResolver(
+        new SourcePathResolver(new SourcePathRuleFinder(
             new BuildRuleResolver(
                 TargetGraph.EMPTY,
-                new DefaultTargetNodeToBuildRuleTransformer()));
+                new DefaultTargetNodeToBuildRuleTransformer())));
     Archiver archiver = platform.getAr();
 
-    Path output = filesystem.getRootPath().getFileSystem().getPath("foo/libthin.a");
+    Path output = filesystem.getPath("foo/libthin.a");
     filesystem.mkdirs(output.getParent());
 
     // Create a really large input file so it's obvious that the archive is thin.
-    Path input = filesystem.getRootPath().getFileSystem().getPath("bar/blah.dat");
+    Path input = filesystem.getPath("bar/blah.dat");
     filesystem.mkdirs(input.getParent());
     byte[] largeInputFile = new byte[1024 * 1024];
     byte[] fillerToRepeat = "hello\n".getBytes(StandardCharsets.UTF_8);

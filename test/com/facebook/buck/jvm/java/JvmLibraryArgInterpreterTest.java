@@ -18,9 +18,11 @@ package com.facebook.buck.jvm.java;
 
 import static com.facebook.buck.jvm.java.BuiltInJavac.DEFAULT;
 import static com.facebook.buck.rules.TestCellBuilder.createCellRoots;
+import static org.hamcrest.Matchers.is;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
+import static org.junit.Assume.assumeThat;
 
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
@@ -35,7 +37,7 @@ import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.ParamInfoException;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
@@ -56,7 +58,7 @@ public class JvmLibraryArgInterpreterTest {
   private JavacOptions defaults;
   private JvmLibraryArg arg;
   private BuildRuleResolver ruleResolver;
-  private SourcePathResolver resolver;
+  private SourcePathRuleFinder ruleFinder;
 
   @Before
   public void createHelpers() {
@@ -70,7 +72,7 @@ public class JvmLibraryArgInterpreterTest {
 
     ruleResolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    resolver = new SourcePathResolver(ruleResolver);
+    ruleFinder = new SourcePathRuleFinder(ruleResolver);
   }
 
   @Test
@@ -222,12 +224,33 @@ public class JvmLibraryArgInterpreterTest {
     assertTrue(javac.getClass().getName(), javac instanceof Jsr199Javac);
   }
 
+  @Test
+  public void sourceAbiGenerationCanBeDisabledPerTarget() {
+    arg.generateAbiFromSource = Optional.of(false);
+    defaults = defaults.withAbiGenerationMode(JavacOptions.AbiGenerationMode.SOURCE);
+
+    JavacOptions options = createJavacOptions(arg);
+
+    assertEquals(options.getAbiGenerationMode(), JavacOptions.AbiGenerationMode.CLASS);
+  }
+
+  @Test
+  public void sourceAbiGenerationCannotBeEnabledPerTargetIfTheFeatureIsDisabled() {
+    assumeThat(defaults.getAbiGenerationMode(), is(JavacOptions.AbiGenerationMode.CLASS));
+
+    arg.generateAbiFromSource = Optional.of(true);
+
+    JavacOptions options = createJavacOptions(arg);
+
+    assertEquals(options.getAbiGenerationMode(), JavacOptions.AbiGenerationMode.CLASS);
+  }
+
   private JavacOptions createJavacOptions(JvmLibraryArg arg) {
     return JavacOptionsFactory.create(
         defaults,
         new FakeBuildRuleParamsBuilder("//not:real").build(),
         ruleResolver,
-        resolver,
+        ruleFinder,
         arg);
   }
 
@@ -244,7 +267,7 @@ public class JvmLibraryArgInterpreterTest {
           ImmutableSet.builder(),
           ImmutableMap.of());
     } catch (ParamInfoException error) {
-      throw Throwables.propagate(error);
+      Throwables.throwIfUnchecked(error);
     }
   }
 }

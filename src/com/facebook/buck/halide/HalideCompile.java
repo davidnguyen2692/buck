@@ -24,7 +24,6 @@ import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
@@ -49,12 +48,11 @@ public class HalideCompile extends AbstractBuildRule {
 
   public HalideCompile(
       BuildRuleParams params,
-      SourcePathResolver pathResolver,
       Tool halideCompiler,
       String targetPlatform,
       Optional<ImmutableList<String>> compilerInvocationFlags,
       Optional<String> functionNameOverride) {
-    super(params, pathResolver);
+    super(params);
     this.halideCompiler = halideCompiler;
     this.targetPlatform = targetPlatform;
     this.compilerInvocationFlags = compilerInvocationFlags;
@@ -65,7 +63,7 @@ public class HalideCompile extends AbstractBuildRule {
   public ImmutableList<Step> getBuildSteps(
       BuildContext context,
       BuildableContext buildableContext) {
-    Path outputDir = getPathToOutput();
+    Path outputDir = context.getSourcePathResolver().getRelativePath(getSourcePathToOutput());
     buildableContext.recordArtifact(objectOutputPath(
         getBuildTarget(),
         getProjectFilesystem(),
@@ -83,7 +81,7 @@ public class HalideCompile extends AbstractBuildRule {
         new HalideCompilerStep(
             projectFilesystem.getRootPath(),
             halideCompiler.getEnvironment(),
-            halideCompiler.getCommandPrefix(getResolver()),
+            halideCompiler.getCommandPrefix(context.getSourcePathResolver()),
             outputDir,
             fileOutputName(getBuildTarget(), functionNameOverride),
             targetPlatform,

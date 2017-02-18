@@ -17,7 +17,6 @@
 package com.facebook.buck.apple;
 
 import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.RuleKeyAppendable;
 import com.facebook.buck.rules.RuleKeyObjectSink;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
@@ -37,7 +36,7 @@ import java.util.Optional;
 /**
  * Rule for generating an apple package via external script.
  */
-public class ExternallyBuiltApplePackage extends Genrule implements RuleKeyAppendable {
+public class ExternallyBuiltApplePackage extends Genrule {
   private ApplePackageConfigAndPlatformInfo packageConfigAndPlatformInfo;
   private boolean cacheable;
 
@@ -52,8 +51,9 @@ public class ExternallyBuiltApplePackage extends Genrule implements RuleKeyAppen
         resolver,
         ImmutableList.of(bundle),
         Optional.of(packageConfigAndPlatformInfo.getExpandedArg()),
-        Optional.empty(),
-        Optional.empty(),
+        /* bash */ Optional.empty(),
+        /* cmdExe */ Optional.empty(),
+        /* type */ Optional.empty(),
         params.getBuildTarget().getShortName() + "." +
             packageConfigAndPlatformInfo.getConfig().getExtension());
     this.packageConfigAndPlatformInfo = packageConfigAndPlatformInfo;
@@ -62,9 +62,10 @@ public class ExternallyBuiltApplePackage extends Genrule implements RuleKeyAppen
 
   @Override
   protected void addEnvironmentVariables(
+      SourcePathResolver pathResolver,
       ExecutionContext context,
       ImmutableMap.Builder<String, String> environmentVariablesBuilder) {
-    super.addEnvironmentVariables(context, environmentVariablesBuilder);
+    super.addEnvironmentVariables(pathResolver, context, environmentVariablesBuilder);
     environmentVariablesBuilder.put(
         "SDKROOT",
         packageConfigAndPlatformInfo.getSdkPath().toString());

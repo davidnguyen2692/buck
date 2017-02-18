@@ -25,14 +25,14 @@ struct BuildJobStateBuckConfig {
 }
 
 struct PathWithUnixSeparators {
-  1: string path;
+  1: optional string path;
 }
 
 struct BuildJobStateBuildTarget {
   1: optional string cellName;
-  2: string baseName;
-  3: string shortName;
-  4: set<string> flavors;
+  2: optional string baseName;
+  3: optional string shortName;
+  4: optional set<string> flavors;
 }
 
 struct BuildJobStateFileHashEntry {
@@ -83,4 +83,5 @@ struct BuildJobState {
   1: optional map<i32, BuildJobStateCell> cells;
   2: optional list<BuildJobStateFileHashes> fileHashes;
   3: optional BuildJobStateTargetGraph targetGraph;
+  4: optional list<string> topLevelTargets;
 }

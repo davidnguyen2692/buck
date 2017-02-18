@@ -32,6 +32,7 @@ import com.facebook.buck.rules.NoopBuildRule;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.SourcePathArg;
@@ -51,6 +52,7 @@ import com.google.common.collect.ImmutableSortedSet;
 import org.immutables.value.Value;
 
 import java.util.Optional;
+import java.util.regex.Pattern;
 
 @Value.Immutable
 @BuckStyleTuple
@@ -169,7 +171,8 @@ abstract class AbstractPrebuiltCxxLibraryGroupDescription implements
       final BuildRuleParams params,
       final BuildRuleResolver resolver,
       final A args) throws NoSuchBuildTargetException {
-    final SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    final SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
     return new CustomPrebuiltCxxLibrary(params, pathResolver) {
 
       private final LoadingCache<
@@ -191,6 +194,9 @@ abstract class AbstractPrebuiltCxxLibraryGroupDescription implements
       @Override
       public Iterable<? extends CxxPreprocessorDep> getCxxPreprocessorDeps(
           CxxPlatform cxxPlatform) {
+        if (!isPlatformSupported(cxxPlatform)) {
+          return ImmutableList.of();
+        }
         return FluentIterable.from(getDeps())
             .filter(CxxPreprocessorDep.class);
       }
@@ -256,6 +262,9 @@ abstract class AbstractPrebuiltCxxLibraryGroupDescription implements
           CxxPlatform cxxPlatform,
           Linker.LinkableDepType type)
           throws NoSuchBuildTargetException {
+        if (!isPlatformSupported(cxxPlatform)) {
+          return NativeLinkableInput.of();
+        }
         NativeLinkableInput.Builder builder = NativeLinkableInput.builder();
         switch (type) {
           case STATIC:
@@ -265,7 +274,7 @@ abstract class AbstractPrebuiltCxxLibraryGroupDescription implements
                     pathResolver,
                     CxxGenruleDescription.fixupSourcePaths(
                         resolver,
-                        pathResolver,
+                        ruleFinder,
                         cxxPlatform,
                         args.staticLibs),
                     args.staticLink));
@@ -277,7 +286,7 @@ abstract class AbstractPrebuiltCxxLibraryGroupDescription implements
                     pathResolver,
                     CxxGenruleDescription.fixupSourcePaths(
                         resolver,
-                        pathResolver,
+                        ruleFinder,
                         cxxPlatform,
                         args.staticPicLibs),
                     args.staticPicLink));
@@ -289,7 +298,7 @@ abstract class AbstractPrebuiltCxxLibraryGroupDescription implements
                     pathResolver,
                     CxxGenruleDescription.fixupSourcePaths(
                         resolver,
-                        pathResolver,
+                        ruleFinder,
                         cxxPlatform,
                         ImmutableMap.<String, SourcePath>builder()
                             .putAll(args.sharedLibs)
@@ -325,11 +334,38 @@ abstract class AbstractPrebuiltCxxLibraryGroupDescription implements
       }
 
       @Override
+      public Iterable<? extends NativeLinkable> getNativeLinkableDepsForPlatform(
+          CxxPlatform cxxPlatform) {
+        if (!isPlatformSupported(cxxPlatform)) {
+          return ImmutableList.of();
+        }
+        return getNativeLinkableDeps();
+      }
+
+      @Override
+      public Iterable<? extends NativeLinkable> getNativeLinkableExportedDepsForPlatform(
+          CxxPlatform cxxPlatform) {
+        if (!isPlatformSupported(cxxPlatform)) {
+          return ImmutableList.of();
+        }
+        return getNativeLinkableExportedDeps();
+      }
+
+      @Override
       public ImmutableMap<String, SourcePath> getSharedLibraries(CxxPlatform cxxPlatform)
           throws NoSuchBuildTargetException {
+        if (!isPlatformSupported(cxxPlatform)) {
+          return ImmutableMap.of();
+        }
         return args.sharedLibs;
       }
 
+      private boolean isPlatformSupported(CxxPlatform cxxPlatform) {
+        return !args.supportedPlatformsRegex.isPresent() ||
+            args.supportedPlatformsRegex.get()
+                .matcher(cxxPlatform.getFlavor().toString())
+                .find();
+      }
     };
   }
 
@@ -382,6 +418,8 @@ abstract class AbstractPrebuiltCxxLibraryGroupDescription implements
 
     public ImmutableSortedSet<BuildTarget> deps = ImmutableSortedSet.of();
     public ImmutableSortedSet<BuildTarget> exportedDeps = ImmutableSortedSet.of();
+
+    public Optional<Pattern> supportedPlatformsRegex;
 
   }
 

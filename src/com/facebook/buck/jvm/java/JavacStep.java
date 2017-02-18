@@ -23,6 +23,7 @@ import com.facebook.buck.jvm.core.SuggestBuildRules;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
@@ -69,6 +70,8 @@ public class JavacStep implements Step {
   private final BuildTarget invokingRule;
 
   private final Optional<SuggestBuildRules> suggestBuildRules;
+
+  private final SourcePathRuleFinder ruleFinder;
 
   private final SourcePathResolver resolver;
 
@@ -121,6 +124,7 @@ public class JavacStep implements Step {
       BuildTarget invokingRule,
       Optional<SuggestBuildRules> suggestBuildRules,
       SourcePathResolver resolver,
+      SourcePathRuleFinder ruleFinder,
       ProjectFilesystem filesystem,
       ClasspathChecker classpathChecker,
       Optional<DirectToJarOutputSettings> directToJarOutputSettings) {
@@ -135,6 +139,7 @@ public class JavacStep implements Step {
     this.invokingRule = invokingRule;
     this.suggestBuildRules = suggestBuildRules;
     this.resolver = resolver;
+    this.ruleFinder = ruleFinder;
     this.filesystem = filesystem;
     this.classpathChecker = classpathChecker;
     this.directToJarOutputSettings = directToJarOutputSettings;
@@ -196,10 +201,11 @@ public class JavacStep implements Step {
         javacExecutionContext,
         invokingRule,
         getOptions(context, declaredClasspathEntries),
-        javacOptions.getSafeAnnotationProcessors(),
+        javacOptions.getAnnotationProcessingParams().getAnnotationProcessors(filesystem, resolver),
         javaSourceFilePaths,
         pathToSrcsList,
-        workingDirectory);
+        workingDirectory,
+        javacOptions.getAbiGenerationMode());
     String firstOrderStdout = stdout.getContentsAsString(Charsets.UTF_8);
     String firstOrderStderr = stderr.getContentsAsString(Charsets.UTF_8);
     Optional<String> returnedStderr;
@@ -281,11 +287,10 @@ public class JavacStep implements Step {
 
   private ImmutableList<Path> getAbsolutePathsForJavacInputs(Javac javac) {
     return javac.getInputs().stream().flatMap(input -> {
-      com.google.common.base.Optional<BuildRule> rule =
-          com.google.common.base.Optional.fromNullable(
-              resolver.getRule(input).orElse(null));
-      if (rule instanceof JavaLibrary) {
-        return ((JavaLibrary) rule).getTransitiveClasspaths().stream();
+      Optional<BuildRule> rule = ruleFinder.getRule(input);
+      if (rule.isPresent() && rule.get() instanceof JavaLibrary) {
+        return ((JavaLibrary) rule.get()).getTransitiveClasspaths().stream()
+            .map(resolver::getAbsolutePath);
       } else {
         return ImmutableSet.of(resolver.getAbsolutePath(input)).stream();
       }
@@ -343,6 +348,7 @@ public class JavacStep implements Step {
     return getOptions(
         javacOptions,
         filesystem,
+        resolver,
         outputDirectory,
         context,
         buildClasspathEntries);
@@ -351,27 +357,31 @@ public class JavacStep implements Step {
   public static ImmutableList<String> getOptions(
       JavacOptions javacOptions,
       ProjectFilesystem filesystem,
+      SourcePathResolver pathResolver,
       Path outputDirectory,
       ExecutionContext context,
       ImmutableSortedSet<Path> buildClasspathEntries) {
     final ImmutableList.Builder<String> builder = ImmutableList.builder();
 
-    javacOptions.appendOptionsTo(new OptionsConsumer() {
-      @Override
-      public void addOptionValue(String option, String value) {
-        builder.add("-" + option).add(value);
-      }
+    javacOptions.appendOptionsTo(
+        new OptionsConsumer() {
+            @Override
+            public void addOptionValue(String option, String value) {
+              builder.add("-" + option).add(value);
+            }
 
-      @Override
-      public void addFlag(String flagName) {
-        builder.add("-" + flagName);
-      }
+            @Override
+            public void addFlag(String flagName) {
+              builder.add("-" + flagName);
+            }
 
-      @Override
-      public void addExtras(Collection<String> extras) {
-        builder.addAll(extras);
-      }
-    }, filesystem::resolve);
+            @Override
+            public void addExtras(Collection<String> extras) {
+              builder.addAll(extras);
+            }
+          },
+          pathResolver,
+          filesystem);
 
     // verbose flag, if appropriate.
     if (context.getVerbosity().shouldUseVerbosityFlagIfAvailable()) {

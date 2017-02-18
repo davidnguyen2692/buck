@@ -16,6 +16,7 @@
 
 package com.facebook.buck.cxx;
 
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.AddToRuleKey;
@@ -49,6 +50,7 @@ import com.google.common.collect.ImmutableSortedSet;
 import java.nio.file.Path;
 import java.util.Optional;
 import java.util.concurrent.Callable;
+import java.util.stream.Stream;
 
 /**
  * A no-op {@link BuildRule} which houses the logic to run and form the results for C/C++ tests.
@@ -72,7 +74,6 @@ public abstract class CxxTest
 
   public CxxTest(
       BuildRuleParams params,
-      SourcePathResolver resolver,
       final ImmutableMap<String, String> toolEnv,
       final Supplier<ImmutableMap<String, String>> env,
       Supplier<ImmutableList<String>> args,
@@ -82,7 +83,7 @@ public abstract class CxxTest
       ImmutableSet<String> contacts,
       boolean runTestSeparately,
       Optional<Long> testRuleTimeoutMs) {
-    super(params, resolver);
+    super(params);
     this.env = Suppliers.memoize(
         () -> {
           ImmutableMap.Builder<String, String> builder = ImmutableMap.builder();
@@ -133,7 +134,9 @@ public abstract class CxxTest
   /**
    * @return the shell command used to run the test.
    */
-  protected abstract ImmutableList<String> getShellCommand(Path output);
+  protected abstract ImmutableList<String> getShellCommand(
+      SourcePathResolver pathResolver,
+      Path output);
 
   @Override
   public boolean hasTestResultFiles() {
@@ -144,6 +147,7 @@ public abstract class CxxTest
   public ImmutableList<Step> runTests(
       ExecutionContext executionContext,
       TestRunningOptions options,
+      SourcePathResolver pathResolver,
       TestReportingCallback testReportingCallback) {
     return ImmutableList.of(
         new MakeCleanDirectoryStep(getProjectFilesystem(), getPathToTestOutputDirectory()),
@@ -151,7 +155,7 @@ public abstract class CxxTest
         new CxxTestStep(
             getProjectFilesystem(),
             ImmutableList.<String>builder()
-                .addAll(getShellCommand(getPathToTestResults()))
+                .addAll(getShellCommand(pathResolver, getPathToTestResults()))
                 .addAll(args.get())
                 .build(),
             env.get(),
@@ -216,8 +220,8 @@ public abstract class CxxTest
   }
 
   @Override
-  public ImmutableSortedSet<BuildRule> getRuntimeDeps() {
-    return additionalDeps.get();
+  public Stream<BuildTarget> getRuntimeDeps() {
+    return additionalDeps.get().stream().map(BuildRule::getBuildTarget);
   }
 
   protected Supplier<ImmutableMap<String, String>> getEnv() {

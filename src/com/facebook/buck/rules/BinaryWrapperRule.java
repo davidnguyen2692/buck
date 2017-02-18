@@ -16,9 +16,11 @@
 
 package com.facebook.buck.rules;
 
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.step.Step;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSortedSet;
+
+import java.util.stream.Stream;
 
 /**
  * A no-op stub class for binary rules which delegate to another rule to provide the output path
@@ -28,10 +30,13 @@ public abstract class BinaryWrapperRule
     extends AbstractBuildRule
     implements BinaryBuildRule, HasRuntimeDeps {
 
+  private final SourcePathRuleFinder ruleFinder;
+
   public BinaryWrapperRule(
       BuildRuleParams buildRuleParams,
-      SourcePathResolver resolver) {
-    super(buildRuleParams, resolver);
+      SourcePathRuleFinder ruleFinder) {
+    super(buildRuleParams);
+    this.ruleFinder = ruleFinder;
   }
 
   @Override
@@ -42,11 +47,10 @@ public abstract class BinaryWrapperRule
   }
 
   @Override
-  public final ImmutableSortedSet<BuildRule> getRuntimeDeps() {
-    return ImmutableSortedSet.<BuildRule>naturalOrder()
-        .addAll(getDeclaredDeps())
-        .addAll(getExecutableCommand().getDeps(getResolver()))
-        .build();
+  public final Stream<BuildTarget> getRuntimeDeps() {
+    return Stream
+        .concat(getDeclaredDeps().stream(), getExecutableCommand().getDeps(ruleFinder).stream())
+        .map(BuildRule::getBuildTarget);
   }
 
 }

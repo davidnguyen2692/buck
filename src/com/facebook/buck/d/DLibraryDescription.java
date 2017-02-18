@@ -31,6 +31,7 @@ import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.coercer.SourceList;
 import com.facebook.buck.versions.VersionPropagator;
@@ -70,12 +71,14 @@ public class DLibraryDescription implements
       A args)
       throws NoSuchBuildTargetException {
 
-    SourcePathResolver pathResolver = new SourcePathResolver(buildRuleResolver);
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(buildRuleResolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
 
     if (params.getBuildTarget().getFlavors().contains(DDescriptionUtils.SOURCE_LINK_TREE)) {
       return DDescriptionUtils.createSourceSymlinkTree(
           params.getBuildTarget(),
           params,
+          ruleFinder,
           pathResolver,
           args.srcs);
     }
@@ -94,6 +97,7 @@ public class DLibraryDescription implements
           params,
           buildRuleResolver,
           pathResolver,
+          ruleFinder,
           cxxPlatform,
           dBuckConfig,
           /* compilerFlags */ ImmutableList.of(),
@@ -116,6 +120,7 @@ public class DLibraryDescription implements
       BuildRuleParams params,
       BuildRuleResolver ruleResolver,
       SourcePathResolver pathResolver,
+      SourcePathRuleFinder ruleFinder,
       CxxPlatform cxxPlatform,
       DBuckConfig dBuckConfig,
       ImmutableList<String> compilerFlags,
@@ -129,6 +134,7 @@ public class DLibraryDescription implements
             params,
             ruleResolver,
             pathResolver,
+            ruleFinder,
             cxxPlatform,
             dBuckConfig,
             compilerFlags,
@@ -154,6 +160,7 @@ public class DLibraryDescription implements
         staticTarget,
         params,
         pathResolver,
+        ruleFinder,
         cxxPlatform,
         cxxBuckConfig.getArchiveContents(),
         staticLibraryPath,

@@ -24,7 +24,6 @@ import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.keys.SupportsInputBasedRuleKey;
 import com.facebook.buck.step.Step;
@@ -62,12 +61,11 @@ public class CxxStrip extends AbstractBuildRule implements SupportsInputBasedRul
 
   public CxxStrip(
       BuildRuleParams buildRuleParams,
-      SourcePathResolver resolver,
       StripStyle stripStyle,
       SourcePath cxxLinkSourcePath,
       Tool strip,
       Path output) {
-    super(buildRuleParams, resolver);
+    super(buildRuleParams);
     this.stripStyle = stripStyle;
     this.cxxLinkSourcePath = cxxLinkSourcePath;
     this.strip = strip;
@@ -113,14 +111,14 @@ public class CxxStrip extends AbstractBuildRule implements SupportsInputBasedRul
     return ImmutableList.of(
         CopyStep.forFile(
             getProjectFilesystem(),
-            getResolver().getAbsolutePath(cxxLinkSourcePath),
+            context.getSourcePathResolver().getAbsolutePath(cxxLinkSourcePath),
             output),
         new StripSymbolsStep(
             output,
-            strip,
+            strip.getCommandPrefix(context.getSourcePathResolver()),
+            strip.getEnvironment(),
             stripStyle.getStripToolArgs(),
-            getProjectFilesystem(),
-            getResolver()));
+            getProjectFilesystem()));
   }
 
   public StripStyle getStripStyle() {

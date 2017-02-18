@@ -26,6 +26,7 @@ import com.facebook.buck.rules.CommandTool;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.google.common.collect.ImmutableList;
@@ -44,7 +45,8 @@ public class CxxBinaryTest {
   public void getExecutableCommandUsesAbsolutePath() throws IOException {
     BuildRuleResolver ruleResolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver pathResolver = new SourcePathResolver(ruleResolver);
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(ruleResolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
 
     BuildRuleParams linkParams = new FakeBuildRuleParamsBuilder("//:link").build();
     Path bin = Paths.get("path/to/exectuable");
@@ -52,7 +54,6 @@ public class CxxBinaryTest {
         ruleResolver.addToIndex(
             new CxxLink(
                 linkParams,
-                pathResolver,
                 CxxPlatformUtils.DEFAULT_PLATFORM.getLd().resolve(ruleResolver),
                 bin,
                 ImmutableList.of(),
@@ -64,7 +65,7 @@ public class CxxBinaryTest {
             new CxxBinary(
                 params.appendExtraDeps(ImmutableSortedSet.<BuildRule>of(cxxLink)),
                 ruleResolver,
-                pathResolver,
+                ruleFinder,
                 cxxLink,
                 new CommandTool.Builder()
                     .addArg(

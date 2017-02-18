@@ -26,6 +26,7 @@ import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.keys.DefaultRuleKeyFactory;
 import com.facebook.buck.shell.GenruleBuilder;
@@ -36,7 +37,6 @@ import com.facebook.buck.util.cache.FileHashCache;
 
 import org.junit.Test;
 
-import java.io.File;
 
 
 public class PrebuiltCxxLibraryTest {
@@ -59,12 +59,13 @@ public class PrebuiltCxxLibraryTest {
         TargetGraphFactory.newInstance(genSrcBuilder.build(), builder.build());
     BuildRuleResolver resolver =
         new BuildRuleResolver(targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
 
     BuildRule genSrc = genSrcBuilder.build(resolver, filesystem, targetGraph);
     filesystem.writeContentsToPath(
         "class Test {}",
-        new File(filesystem.resolve(genSrc.getPathToOutput()).toString(), "libx.a").toPath());
+        pathResolver.getAbsolutePath(genSrc.getSourcePathToOutput()).resolve("libx.a"));
 
     PrebuiltCxxLibrary lib = (PrebuiltCxxLibrary) builder.build(resolver, filesystem, targetGraph);
     lib.getNativeLinkableInput(
@@ -73,7 +74,7 @@ public class PrebuiltCxxLibraryTest {
 
     FileHashCache originalHashCache = DefaultFileHashCache.createDefaultFileHashCache(filesystem);
     DefaultRuleKeyFactory factory =
-        new DefaultRuleKeyFactory(0, originalHashCache, pathResolver);
+        new DefaultRuleKeyFactory(0, originalHashCache, pathResolver, ruleFinder);
 
     RuleKey ruleKey = factory.build(lib);
     assertNotNull(ruleKey);

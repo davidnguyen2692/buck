@@ -25,7 +25,7 @@ import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.step.Step;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
@@ -43,10 +43,10 @@ public class HeaderSymlinkTreeWithHeaderMap extends HeaderSymlinkTree {
 
   public HeaderSymlinkTreeWithHeaderMap(
       BuildRuleParams params,
-      SourcePathResolver resolver,
       Path root,
-      ImmutableMap<Path, SourcePath> links) {
-    super(params, resolver, root, links);
+      ImmutableMap<Path, SourcePath> links,
+      SourcePathRuleFinder ruleFinder) {
+    super(params, root, links, ruleFinder);
     this.headerMapPath = getPath(params.getProjectFilesystem(), params.getBuildTarget());
   }
 
@@ -55,8 +55,6 @@ public class HeaderSymlinkTreeWithHeaderMap extends HeaderSymlinkTree {
     return headerMapPath;
   }
 
-  // We generate the symlink tree and the header map using post-build steps for reasons explained in
-  // the superclass.
   @Override
   public ImmutableList<Step> getBuildSteps(
       BuildContext context,
