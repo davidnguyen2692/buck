@@ -55,6 +55,7 @@ import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
@@ -495,6 +496,11 @@ public class AppleBinaryDescription
   public static class Arg extends AppleNativeTargetDescriptionArg {
     public Optional<SourcePath> infoPlist;
     public ImmutableMap<String, String> infoPlistSubstitutions = ImmutableMap.of();
+    public Optional<ImmutableList<String>> runScriptPaths;
+    
+    public Optional<ImmutableList<String>> getRunScriptPaths() {
+      return runScriptPaths;
+    }
   }
 
 }

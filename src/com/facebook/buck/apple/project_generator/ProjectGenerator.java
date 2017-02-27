@@ -173,6 +173,9 @@ import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
+import java.lang.StringBuffer;
+import java.io.BufferedReader;
+import java.io.FileReader;
 
 /**
  * Generator for xcode project and associated files from a set of xcode/ios rules.
@@ -749,6 +752,43 @@ public class ProjectGenerator {
 
     return template.render();
   }
+  
+  private String readFileAsString(String filePath) throws IOException {
+        StringBuffer fileData = new StringBuffer();
+        BufferedReader reader = new BufferedReader(
+                new FileReader(filePath));
+        char[] buf = new char[1024];
+        int numRead=0;
+        while((numRead=reader.read(buf)) != -1){
+            String readData = String.valueOf(buf, 0, numRead);
+            fileData.append(readData);
+        }
+        reader.close();
+        return fileData.toString();
+    }
+    
+  private String getRunScriptContent(String path) {
+    String runScriptPath = path;
+        
+    if (runScriptPath.equals("")) {
+      return "";
+    }
+    
+    String repo_path = projectFilesystem.getRootPath().toString();
+    
+    String absolute_script_path = repo_path + "/" + runScriptPath;
+
+    String scriptContent;
+    
+    try {
+      scriptContent = readFileAsString(absolute_script_path);
+    } catch (IOException e) {
+      throw new RuntimeException(
+          "There was an error loading '" + "Fabric Setup Script" + "' template", e);
+    }
+    
+    return scriptContent;
+  }
 
   private String getCodesignShellScript(TargetNode<?, ?> targetNode) {
     ST template;
@@ -1319,6 +1359,28 @@ public class ProjectGenerator {
         postScriptPhases);
     if (isFocusedOnTarget) {
       mutator.setPreBuildRunScriptPhasesFromTargetNodes(preScriptPhases.build());
+      
+      Optional<ImmutableList<String>> runScriptPaths = Optional.empty();
+      
+      try {
+        AppleBinaryDescription.Arg appleBinaryDescriptionArg = (AppleBinaryDescription.Arg) targetNode.getConstructorArg();
+        runScriptPaths = appleBinaryDescriptionArg.getRunScriptPaths();
+      } catch(ClassCastException e) {}
+      
+      if (runScriptPaths.isPresent()) {
+          ImmutableList<String> runScriptPathsList = runScriptPaths.get();
+          
+          ImmutableList.Builder<PBXBuildPhase> phases = ImmutableList.builder();
+          
+          for (String runScriptPath : runScriptPathsList) {
+              PBXShellScriptBuildPhase buildShellScriptBuildPhase = new PBXShellScriptBuildPhase();
+              buildShellScriptBuildPhase.setShellScript(getRunScriptContent(runScriptPath));
+              phases.add(buildShellScriptBuildPhase);              
+          }         
+          
+          mutator.setRunScriptPhases(phases.build());
+      }
+      
       if (copyFilesPhases.isPresent()) {
         mutator.setCopyFilesPhases(copyFilesPhases.get());
       }

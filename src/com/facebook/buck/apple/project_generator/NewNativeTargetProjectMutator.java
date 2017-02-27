@@ -125,6 +125,7 @@ class NewNativeTargetProjectMutator {
   private ImmutableSet<AppleWrapperResourceArg> wrapperResources = ImmutableSet.of();
   private Iterable<PBXShellScriptBuildPhase> preBuildRunScriptPhases = ImmutableList.of();
   private Iterable<PBXBuildPhase> copyFilesPhases = ImmutableList.of();
+  private Iterable<PBXBuildPhase> runScriptPhases = ImmutableList.of();
   private Iterable<PBXShellScriptBuildPhase> postBuildRunScriptPhases = ImmutableList.of();
 
   public NewNativeTargetProjectMutator(
@@ -250,6 +251,11 @@ class NewNativeTargetProjectMutator {
     copyFilesPhases = phases;
     return this;
   }
+  
+  public NewNativeTargetProjectMutator setRunScriptPhases(Iterable<PBXBuildPhase> phases) {
+    runScriptPhases = phases;
+    return this;
+  }
 
   public NewNativeTargetProjectMutator setPostBuildRunScriptPhasesFromTargetNodes(
       Iterable<TargetNode<?, ?>> nodes) {
@@ -291,6 +297,7 @@ class NewNativeTargetProjectMutator {
       addFrameworksBuildPhase(project, target);
       addResourcesFileReference(targetGroup);
       addResourcesBuildPhase(target, targetGroup);
+      target.getBuildPhases().addAll((Collection<? extends PBXBuildPhase>) runScriptPhases);
       target.getBuildPhases().addAll((Collection<? extends PBXBuildPhase>) copyFilesPhases);
       addRunScriptBuildPhases(target, postBuildRunScriptPhases);
 
