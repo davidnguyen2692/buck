@@ -492,7 +492,10 @@ public class ProjectGenerator {
                 .getBuildConfigurationList()
                 .getBuildConfigurationsByName()
                 .getUnchecked(configName);
-        outputConfig.setBuildSettings(new NSDictionary());
+        NSDictionary inlineSettings = new NSDictionary();
+        String platformName = defaultCxxPlatform.getFlavor().getName().split("-+")[0];
+        inlineSettings.put("SDKROOT", platformName);
+        outputConfig.setBuildSettings(inlineSettings);
       }
 
       if (!shouldGenerateHeaderSymlinkTreesOnly()) {

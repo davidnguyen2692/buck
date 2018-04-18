@@ -332,7 +332,8 @@ public class WorkspaceAndProjectGenerator {
           workspaceGenerator,
           targetsInRequiredProjects,
           buildTargetToPbxTargetMapBuilder,
-          targetToProjectPathMapBuilder);
+          targetToProjectPathMapBuilder,
+          workspaceName);
     }
   }
 
@@ -342,7 +343,8 @@ public class WorkspaceAndProjectGenerator {
       WorkspaceGenerator workspaceGenerator,
       ImmutableSet<BuildTarget> targetsInRequiredProjects,
       ImmutableMap.Builder<BuildTarget, PBXTarget> buildTargetToPbxTargetMapBuilder,
-      ImmutableMap.Builder<PBXTarget, Path> targetToProjectPathMapBuilder)
+      ImmutableMap.Builder<PBXTarget, Path> targetToProjectPathMapBuilder,
+      String workspaceName)
       throws IOException, InterruptedException {
     ImmutableMultimap.Builder<Cell, BuildTarget> projectCellToBuildTargetsBuilder =
         ImmutableMultimap.builder();
@@ -386,7 +388,8 @@ public class WorkspaceAndProjectGenerator {
                           projectDirectory,
                           rules,
                           isMainProject,
-                          targetsInRequiredProjects);
+                          targetsInRequiredProjects,
+                          workspaceName);
                   // convert the projectPath to relative to the target cell here
                   result =
                       GenerationResult.of(
@@ -444,7 +447,8 @@ public class WorkspaceAndProjectGenerator {
       Path projectDirectory,
       ImmutableSet<BuildTarget> rules,
       boolean isMainProject,
-      ImmutableSet<BuildTarget> targetsInRequiredProjects)
+      ImmutableSet<BuildTarget> targetsInRequiredProjects,
+      String workspaceName)
       throws IOException {
     boolean shouldGenerateProjects = false;
     ProjectGenerator generator;
@@ -457,7 +461,13 @@ public class WorkspaceAndProjectGenerator {
         String projectName;
         if (projectDirectory.getFileName().toString().equals("")) {
           // If we're generating a project in the root directory, use a generic name.
-          projectName = "Project";
+          Optional<BuildTarget> buildTargetOptional = workspaceArguments.getSrcTarget();
+
+          if (buildTargetOptional.isPresent()) {
+              projectName = workspaceName;
+          } else {
+              projectName = "Project";
+          }
         } else {
           // Otherwise, name the project the same thing as the directory we're in.
           projectName = projectDirectory.getFileName().toString();
