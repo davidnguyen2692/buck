@@ -7,6 +7,7 @@
 # Buck
 /buck-out
 /.buckconfig.local
+/.buckconfig.auto
 /.buckd
 /.buckjavaargs.local
 /.bucklogging.local.properties
