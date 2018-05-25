@@ -36,6 +36,7 @@ public final class Configs {
 
   private static final String DEFAULT_BUCK_CONFIG_FILE_NAME = ".buckconfig";
   private static final String DEFAULT_BUCK_CONFIG_OVERRIDE_FILE_NAME = ".buckconfig.local";
+  private static final String DEFAULT_BUCK_CONFIG_AUTOMATIC_FILE_NAME = ".buckconfig.auto";
   private static final String DEFAULT_BUCK_CONFIG_DIRECTORY_NAME = ".buckconfig.d";
 
   private static final Path GLOBAL_BUCK_CONFIG_FILE_PATH = Paths.get("/etc/buckconfig");
@@ -96,6 +97,12 @@ public final class Configs {
     if (Files.isRegularFile(configFile)) {
       configFileBuilder.add(configFile);
     }
+
+    Path automaticConfigFile = root.resolve(DEFAULT_BUCK_CONFIG_AUTOMATIC_FILE_NAME);
+    if (Files.isRegularFile(automaticConfigFile)) {
+      configFileBuilder.add(automaticConfigFile);
+    }
+
     Path overrideConfigFile = root.resolve(DEFAULT_BUCK_CONFIG_OVERRIDE_FILE_NAME);
     if (Files.isRegularFile(overrideConfigFile)) {
       configFileBuilder.add(overrideConfigFile);
