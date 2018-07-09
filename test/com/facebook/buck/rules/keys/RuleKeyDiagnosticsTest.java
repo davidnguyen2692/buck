@@ -16,15 +16,15 @@
 
 package com.facebook.buck.rules.keys;
 
-import com.facebook.buck.rules.AddToRuleKey;
-import com.facebook.buck.rules.AddsToRuleKey;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.DefaultSourcePathResolver;
+import com.facebook.buck.core.rulekey.AddToRuleKey;
+import com.facebook.buck.core.rulekey.AddsToRuleKey;
+import com.facebook.buck.core.rulekey.RuleKey;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.rules.FakeBuildRule;
-import com.facebook.buck.rules.RuleKey;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TestBuildRuleResolver;
 import com.facebook.buck.rules.keys.hasher.StringRuleKeyHasher;
 import com.facebook.buck.testutil.DummyFileHashCache;
 import java.util.HashMap;
@@ -36,7 +36,7 @@ public class RuleKeyDiagnosticsTest {
 
   @Test
   public void testTraversal() {
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(new TestBuildRuleResolver());
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(new TestActionGraphBuilder());
     SourcePathResolver sourcePathResolver = DefaultSourcePathResolver.from(ruleFinder);
 
     AddsToRuleKey app0 =

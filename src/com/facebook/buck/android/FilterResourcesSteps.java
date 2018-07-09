@@ -16,13 +16,14 @@
 
 package com.facebook.buck.android;
 
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rulekey.AddToRuleKey;
+import com.facebook.buck.core.rulekey.AddsToRuleKey;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.AddToRuleKey;
-import com.facebook.buck.rules.AddsToRuleKey;
 import com.facebook.buck.shell.BashStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
@@ -30,7 +31,6 @@ import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.util.DefaultFilteredDirectoryCopier;
 import com.facebook.buck.util.Escaper;
 import com.facebook.buck.util.FilteredDirectoryCopier;
-import com.facebook.buck.util.HumanReadableException;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableBiMap;

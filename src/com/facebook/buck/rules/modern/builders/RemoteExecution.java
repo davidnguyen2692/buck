@@ -16,27 +16,42 @@
 
 package com.facebook.buck.rules.modern.builders;
 
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.event.BuckEventBus;
+import com.facebook.buck.event.LeafEvents;
 import com.facebook.buck.io.file.MostFiles;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.modern.builders.thrift.ActionResult;
+import com.facebook.buck.rules.modern.builders.FileTreeBuilder.InputFile;
+import com.facebook.buck.rules.modern.builders.FileTreeBuilder.ProtocolTreeBuilder;
+import com.facebook.buck.rules.modern.builders.Protocol.Digest;
+import com.facebook.buck.rules.modern.builders.RemoteExecutionService.ExecutionResult;
 import com.facebook.buck.step.AbstractExecutionStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.step.StepFailedException;
+import com.facebook.buck.util.MoreSuppliers;
+import com.facebook.buck.util.Scope;
 import com.facebook.buck.util.env.BuckClasspath;
-import com.google.common.base.Charsets;
+import com.facebook.buck.util.function.ThrowingSupplier;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.hash.HashCode;
+import com.google.common.hash.Hashing;
+import java.io.ByteArrayInputStream;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Supplier;
 
 /**
  * An implementation of IsolatedExecution that uses a ContentAddressedStorage and
@@ -45,56 +60,131 @@ import java.util.Set;
  * <p>See https://docs.google.com/document/d/1AaGk7fOPByEvpAbqeXIyE8HX_A3_axxNnvroblTZ_6s/preview
  * for a high-level description of the approach to remote execution.
  */
-class RemoteExecution implements IsolatedExecution {
+public abstract class RemoteExecution implements IsolatedExecution {
   private static final Path TRAMPOLINE =
       Paths.get(
           System.getProperty(
               "buck.path_to_isolated_trampoline",
               "src/com/facebook/buck/rules/modern/builders/trampoline.sh"));
 
-  private final ContentAddressedStorage storage;
-  private final RemoteExecutionService executionService;
   private final byte[] trampoline;
 
-  RemoteExecution(ContentAddressedStorage storage, RemoteExecutionService executionService)
-      throws IOException {
-    this.storage = storage;
-    this.executionService = executionService;
+  private final BuckEventBus eventBus;
+
+  public BuckEventBus getEventBus() {
+    return eventBus;
+  }
+
+  private static class Holder {
+
+    private static final ImmutableMap<Path, Supplier<InputFile>> classPath;
+    private static final ImmutableMap<Path, Supplier<InputFile>> bootstrapClassPath;
+
+    static {
+      ImmutableMap<Path, Supplier<InputFile>> classPathValue;
+      ImmutableMap<Path, Supplier<InputFile>> bootstrapClassPathValue;
+      try {
+        classPathValue = prepareClassPath(BuckClasspath.getClasspath());
+        bootstrapClassPathValue = prepareClassPath(BuckClasspath.getBootstrapClasspath());
+      } catch (IOException e) {
+        classPathValue = null;
+        bootstrapClassPathValue = null;
+      }
+      classPath = classPathValue;
+      bootstrapClassPath = bootstrapClassPathValue;
+    }
+
+    private static ImmutableMap<Path, Supplier<InputFile>> prepareClassPath(
+        ImmutableList<Path> classpath) {
+      ImmutableMap.Builder<Path, Supplier<InputFile>> resultBuilder = ImmutableMap.builder();
+      for (Path path : classpath) {
+        resultBuilder.put(
+            path,
+            MoreSuppliers.memoize(
+                () -> {
+                  try {
+                    return new InputFile(
+                        Hashing.sha1().hashBytes(Files.readAllBytes(path)).toString(),
+                        (int) Files.size(path),
+                        false,
+                        () -> new FileInputStream(path.toFile()));
+                  } catch (IOException e) {
+                    throw new RuntimeException(e);
+                  }
+                }));
+      }
+      return resultBuilder.build();
+    }
+  }
+
+  protected RemoteExecution(BuckEventBus eventBus) throws IOException {
+    this.eventBus = eventBus;
     this.trampoline = Files.readAllBytes(TRAMPOLINE);
   }
 
   @Override
   public void build(
       ExecutionContext executionContext,
-      InputsDigestBuilder inputsBuilder,
+      FileTreeBuilder inputsBuilder,
       Set<Path> outputs,
       Path projectRoot,
       HashCode hash,
       BuildTarget buildTarget,
       Path cellPrefixRoot)
       throws IOException, InterruptedException, StepFailedException {
-    ImmutableList<Path> classpath = BuckClasspath.getClasspath();
-    ImmutableList<Path> bootstrapClasspath = BuckClasspath.getBootstrapClasspath();
 
-    ImmutableList<Path> isolatedClasspath =
-        processClasspath(inputsBuilder, cellPrefixRoot, classpath);
-    ImmutableList<Path> isolatedBootstrapClasspath =
-        processClasspath(inputsBuilder, cellPrefixRoot, bootstrapClasspath);
+    HashMap<Digest, ThrowingSupplier<InputStream, IOException>> requiredDataBuilder;
+    Digest commandDigest;
+    Digest inputsRootDigest;
 
-    Path trampolinePath = Paths.get("./__trampoline__.sh");
-    ImmutableList<String> command = getBuilderCommand(trampolinePath, projectRoot, hash.toString());
-    ImmutableSortedMap<String, String> commandEnvironment =
-        getBuilderEnvironmentOverrides(isolatedBootstrapClasspath, isolatedClasspath);
+    try (Scope ignored = LeafEvents.scope(eventBus, "deleting_stale_outputs")) {
+      for (Path path : outputs) {
+        MostFiles.deleteRecursivelyIfExists(cellPrefixRoot.resolve(path));
+      }
+    }
 
-    inputsBuilder.addFile(trampolinePath, () -> trampoline, true);
+    try (Scope ignored = LeafEvents.scope(eventBus, "computing_action")) {
+      ImmutableList<Path> isolatedClasspath =
+          processClasspath(inputsBuilder, cellPrefixRoot, Holder.classPath);
+      ImmutableList<Path> isolatedBootstrapClasspath =
+          processClasspath(inputsBuilder, cellPrefixRoot, Holder.bootstrapClassPath);
 
-    Inputs inputs = inputsBuilder.build();
-    storage.addMissing(inputs.getRequiredData());
+      Path trampolinePath = Paths.get("./__trampoline__.sh");
+      ImmutableList<String> command =
+          getBuilderCommand(trampolinePath, projectRoot, hash.toString());
+      ImmutableSortedMap<String, String> commandEnvironment =
+          getBuilderEnvironmentOverrides(isolatedBootstrapClasspath, isolatedClasspath);
 
-    ActionResult result =
-        executionService.execute(command, commandEnvironment, inputs.getRootDigest(), outputs);
+      inputsBuilder.addFile(
+          trampolinePath,
+          () -> trampoline,
+          data -> Hashing.sha1().hashBytes(data).toString(),
+          true);
 
-    if (result.exitCode != 0) {
+      Protocol.Command actionCommand = getProtocol().newCommand(command, commandEnvironment);
+
+      requiredDataBuilder = new HashMap<>();
+      ProtocolTreeBuilder grpcTreeBuilder =
+          new ProtocolTreeBuilder(requiredDataBuilder::put, directory -> {}, getProtocol());
+      inputsRootDigest = inputsBuilder.buildTree(grpcTreeBuilder);
+      byte[] commandData = getProtocol().toByteArray(actionCommand);
+      commandDigest = getProtocol().computeDigest(commandData);
+      requiredDataBuilder.put(commandDigest, () -> new ByteArrayInputStream(commandData));
+    }
+
+    try (Scope scope = LeafEvents.scope(eventBus, "uploading_inputs")) {
+      getStorage().addMissing(ImmutableMap.copyOf(requiredDataBuilder));
+    }
+    ExecutionResult result11 =
+        getExecutionService().execute(commandDigest, inputsRootDigest, outputs);
+    try (Scope scope = LeafEvents.scope(eventBus, "materializing_outputs")) {
+      getStorage()
+          .materializeOutputs(
+              result11.getOutputDirectories(), result11.getOutputFiles(), cellPrefixRoot);
+    }
+    ExecutionResult result = result11;
+
+    if (result.getExitCode() != 0) {
       throw StepFailedException.createForFailingStepWithExitCode(
           new AbstractExecutionStep("remote_execution") {
             @Override
@@ -103,28 +193,16 @@ class RemoteExecution implements IsolatedExecution {
             }
           },
           executionContext,
-          StepExecutionResult.of(result.exitCode, getStdErr(result)),
+          StepExecutionResult.of(result.getExitCode(), result.getStderr()),
           Optional.of(buildTarget));
     }
-
-    for (Path path : outputs) {
-      MostFiles.deleteRecursivelyIfExists(cellPrefixRoot.resolve(path));
-    }
-    storage.materializeOutputs(result.outputDirectories, result.outputFiles, cellPrefixRoot);
   }
 
-  private Optional<String> getStdErr(ActionResult result) {
-    if (result.isSetStderrRaw()) {
-      return Optional.of(
-          new String(
-              result.stderrRaw.array(),
-              result.stderrRaw.arrayOffset(),
-              result.stderrRaw.limit(),
-              Charsets.UTF_8));
-    }
-    // TODO(cjhopman): Implement this.
-    return Optional.empty();
-  }
+  protected abstract Protocol getProtocol();
+
+  protected abstract ContentAddressedStorage getStorage();
+
+  protected abstract RemoteExecutionService getExecutionService();
 
   private ImmutableSortedMap<String, String> getBuilderEnvironmentOverrides(
       ImmutableList<Path> bootstrapClasspath, Iterable<Path> classpath) {
@@ -146,15 +224,19 @@ class RemoteExecution implements IsolatedExecution {
   }
 
   private ImmutableList<Path> processClasspath(
-      InputsDigestBuilder inputsBuilder, Path cellPrefix, Iterable<Path> classPath) {
+      FileTreeBuilder inputsBuilder,
+      Path cellPrefix,
+      ImmutableMap<Path, Supplier<InputFile>> classPath)
+      throws IOException {
     ImmutableList.Builder<Path> resolvedBuilder = ImmutableList.builder();
-    for (Path path : classPath) {
+    for (Map.Entry<Path, Supplier<InputFile>> entry : classPath.entrySet()) {
+      Path path = entry.getKey();
       Preconditions.checkState(path.isAbsolute());
       if (!path.startsWith(cellPrefix)) {
         resolvedBuilder.add(path);
       } else {
         Path relative = cellPrefix.relativize(path);
-        inputsBuilder.addFile(relative, false);
+        inputsBuilder.addFile(relative, () -> entry.getValue().get());
         resolvedBuilder.add(relative);
       }
     }

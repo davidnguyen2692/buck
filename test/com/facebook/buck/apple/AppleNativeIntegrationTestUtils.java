@@ -87,9 +87,8 @@ public class AppleNativeIntegrationTestUtils {
             "fakearch",
             sdkPaths.get(anySdk),
             buckConfig,
-            new XcodeToolFinder(),
-            FakeAppleRuleDescriptions.FAKE_XCODE_BUILD_VERSION_CACHE,
-            Optional.empty());
+            new XcodeToolFinder(buckConfig.getView(AppleConfig.class)),
+            FakeAppleRuleDescriptions.FAKE_XCODE_BUILD_VERSION_CACHE);
     return appleCxxPlatform.getSwiftPlatform().isPresent();
   }
 }

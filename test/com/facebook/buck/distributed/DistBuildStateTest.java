@@ -24,50 +24,52 @@ import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.config.FakeBuckConfig;
+import com.facebook.buck.core.cell.Cell;
+import com.facebook.buck.core.cell.TestCellBuilder;
+import com.facebook.buck.core.cell.impl.DefaultCellPathResolver;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.actiongraph.ActionGraph;
+import com.facebook.buck.core.model.targetgraph.TargetGraph;
+import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
+import com.facebook.buck.core.model.targetgraph.TargetNode;
+import com.facebook.buck.core.model.targetgraph.impl.TargetNodeFactory;
+import com.facebook.buck.core.rules.BuildRuleResolver;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.knowntypes.DefaultKnownBuildRuleTypesFactory;
+import com.facebook.buck.core.rules.knowntypes.KnownBuildRuleTypesProvider;
+import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
+import com.facebook.buck.core.sourcepath.DefaultBuildTargetSourcePath;
+import com.facebook.buck.core.sourcepath.PathSourcePath;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.distributed.thrift.BuildJobState;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventBusForTests;
-import com.facebook.buck.event.listener.BroadcastEventListener;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.io.filesystem.impl.DefaultProjectFilesystemFactory;
 import com.facebook.buck.jvm.java.JavaLibraryBuilder;
 import com.facebook.buck.jvm.java.JavaLibraryDescriptionArg;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.module.BuckModuleManager;
 import com.facebook.buck.module.TestBuckModuleManagerFactory;
+import com.facebook.buck.parser.DefaultParser;
 import com.facebook.buck.parser.DefaultParserTargetNodeFactory;
 import com.facebook.buck.parser.Parser;
 import com.facebook.buck.parser.ParserConfig;
 import com.facebook.buck.parser.ParserTargetNodeFactory;
+import com.facebook.buck.parser.TargetSpecResolver;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
 import com.facebook.buck.plugin.impl.BuckPluginManagerFactory;
-import com.facebook.buck.rules.ActionGraph;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.Cell;
-import com.facebook.buck.rules.DefaultBuildTargetSourcePath;
-import com.facebook.buck.rules.DefaultCellPathResolver;
-import com.facebook.buck.rules.DefaultKnownBuildRuleTypesFactory;
-import com.facebook.buck.rules.DefaultSourcePathResolver;
-import com.facebook.buck.rules.KnownBuildRuleTypesProvider;
-import com.facebook.buck.rules.PathSourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TargetGraph;
-import com.facebook.buck.rules.TargetNode;
-import com.facebook.buck.rules.TargetNodeFactory;
-import com.facebook.buck.rules.TestBuildRuleResolver;
-import com.facebook.buck.rules.TestCellBuilder;
 import com.facebook.buck.rules.coercer.ConstructorArgMarshaller;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.coercer.PathTypeCoercer;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
 import com.facebook.buck.rules.keys.config.TestRuleKeyConfigurationFactory;
+import com.facebook.buck.rules.visibility.VisibilityPatternFactory;
 import com.facebook.buck.sandbox.TestSandboxExecutionStrategyFactory;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
-import com.facebook.buck.testutil.TargetGraphFactory;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
@@ -256,13 +258,13 @@ public class DistBuildStateTest {
     ConstructorArgMarshaller constructorArgMarshaller =
         new ConstructorArgMarshaller(typeCoercerFactory);
     Parser parser =
-        new Parser(
-            new BroadcastEventListener(),
+        new DefaultParser(
             buckConfig.getView(ParserConfig.class),
             typeCoercerFactory,
             constructorArgMarshaller,
             knownBuildRuleTypesProvider,
-            executableFinder);
+            executableFinder,
+            new TargetSpecResolver());
     TargetGraph targetGraph =
         parser.buildTargetGraph(
             BuckEventBusForTests.newInstance(),
@@ -401,7 +403,7 @@ public class DistBuildStateTest {
 
   private DistBuildFileHashes emptyActionGraph() throws IOException, InterruptedException {
     ActionGraph actionGraph = new ActionGraph(ImmutableList.of());
-    BuildRuleResolver ruleResolver = new TestBuildRuleResolver();
+    BuildRuleResolver ruleResolver = new TestActionGraphBuilder();
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(ruleResolver);
     SourcePathResolver sourcePathResolver = DefaultSourcePathResolver.from(ruleFinder);
     ProjectFilesystem projectFilesystem = createJavaOnlyFilesystem("/opt/buck");
@@ -434,7 +436,7 @@ public class DistBuildStateTest {
             try {
               return parser
                   .get()
-                  .getRawTargetNode(
+                  .getTargetNodeRawAttributes(
                       eventBus,
                       cell.getCell(input.getBuildTarget()),
                       /* enableProfiling */ false,
@@ -450,10 +452,11 @@ public class DistBuildStateTest {
 
     TypeCoercerFactory typeCoercerFactory =
         new DefaultTypeCoercerFactory(PathTypeCoercer.PathExistenceVerificationMode.DO_NOT_VERIFY);
-    ParserTargetNodeFactory<TargetNode<?, ?>> parserTargetNodeFactory =
+    ParserTargetNodeFactory<Map<String, Object>> parserTargetNodeFactory =
         DefaultParserTargetNodeFactory.createForDistributedBuild(
             new ConstructorArgMarshaller(typeCoercerFactory),
             new TargetNodeFactory(typeCoercerFactory),
+            new VisibilityPatternFactory(),
             TestRuleKeyConfigurationFactory.create());
 
     return new DistBuildTargetGraphCodec(

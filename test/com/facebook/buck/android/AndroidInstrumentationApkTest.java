@@ -20,26 +20,27 @@ import static com.facebook.buck.jvm.java.JavaCompilationConstants.DEFAULT_JAVA_C
 import static org.junit.Assert.assertEquals;
 
 import com.facebook.buck.config.FakeBuckConfig;
+import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
+import com.facebook.buck.core.sourcepath.DefaultBuildTargetSourcePath;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.java.FakeJavaLibrary;
 import com.facebook.buck.jvm.java.KeystoreBuilder;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.DefaultBuildTargetSourcePath;
-import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TestBuildRuleCreationContextFactory;
 import com.facebook.buck.rules.TestBuildRuleParams;
-import com.facebook.buck.rules.TestBuildRuleResolver;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
+import com.facebook.buck.toolchain.ToolchainProvider;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import org.junit.Test;
@@ -48,9 +49,9 @@ public class AndroidInstrumentationApkTest {
 
   @Test
   public void testAndroidInstrumentationApkExcludesClassesFromInstrumentedApk() throws Exception {
-    BuildRuleResolver ruleResolver = new TestBuildRuleResolver();
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     SourcePathResolver pathResolver =
-        DefaultSourcePathResolver.from(new SourcePathRuleFinder(ruleResolver));
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
     BuildTarget javaLibrary1Target = BuildTargetFactory.newInstance("//java/com/example:lib1");
     FakeJavaLibrary javaLibrary1 = new FakeJavaLibrary(javaLibrary1Target);
 
@@ -80,16 +81,16 @@ public class AndroidInstrumentationApkTest {
           }
         };
 
-    ruleResolver.addToIndex(javaLibrary1);
-    ruleResolver.addToIndex(javaLibrary2);
-    ruleResolver.addToIndex(javaLibrary3);
-    ruleResolver.addToIndex(javaLibrary4);
+    graphBuilder.addToIndex(javaLibrary1);
+    graphBuilder.addToIndex(javaLibrary2);
+    graphBuilder.addToIndex(javaLibrary3);
+    graphBuilder.addToIndex(javaLibrary4);
 
     BuildRule keystore =
         KeystoreBuilder.createBuilder(BuildTargetFactory.newInstance("//keystores:debug"))
             .setProperties(FakeSourcePath.of("keystores/debug.properties"))
             .setStore(FakeSourcePath.of("keystores/debug.keystore"))
-            .build(ruleResolver);
+            .build(graphBuilder);
 
     // AndroidBinaryRule transitively depends on :lib1, :lib2, and :lib3.
     AndroidBinaryBuilder androidBinaryBuilder =
@@ -100,7 +101,7 @@ public class AndroidInstrumentationApkTest {
         .setManifest(FakeSourcePath.of("apps/AndroidManifest.xml"))
         .setKeystore(keystore.getBuildTarget())
         .setOriginalDeps(originalDepsTargets);
-    AndroidBinary androidBinary = androidBinaryBuilder.build(ruleResolver);
+    AndroidBinary androidBinary = androidBinaryBuilder.build(graphBuilder);
 
     // AndroidInstrumentationApk transitively depends on :lib1, :lib2, :lib3, and :lib4.
     ImmutableSortedSet<BuildTarget> apkOriginalDepsTargets =
@@ -117,8 +118,10 @@ public class AndroidInstrumentationApkTest {
     ProjectFilesystem projectFilesystem = new FakeProjectFilesystem();
     BuildRuleParams params =
         TestBuildRuleParams.create()
-            .withDeclaredDeps(ruleResolver.getAllRules(apkOriginalDepsTargets))
+            .withDeclaredDeps(graphBuilder.getAllRules(apkOriginalDepsTargets))
             .withExtraDeps(ImmutableSortedSet.of(androidBinary));
+    ToolchainProvider toolchainProvider =
+        AndroidInstrumentationApkBuilder.createToolchainProviderForAndroidInstrumentationApk();
     AndroidInstrumentationApk androidInstrumentationApk =
         (AndroidInstrumentationApk)
             new AndroidInstrumentationApkDescription(
@@ -126,13 +129,11 @@ public class AndroidInstrumentationApkTest {
                     new ProGuardConfig(FakeBuckConfig.builder().build()),
                     CxxPlatformUtils.DEFAULT_CONFIG,
                     new DxConfig(FakeBuckConfig.builder().build()),
-                    new ApkConfig(FakeBuckConfig.builder().build()))
+                    new ApkConfig(FakeBuckConfig.builder().build()),
+                    toolchainProvider)
                 .createBuildRule(
                     TestBuildRuleCreationContextFactory.create(
-                        ruleResolver,
-                        projectFilesystem,
-                        AndroidInstrumentationApkBuilder
-                            .createToolchainProviderForAndroidInstrumentationApk()),
+                        graphBuilder, projectFilesystem, toolchainProvider),
                     buildTarget,
                     params,
                     arg);

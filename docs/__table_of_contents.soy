@@ -33,12 +33,14 @@
             'http_archive',
             'http_file',
             'remote_file',
+            'test_suite',
             'worker_tool',
             'zip_file',
         ],
         'cxx': [
             'cxx_binary',
             'cxx_library',
+            'cxx_genrule',
             'cxx_precompiled_header',
             'cxx_test',
             'prebuilt_cxx_library',
@@ -112,6 +114,10 @@
             'rust_library',
             'rust_test',
             'prebuilt_rust_library',
+        ],
+        'shell': [
+            'sh_binary',
+            'sh_test',
         ],
     ] /}
   <h3>The Basics</h3>
@@ -343,6 +349,11 @@
     {/call}
     {call navigation.platformBuildRuleLink}
         {param currentnavid: $navid /}
+        {param platform: 'Shell' /}
+        {param rules: $platformRulesMap['shell'] /}
+    {/call}
+    {call navigation.platformBuildRuleLink}
+        {param currentnavid: $navid /}
         {param platform: '.NET' /}
         {param rules: $platformRulesMap['dotnet'] /}
     {/call}
@@ -426,6 +437,12 @@
       {param page: 'buckd' /}
       {param text: 'buckd' /}
     {/call}
+    {call navigation.link}
+      {param currentnavid: $navid /}
+      {param folder: 'command' /}
+      {param page: 'exit_codes' /}
+      {param text: 'Exit Codes' /}
+    {/call}
   </ul>
   <h3>Extending Buck</h3>
   <ul>
@@ -440,6 +457,12 @@
       {param folder: 'extending' /}
       {param page: 'rules' /}
       {param text: 'Custom Rules' /}
+    {/call}
+    {call navigation.link}
+      {param currentnavid: $navid /}
+      {param folder: 'extending' /}
+      {param page: 'e2e_tests' /}
+      {param text: 'Building E2E Tests for Buck' /}
     {/call}
   </ul>
 {/template}

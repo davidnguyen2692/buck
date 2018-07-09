@@ -16,7 +16,6 @@
 
 package com.facebook.buck.io.filesystem.impl;
 
-import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.file.MorePosixFilePermissions;
 import com.facebook.buck.io.file.MostFiles;
@@ -91,8 +90,6 @@ import javax.annotation.Nullable;
 /** An injectable service for interacting with the filesystem relative to the project root. */
 public class DefaultProjectFilesystem implements ProjectFilesystem {
 
-  private final boolean windowsSymlinks;
-
   private static final Path EDEN_MAGIC_PATH_ELEMENT = Paths.get(".eden");
 
   private final Path projectRoot;
@@ -105,6 +102,7 @@ public class DefaultProjectFilesystem implements ProjectFilesystem {
   private final Supplier<Path> tmpDir;
 
   private final ProjectFilesystemDelegate delegate;
+  private final WindowsFS winFSInstance;
 
   // Defaults to false, and so paths should be valid.
   @VisibleForTesting protected boolean ignoreValidityOfPaths;
@@ -119,14 +117,16 @@ public class DefaultProjectFilesystem implements ProjectFilesystem {
 
   @VisibleForTesting
   protected DefaultProjectFilesystem(
-      Path root, ProjectFilesystemDelegate projectFilesystemDelegate) {
+      Path root,
+      ProjectFilesystemDelegate projectFilesystemDelegate,
+      @Nullable WindowsFS winFSInstance) {
     this(
         root.getFileSystem(),
         root,
         ImmutableSet.of(),
         BuckPaths.createDefaultBuckPaths(root),
         projectFilesystemDelegate,
-        false);
+        winFSInstance);
   }
 
   public DefaultProjectFilesystem(
@@ -135,12 +135,17 @@ public class DefaultProjectFilesystem implements ProjectFilesystem {
       ImmutableSet<PathOrGlobMatcher> blackListedPaths,
       BuckPaths buckPaths,
       ProjectFilesystemDelegate delegate,
-      boolean windowsSymlinks) {
+      @Nullable WindowsFS winFSInstance) {
     if (shouldVerifyConstructorArguments()) {
       Preconditions.checkArgument(Files.isDirectory(root), "%s must be a directory", root);
       Preconditions.checkState(vfs.equals(root.getFileSystem()));
-      Preconditions.checkArgument(root.isAbsolute());
+      Preconditions.checkArgument(root.isAbsolute(), "Expected absolute path. Got <%s>.", root);
     }
+
+    if (Platform.detect() == Platform.WINDOWS) {
+      Preconditions.checkNotNull(winFSInstance);
+    }
+
     this.projectRoot = MorePaths.normalize(root);
     this.delegate = delegate;
     this.ignoreValidityOfPaths = false;
@@ -190,7 +195,8 @@ public class DefaultProjectFilesystem implements ProjectFilesystem {
               }
               return relativeTmpDir;
             });
-    this.windowsSymlinks = windowsSymlinks;
+
+    this.winFSInstance = winFSInstance;
   }
 
   public static Path getCacheDir(Path root, Optional<String> value, BuckPaths buckPaths) {
@@ -216,15 +222,6 @@ public class DefaultProjectFilesystem implements ProjectFilesystem {
   @Override
   public ImmutableMap<String, ? extends Object> getDelegateDetails() {
     return delegate.getDetailsForLogging();
-  }
-
-  /**
-   * Hook for virtual filesystems to materialise virtual files as Buck will need to be able to read
-   * them past this point.
-   */
-  @Override
-  public void ensureConcreteFilesExist(BuckEventBus eventBus) {
-    delegate.ensureConcreteFilesExist(eventBus);
   }
 
   /**
@@ -298,11 +295,6 @@ public class DefaultProjectFilesystem implements ProjectFilesystem {
     }
 
     if (exists(file)) {
-      return file;
-    }
-
-    // TODO(mbolin): Eliminate this temporary exemption for symbolic links.
-    if (isSymLink(file)) {
       return file;
     }
 
@@ -832,21 +824,8 @@ public class DefaultProjectFilesystem implements ProjectFilesystem {
       MostFiles.deleteRecursivelyIfExists(symLink);
     }
     if (Platform.detect() == Platform.WINDOWS) {
-      if (windowsSymlinks) {
-        // Windows symlinks are not enabled by default, so symlinks on windows are created
-        // only when they are explicitly enabled
-        realFile = MorePaths.normalize(symLink.getParent().resolve(realFile));
-        WindowsFS.createSymbolicLink(symLink, realFile, isDirectory(realFile));
-      } else {
-        // otherwise, creating hardlinks
-        if (isDirectory(realFile)) {
-          // Hardlinks are only for files - so, copying folders
-          MostFiles.copyRecursively(realFile, symLink);
-        } else {
-          realFile = MorePaths.normalize(symLink.getParent().resolve(realFile));
-          Files.createLink(symLink, realFile);
-        }
-      }
+      realFile = MorePaths.normalize(symLink.getParent().resolve(realFile));
+      winFSInstance.createSymbolicLink(symLink, realFile, isDirectory(realFile));
     } else {
       Files.createSymbolicLink(symLink, realFile);
     }
@@ -1014,7 +993,7 @@ public class DefaultProjectFilesystem implements ProjectFilesystem {
     private final Path root;
     private final boolean followLinks;
     private final boolean skipIgnored;
-    private ArrayDeque<DirWalkState> state;
+    private final ArrayDeque<DirWalkState> state;
 
     FileTreeWalker(
         Path root,

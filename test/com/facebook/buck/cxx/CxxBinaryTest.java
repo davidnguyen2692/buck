@@ -18,19 +18,19 @@ package com.facebook.buck.cxx;
 
 import static org.junit.Assert.assertTrue;
 
+import com.facebook.buck.core.cell.TestCellPathResolver;
+import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
+import com.facebook.buck.core.toolchain.tool.impl.CommandTool;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.CommandTool;
-import com.facebook.buck.rules.DefaultSourcePathResolver;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TestBuildRuleParams;
-import com.facebook.buck.rules.TestBuildRuleResolver;
-import com.facebook.buck.rules.TestCellPathResolver;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.google.common.collect.ImmutableList;
@@ -45,21 +45,21 @@ public class CxxBinaryTest {
 
   @Test
   public void getExecutableCommandUsesAbsolutePath() {
-    BuildRuleResolver ruleResolver = new TestBuildRuleResolver();
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(ruleResolver);
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
     SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
 
     BuildTarget linkTarget = BuildTargetFactory.newInstance("//:link");
     Path bin = Paths.get("path/to/exectuable");
     FakeProjectFilesystem projectFilesystem = new FakeProjectFilesystem();
     CxxLink cxxLink =
-        ruleResolver.addToIndex(
+        graphBuilder.addToIndex(
             new CxxLink(
                 linkTarget,
                 projectFilesystem,
-                ImmutableSortedSet::of,
+                ruleFinder,
                 TestCellPathResolver.get(projectFilesystem),
-                CxxPlatformUtils.DEFAULT_PLATFORM.getLd().resolve(ruleResolver),
+                CxxPlatformUtils.DEFAULT_PLATFORM.getLd().resolve(graphBuilder),
                 bin,
                 ImmutableMap.of(),
                 ImmutableList.of(),
@@ -70,7 +70,7 @@ public class CxxBinaryTest {
     BuildTarget target = BuildTargetFactory.newInstance("//:target");
     BuildRuleParams params = TestBuildRuleParams.create();
     CxxBinary binary =
-        ruleResolver.addToIndex(
+        graphBuilder.addToIndex(
             new CxxBinary(
                 target,
                 projectFilesystem,
@@ -82,7 +82,8 @@ public class CxxBinaryTest {
                     .build(),
                 ImmutableSortedSet.of(),
                 ImmutableList.of(),
-                target));
+                target,
+                false));
     ImmutableList<String> command = binary.getExecutableCommand().getCommandPrefix(pathResolver);
     assertTrue(Paths.get(command.get(0)).isAbsolute());
   }

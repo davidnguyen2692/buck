@@ -16,70 +16,163 @@
 
 package com.facebook.buck.rules.modern.builders;
 
-import com.facebook.buck.rules.modern.builders.thrift.Digest;
-import com.facebook.buck.rules.modern.builders.thrift.Directory;
-import com.facebook.buck.rules.modern.builders.thrift.DirectoryNode;
-import com.facebook.buck.rules.modern.builders.thrift.FileNode;
-import com.facebook.buck.rules.modern.builders.thrift.OutputDirectory;
-import com.facebook.buck.rules.modern.builders.thrift.OutputFile;
-import com.facebook.buck.rules.modern.builders.thrift.Tree;
-import com.facebook.buck.slb.ThriftProtocol;
-import com.facebook.buck.slb.ThriftUtil;
-import com.facebook.buck.util.function.ThrowingFunction;
+import com.facebook.buck.rules.modern.builders.MultiThreadedBlobUploader.UploadData;
+import com.facebook.buck.rules.modern.builders.MultiThreadedBlobUploader.UploadResult;
+import com.facebook.buck.rules.modern.builders.Protocol.DirectoryNode;
+import com.facebook.buck.rules.modern.builders.Protocol.FileNode;
+import com.facebook.buck.rules.modern.builders.Protocol.OutputDirectory;
+import com.facebook.buck.rules.modern.builders.Protocol.OutputFile;
+import com.facebook.buck.rules.modern.builders.Protocol.SymlinkNode;
+import com.facebook.buck.util.RichStream;
+import com.facebook.buck.util.concurrent.MostExecutors;
 import com.facebook.buck.util.function.ThrowingSupplier;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.io.ByteStreams;
 import com.google.common.io.MoreFiles;
+import com.google.common.util.concurrent.Futures;
+import com.google.common.util.concurrent.ListenableFuture;
 import com.google.devtools.build.lib.concurrent.KeyedLocker.AutoUnlocker;
 import com.google.devtools.build.lib.concurrent.StripedKeyedLocker;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.nio.channels.FileChannel;
+import java.io.OutputStream;
+import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardOpenOption;
+import java.nio.file.Paths;
 import java.util.List;
-import java.util.Map;
-import java.util.Map.Entry;
-import java.util.Set;
+import java.util.Optional;
+import java.util.concurrent.ExecutorService;
+import java.util.function.Consumer;
 import java.util.stream.Stream;
 
 /** A simple, on-disk content addressed storage. */
 public class LocalContentAddressedStorage implements ContentAddressedStorage {
   private final Path cacheDir;
   private final StripedKeyedLocker<String> fileLock = new StripedKeyedLocker<>(8);
-  private final ThrowingFunction<Directory, Digest, IOException> directoryDigester;
 
-  public LocalContentAddressedStorage(
-      Path cacheDir, ThrowingFunction<Directory, Digest, IOException> directoryDigester) {
+  private static final int MISSING_CHECK_LIMIT = 1000;
+  private static final int UPLOAD_SIZE_LIMIT = 10 * 1024 * 1024;
+
+  private final MultiThreadedBlobUploader uploader;
+  private final OutputsMaterializer outputsMaterializer;
+  private final InputsMaterializer inputsMaterializer;
+  private final Protocol protocol;
+
+  public LocalContentAddressedStorage(Path cacheDir, Protocol protocol) {
     this.cacheDir = cacheDir;
-    this.directoryDigester = directoryDigester;
+    this.protocol = protocol;
+    ExecutorService uploadService = MostExecutors.newMultiThreadExecutor("local-cas-write", 4);
+    this.uploader =
+        new MultiThreadedBlobUploader(
+            MISSING_CHECK_LIMIT,
+            UPLOAD_SIZE_LIMIT,
+            uploadService,
+            new CasBlobUploader() {
+              @Override
+              public ImmutableList<UploadResult> batchUpdateBlobs(
+                  ImmutableList<UploadData> blobData) {
+                return LocalContentAddressedStorage.this.batchUpdateBlobs(blobData);
+              }
+
+              @Override
+              public ImmutableSet<String> getMissingHashes(List<Protocol.Digest> requiredDigests) {
+                return findMissing(requiredDigests)
+                    .map(Protocol.Digest::getHash)
+                    .collect(ImmutableSet.toImmutableSet());
+              }
+            });
+    AsyncBlobFetcher fetcher =
+        new AsyncBlobFetcher() {
+          @Override
+          public ListenableFuture<ByteBuffer> fetch(Protocol.Digest digest) {
+            try (InputStream stream = getData(digest)) {
+              return Futures.immediateFuture(ByteBuffer.wrap(ByteStreams.toByteArray(stream)));
+            } catch (IOException e) {
+              return Futures.immediateFailedFuture(e);
+            }
+          }
+
+          @Override
+          public void fetchToStream(Protocol.Digest digest, OutputStream outputStream) {
+            throw new UnsupportedOperationException();
+          }
+        };
+    this.outputsMaterializer = new OutputsMaterializer(fetcher, protocol);
+    this.inputsMaterializer =
+        new InputsMaterializer(
+            protocol,
+            new InputsMaterializer.Delegate() {
+              @Override
+              public void materializeFile(Path root, FileNode file) throws IOException {
+                Path path = getPath(file.getDigest().getHash());
+                Preconditions.checkState(Files.exists(path));
+                // As this file could potentially be materialized as both executable and
+                // non-executable, and
+                // links share that, we need two concrete versions of the file.
+                if (file.getIsExecutable()) {
+                  Path exePath = path.getParent().resolve(path.getFileName() + ".x");
+                  if (!Files.exists(exePath)) {
+                    try (AutoUnlocker ignored = fileLock.writeLock(exePath.toString())) {
+                      if (!Files.exists(exePath)) {
+                        Path tempPath = path.getParent().resolve(path.getFileName() + ".x.tmp");
+                        Files.copy(path, tempPath);
+                        Preconditions.checkState(tempPath.toFile().setExecutable(true));
+                        Files.move(tempPath, exePath);
+                      }
+                    }
+                  }
+                  path = exePath;
+                }
+                Path target = root.resolve(file.getName());
+                Preconditions.checkState(target.normalize().startsWith(root));
+                Files.createLink(target, path);
+              }
+
+              @Override
+              public InputStream getData(Protocol.Digest digest) throws IOException {
+                return LocalContentAddressedStorage.this.getData(digest);
+              }
+            });
   }
 
-  /** For any digests that are missing, adds the corresponding data to the storage. */
-  @Override
-  public void addMissing(ImmutableMap<Digest, ThrowingSupplier<InputStream, IOException>> data)
-      throws IOException {
-    Stream<Digest> missing = findMissing(data.keySet());
-    for (Entry<Digest, ThrowingSupplier<InputStream, IOException>> entry :
-        missing.collect(ImmutableMap.toImmutableMap(digest -> digest, data::get)).entrySet()) {
-      String hash = entry.getKey().hash;
-      Path path = ensureParent(getPath(hash));
-      try (AutoUnlocker ignored = fileLock.writeLock(hash)) {
-        if (Files.exists(path)) {
-          continue;
+  /** Upload blobs. */
+  public ImmutableList<UploadResult> batchUpdateBlobs(ImmutableList<UploadData> blobData) {
+    ImmutableList.Builder<UploadResult> responseBuilder = ImmutableList.builder();
+    for (UploadData data : blobData) {
+      String hash = data.digest.getHash();
+      try {
+        Path path = ensureParent(getPath(hash));
+        try (AutoUnlocker ignored = fileLock.writeLock(hash)) {
+          if (Files.exists(path)) {
+            continue;
+          }
+          Path tempPath = path.getParent().resolve(path.getFileName() + ".tmp");
+          try (FileOutputStream outputStream = new FileOutputStream(tempPath.toFile());
+              InputStream dataStream = data.data.get()) {
+            ByteStreams.copy(dataStream, outputStream);
+          }
+          Files.move(tempPath, path);
         }
-        Path tempPath = path.getParent().resolve(path.getFileName() + ".tmp");
-        try (FileOutputStream outputStream = new FileOutputStream(tempPath.toFile())) {
-          ByteStreams.copy(entry.getValue().get(), outputStream);
-        }
-        Files.move(tempPath, path);
+        responseBuilder.add(new UploadResult(data.digest, 0, null));
+      } catch (IOException e) {
+        responseBuilder.add(new UploadResult(data.digest, 1, e.getMessage()));
       }
     }
+    return responseBuilder.build();
+  }
+
+  @Override
+  public void addMissing(
+      ImmutableMap<Protocol.Digest, ThrowingSupplier<InputStream, IOException>> data)
+      throws IOException {
+    uploader.addMissing(data);
   }
 
   /**
@@ -89,67 +182,92 @@ public class LocalContentAddressedStorage implements ContentAddressedStorage {
   public void materializeOutputs(
       List<OutputDirectory> outputDirectories, List<OutputFile> outputFiles, Path root)
       throws IOException {
-    for (OutputFile file : outputFiles) {
-      Path path = root.resolve(file.path);
-      ensureParent(path);
-      if (file.isSetContent()) {
-        try (FileChannel output =
-            FileChannel.open(path, StandardOpenOption.WRITE, StandardOpenOption.CREATE)) {
-          output.write(file.content);
-        }
-      } else {
-        Files.write(path, getData(file.digest));
-      }
-      if (file.isExecutable) {
-        Preconditions.checkState(path.toFile().setExecutable(true));
-      }
-    }
-
-    for (OutputDirectory directory : outputDirectories) {
-      Path dirRoot = root.resolve(directory.path);
-      Tree tree = readTree(directory.treeDigest);
-      Map<Digest, Directory> childMap =
-          tree.children
-              .stream()
-              .collect(ImmutableMap.toImmutableMap(directoryDigester.asFunction(), child -> child));
-      materializeDirectory(childMap, tree.root, dirRoot);
-    }
+    outputsMaterializer.materialize(outputDirectories, outputFiles, root);
   }
 
-  private void materializeDirectory(Map<Digest, Directory> childMap, Directory dir, Path root)
+  public Optional<Protocol.Command> materializeInputs(
+      Path buildDir, Protocol.Digest rootDigest, Optional<Protocol.Digest> commandDigest)
       throws IOException {
-    Files.createDirectories(root);
-    for (DirectoryNode childNode : dir.directories) {
-      materializeDirectory(childMap, childMap.get(childNode.digest), root.resolve(childNode.name));
-    }
+    return inputsMaterializer.materializeInputs(buildDir, rootDigest, commandDigest);
+  }
 
-    for (FileNode file : dir.files) {
-      materializeFile(root, file);
+  /** Returns a list of all sub directories. */
+  public ImmutableList<Protocol.Directory> getTree(Protocol.Digest rootDigest) throws IOException {
+    ImmutableList.Builder<Protocol.Directory> builder = ImmutableList.builder();
+    buildTree(builder::add, rootDigest);
+    return builder.build();
+  }
+
+  private void buildTree(Consumer<Protocol.Directory> builder, Protocol.Digest digest)
+      throws IOException {
+    Protocol.Directory directory;
+    try (InputStream data = getData(digest)) {
+      directory = protocol.parseDirectory(ByteBuffer.wrap(ByteStreams.toByteArray(data)));
+    }
+    builder.accept(directory);
+    for (Protocol.DirectoryNode directoryNode : directory.getDirectoriesList()) {
+      buildTree(builder, directoryNode.getDigest());
     }
   }
 
-  /** Materializes all of the inputs into root. All required data must be present. */
-  @Override
-  public void materializeInputs(Path root, Digest inputsDigest) throws IOException {
-    Directory dir = readDirectory(inputsDigest);
+  private static class InputsMaterializer {
+    private final Protocol protocol;
+    private final Delegate delegate;
 
-    Files.createDirectories(root);
-    for (FileNode file : dir.files) {
-      materializeFile(root, file);
+    private InputsMaterializer(Protocol protocol, Delegate delegate) {
+      this.protocol = protocol;
+      this.delegate = delegate;
     }
-    for (DirectoryNode child : dir.directories) {
-      materializeInputs(root.resolve(child.name), child.digest);
+
+    interface Delegate {
+      void materializeFile(Path root, Protocol.FileNode file) throws IOException;
+
+      InputStream getData(Protocol.Digest digest) throws IOException;
+
+      default void materializeSymlink(Path root, SymlinkNode symlink) throws IOException {
+        Files.createSymbolicLink(root.resolve(symlink.getName()), Paths.get(symlink.getTarget()));
+      }
+    }
+
+    /** Materializes all of the inputs into root. All required data must be present. */
+    public Optional<Protocol.Command> materializeInputs(
+        Path root, Protocol.Digest inputsDigest, Optional<Protocol.Digest> commandDigest)
+        throws IOException {
+      Protocol.Directory dir;
+      try (InputStream dataStream = delegate.getData(inputsDigest)) {
+        dir = protocol.parseDirectory(ByteBuffer.wrap(ByteStreams.toByteArray(dataStream)));
+      }
+
+      Files.createDirectories(root);
+      for (FileNode file : dir.getFilesList()) {
+        delegate.materializeFile(root, file);
+      }
+      for (DirectoryNode child : dir.getDirectoriesList()) {
+        materializeInputs(root.resolve(child.getName()), child.getDigest(), commandDigest);
+      }
+      for (SymlinkNode symlink : dir.getSymlinksList()) {
+        delegate.materializeSymlink(root, symlink);
+      }
+
+      if (commandDigest.isPresent()) {
+        try (InputStream dataStream = delegate.getData(commandDigest.get())) {
+          return Optional.of(
+              protocol.parseCommand(ByteBuffer.wrap(ByteStreams.toByteArray(dataStream))));
+        }
+      }
+      return Optional.empty();
     }
   }
 
+  /** Looks up some data. Used internally and in tests. */
   @VisibleForTesting
-  byte[] getData(Digest digest) throws IOException {
-    Path path = getPath(digest.hash);
-    Preconditions.checkState(Files.exists(path));
-    return Files.readAllBytes(path);
+  public InputStream getData(Protocol.Digest digest) throws IOException {
+    Path path = getPath(digest.getHash());
+    Preconditions.checkState(Files.exists(path), "Couldn't find %s.", path);
+    return new FileInputStream(path.toFile());
   }
 
-  private Path ensureParent(Path path) throws IOException {
+  private static Path ensureParent(Path path) throws IOException {
     MoreFiles.createParentDirectories(path);
     return path;
   }
@@ -161,45 +279,7 @@ public class LocalContentAddressedStorage implements ContentAddressedStorage {
         .resolve(hashString);
   }
 
-  private Tree readTree(Digest digest) throws IOException {
-    Path path = getPath(digest.hash);
-    Preconditions.checkState(Files.exists(path));
-    Tree tree = new Tree();
-    ThriftUtil.deserialize(ThriftProtocol.COMPACT, new FileInputStream(path.toFile()), tree);
-    return tree;
-  }
-
-  private Directory readDirectory(Digest digest) throws IOException {
-    Path path = getPath(digest.hash);
-    Preconditions.checkState(Files.exists(path));
-    Directory directory = new Directory();
-    ThriftUtil.deserialize(ThriftProtocol.COMPACT, new FileInputStream(path.toFile()), directory);
-    return directory;
-  }
-
-  private void materializeFile(Path dir, FileNode file) throws IOException {
-    Path path = getPath(file.digest.hash);
-    Preconditions.checkState(Files.exists(path));
-    // As this file could potentially be materialized as both executable and non-executable, and
-    // links share that, we need two concrete versions of the file.
-    if (file.isExecutable) {
-      Path exePath = path.getParent().resolve(path.getFileName() + ".x");
-      if (!Files.exists(exePath)) {
-        try (AutoUnlocker ignored = fileLock.writeLock(exePath.toString())) {
-          if (!Files.exists(exePath)) {
-            Path tempPath = path.getParent().resolve(path.getFileName() + ".x.tmp");
-            Files.copy(path, tempPath);
-            Preconditions.checkState(tempPath.toFile().setExecutable(true));
-            Files.move(tempPath, exePath);
-          }
-        }
-      }
-      path = exePath;
-    }
-    Files.createLink(dir.resolve(file.name), path);
-  }
-
-  private Stream<Digest> findMissing(Set<Digest> digests) {
-    return digests.stream().filter(digest -> !Files.exists(getPath(digest.hash)));
+  public Stream<Protocol.Digest> findMissing(Iterable<Protocol.Digest> digests) {
+    return RichStream.from(digests).filter(digest -> !Files.exists(getPath(digest.getHash())));
   }
 }

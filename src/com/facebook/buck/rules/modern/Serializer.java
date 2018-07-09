@@ -16,24 +16,29 @@
 
 package com.facebook.buck.rules.modern;
 
+import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rulekey.AddsToRuleKey;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.modern.annotations.CustomClassBehaviorTag;
+import com.facebook.buck.core.rules.modern.annotations.CustomFieldBehavior;
+import com.facebook.buck.core.rules.modern.annotations.DefaultFieldSerialization;
+import com.facebook.buck.core.sourcepath.DefaultBuildTargetSourcePath;
+import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
+import com.facebook.buck.core.sourcepath.ForwardingBuildTargetSourcePath;
+import com.facebook.buck.core.sourcepath.PathSourcePath;
+import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.AddsToRuleKey;
-import com.facebook.buck.rules.CellPathResolver;
-import com.facebook.buck.rules.DefaultBuildTargetSourcePath;
-import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
-import com.facebook.buck.rules.PathSourcePath;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.modern.impl.DefaultClassInfoFactory;
-import com.facebook.buck.rules.modern.impl.ValueTypeInfo;
 import com.facebook.buck.rules.modern.impl.ValueTypeInfoFactory;
-import com.facebook.buck.rules.modern.impl.ValueVisitor;
+import com.facebook.buck.util.RichStream;
 import com.facebook.buck.util.types.Either;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
+import com.google.common.collect.Ordering;
 import com.google.common.hash.HashCode;
 import com.google.common.reflect.TypeToken;
 import java.io.ByteArrayOutputStream;
@@ -45,6 +50,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Stream;
+import javax.annotation.Nullable;
 
 /**
  * Implementation of Serialization of Buildables.
@@ -81,11 +87,12 @@ public class Serializer {
       SourcePathRuleFinder ruleFinder, CellPathResolver cellResolver, Delegate delegate) {
     this.ruleFinder = ruleFinder;
     this.delegate = delegate;
-    ImmutableMap.Builder<Path, Optional<String>> builder = ImmutableMap.builder();
-    cellResolver.getCellPaths().forEach((name, path) -> builder.put(path, Optional.of(name)));
-    builder.put(cellResolver.getCellPathOrThrow(Optional.empty()), Optional.empty());
-    this.cellMap = builder.build();
     this.rootCellPath = cellResolver.getCellPathOrThrow(Optional.empty());
+    this.cellMap =
+        cellResolver
+            .getKnownRoots()
+            .stream()
+            .collect(ImmutableMap.toImmutableMap(root -> root, cellResolver::getCanonicalCellName));
   }
 
   /**
@@ -103,11 +110,21 @@ public class Serializer {
   /** See Serialize(T instance) above. */
   public <T extends AddsToRuleKey> Either<HashCode, byte[]> serialize(
       T instance, ClassInfo<T> classInfo) throws IOException {
-    if (cache.contains(instance)) {
+    if (cache.containsKey(instance)) {
       return Preconditions.checkNotNull(cache.get(instance));
     }
     Visitor visitor = new Visitor(instance.getClass());
-    classInfo.visit(instance, visitor);
+
+    Optional<CustomClassBehaviorTag> serializerTag =
+        CustomBehaviorUtils.getBehavior(instance.getClass(), CustomClassSerialization.class);
+    if (serializerTag.isPresent()) {
+      @SuppressWarnings("unchecked")
+      CustomClassSerialization<T> customSerializer =
+          (CustomClassSerialization<T>) serializerTag.get();
+      customSerializer.serialize(instance, visitor);
+    } else {
+      classInfo.visit(instance, visitor);
+    }
 
     return Preconditions.checkNotNull(
         cache.computeIfAbsent(
@@ -165,6 +182,7 @@ public class Serializer {
 
     @Override
     public void visitOutputPath(OutputPath value) throws IOException {
+      stream.writeBoolean(value instanceof PublicOutputPath);
       writeString(value.getPath().toString());
     }
 
@@ -186,12 +204,14 @@ public class Serializer {
         ExplicitBuildTargetSourcePath buildTargetSourcePath = (ExplicitBuildTargetSourcePath) value;
         writeValue(buildTargetSourcePath.getTarget(), new TypeToken<BuildTarget>() {});
         writeString(buildTargetSourcePath.getResolvedPath().toString());
+      } else if (value instanceof ForwardingBuildTargetSourcePath) {
+        visitSourcePath(((ForwardingBuildTargetSourcePath) value).getDelegate());
       } else if (value instanceof PathSourcePath) {
         PathSourcePath pathSourcePath = (PathSourcePath) value;
         stream.writeBoolean(false);
         writeValue(
             getCellName(pathSourcePath.getFilesystem()), new TypeToken<Optional<String>>() {});
-        writeString(pathSourcePath.getRelativePathName());
+        writeString(pathSourcePath.getRelativePath().toString());
       } else {
         throw new IllegalStateException(
             String.format("Cannot serialize SourcePath of type %s.", value.getClass().getName()));
@@ -203,8 +223,34 @@ public class Serializer {
     }
 
     @Override
-    public <T> void visitField(Field field, T value, ValueTypeInfo<T> valueTypeInfo)
+    public <T> void visitField(
+        Field field,
+        T value,
+        ValueTypeInfo<T> valueTypeInfo,
+        Optional<CustomFieldBehavior> behavior)
         throws IOException {
+      if (behavior.isPresent()) {
+        if (CustomBehaviorUtils.get(behavior.get(), DefaultFieldSerialization.class).isPresent()) {
+          @SuppressWarnings("unchecked")
+          ValueTypeInfo<T> typeInfo =
+              (ValueTypeInfo<T>)
+                  ValueTypeInfoFactory.forTypeToken(TypeToken.of(field.getGenericType()));
+
+          typeInfo.visit(value, this);
+          return;
+        }
+
+        Optional<?> serializerTag =
+            CustomBehaviorUtils.get(behavior.get(), CustomFieldSerialization.class);
+        if (serializerTag.isPresent()) {
+          @SuppressWarnings("unchecked")
+          CustomFieldSerialization<T> customSerializer =
+              (CustomFieldSerialization<T>) serializerTag.get();
+          customSerializer.serialize(value, this);
+          return;
+        }
+      }
+
       valueTypeInfo.visit(value, this);
     }
 
@@ -291,6 +337,28 @@ public class Serializer {
     private void writeBytes(byte[] bytes) throws IOException {
       this.stream.writeInt(bytes.length);
       this.stream.write(bytes);
+    }
+
+    @Override
+    public <K, V> void visitMap(
+        ImmutableSortedMap<K, V> value, ValueTypeInfo<K> keyType, ValueTypeInfo<V> valueType)
+        throws IOException {
+      Preconditions.checkState(value.comparator().equals(Ordering.natural()));
+      this.stream.writeInt(value.size());
+      RichStream.from(value.entrySet())
+          .forEachThrowing(
+              entry -> {
+                keyType.visit(entry.getKey(), this);
+                valueType.visit(entry.getValue(), this);
+              });
+    }
+
+    @Override
+    public <T> void visitNullable(@Nullable T value, ValueTypeInfo<T> inner) throws IOException {
+      this.stream.writeBoolean(value != null);
+      if (value != null) {
+        inner.visit(value, this);
+      }
     }
   }
 

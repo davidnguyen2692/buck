@@ -23,12 +23,12 @@ import com.facebook.buck.android.exopackage.ExopackageInfo.DexInfo;
 import com.facebook.buck.android.exopackage.ExopackageMode;
 import com.facebook.buck.android.packageable.AndroidPackageableCollection;
 import com.facebook.buck.android.packageable.AndroidPackageableCollector;
-import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.targetgraph.TargetGraph;
+import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.util.types.Either;
 import com.facebook.buck.util.types.Pair;
@@ -41,6 +41,7 @@ import java.nio.file.Paths;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.stream.Stream;
 import org.hamcrest.Matchers;
 import org.junit.Assert;
@@ -122,7 +123,7 @@ public class AndroidBinaryFilesInfoTest {
           ImmutableMultimap.of(),
           null,
           MoreExecutors.newDirectExecutorService(),
-          Optional.empty(),
+          OptionalInt.empty(),
           Optional.empty(),
           "dx");
     }

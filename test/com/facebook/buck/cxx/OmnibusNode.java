@@ -15,15 +15,16 @@
  */
 package com.facebook.buck.cxx;
 
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRuleResolver;
+import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableInput;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.args.StringArg;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -84,19 +85,19 @@ class OmnibusNode implements NativeLinkable {
       Linker.LinkableDepType type,
       boolean forceLinkWhole,
       ImmutableSet<NativeLinkable.LanguageExtensions> languageExtensions,
-      BuildRuleResolver ruleResolver) {
+      ActionGraphBuilder graphBuilder) {
     return NativeLinkableInput.builder().addArgs(StringArg.of(getBuildTarget().toString())).build();
   }
 
   @Override
   public NativeLinkable.Linkage getPreferredLinkage(
-      CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver) {
+      CxxPlatform cxxPlatform, ActionGraphBuilder graphBuilder) {
     return linkage;
   }
 
   @Override
   public ImmutableMap<String, SourcePath> getSharedLibraries(
-      CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver) {
+      CxxPlatform cxxPlatform, ActionGraphBuilder graphBuilder) {
     return ImmutableMap.of(
         getBuildTarget().toString(), FakeSourcePath.of(getBuildTarget().toString()));
   }

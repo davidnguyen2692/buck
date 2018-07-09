@@ -15,8 +15,9 @@
  */
 package com.facebook.buck.model;
 
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.util.immutables.BuckStyleTuple;
 import com.facebook.buck.io.file.MorePaths;
-import com.facebook.buck.util.immutables.BuckStyleTuple;
 import java.nio.file.Path;
 import org.immutables.value.Value;
 

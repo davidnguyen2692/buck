@@ -16,20 +16,18 @@
 
 package com.facebook.buck.cxx;
 
+import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.HasOutputName;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.impl.NoopBuildRuleWithDeclaredAndExtraDeps;
+import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.HasOutputName;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.CacheableBuildRule;
-import com.facebook.buck.rules.NoopBuildRuleWithDeclaredAndExtraDeps;
-import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.shell.Genrule;
 
 /** Genrule with C++ aware macros. */
-public class CxxGenrule extends NoopBuildRuleWithDeclaredAndExtraDeps
-    implements HasOutputName, CacheableBuildRule {
+public class CxxGenrule extends NoopBuildRuleWithDeclaredAndExtraDeps implements HasOutputName {
 
   private final String output;
 
@@ -48,10 +46,10 @@ public class CxxGenrule extends NoopBuildRuleWithDeclaredAndExtraDeps
   }
 
   /** Get the genrule */
-  public SourcePath getGenrule(CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver) {
+  public SourcePath getGenrule(CxxPlatform cxxPlatform, ActionGraphBuilder graphBuilder) {
     Genrule rule =
         (Genrule)
-            ruleResolver.requireRule(getBuildTarget().withAppendedFlavors(cxxPlatform.getFlavor()));
+            graphBuilder.requireRule(getBuildTarget().withAppendedFlavors(cxxPlatform.getFlavor()));
     return rule.getSourcePathToOutput();
   }
 }

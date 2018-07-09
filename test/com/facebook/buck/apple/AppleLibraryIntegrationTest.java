@@ -25,16 +25,16 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assume.assumeTrue;
 
 import com.facebook.buck.apple.toolchain.ApplePlatform;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.InternalFlavor;
 import com.facebook.buck.cxx.CxxDescriptionEnhancer;
 import com.facebook.buck.cxx.CxxStrip;
 import com.facebook.buck.cxx.toolchain.HeaderMode;
 import com.facebook.buck.cxx.toolchain.StripStyle;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.testutil.MoreAsserts;
 import com.facebook.buck.testutil.ProcessResult;
 import com.facebook.buck.testutil.TemporaryPaths;
@@ -893,6 +893,43 @@ public class AppleLibraryIntegrationTest {
     workspace.setUp();
     BuildTarget target = workspace.newBuildTarget("//:Greeter");
     ProcessResult result = workspace.runBuckCommand("build", target.getFullyQualifiedName());
+    result.assertSuccess();
+  }
+
+  @Test
+  public void testBuildAppleLibraryWhereModularObjcUsesSwiftDiffLib() throws Exception {
+    testModularScenario("apple_library_modular_objc_uses_swift_diff_lib", "Bar");
+  }
+
+  @Test
+  public void testBuildAppleLibraryWhereModularObjcUsesSwiftSameLib() throws Exception {
+    testModularScenario("apple_library_modular_objc_uses_swift_same_lib", "Mixed");
+  }
+
+  @Test
+  public void testBuildAppleLibraryWhereModularSwiftUsesObjcDiffLib() throws Exception {
+    testModularScenario("apple_library_modular_swift_uses_objc_diff_lib", "Bar");
+  }
+
+  @Test
+  public void testBuildAppleLibraryWhereModularSwiftUsesObjcSameLib() throws Exception {
+    testModularScenario("apple_library_modular_swift_uses_objc_same_lib", "Mixed");
+  }
+
+  private void testModularScenario(String scenario, String targetName) throws Exception {
+    assumeTrue(Platform.detect() == Platform.MACOS);
+    assumeTrue(AppleNativeIntegrationTestUtils.isApplePlatformAvailable(ApplePlatform.MACOSX));
+
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, scenario, tmp);
+    workspace.setUp();
+    workspace.addBuckConfigLocalOption("apple", "use_swift_delegate", "false");
+    workspace.addBuckConfigLocalOption("cxx", "cflags", "-fmodules");
+    BuildTarget dylibTarget =
+        workspace
+            .newBuildTarget(String.format("//:%s#iphonesimulator-x86_64", targetName))
+            .withAppendedFlavors(CxxDescriptionEnhancer.SHARED_FLAVOR);
+    ProcessResult result = workspace.runBuckCommand("build", dylibTarget.getFullyQualifiedName());
     result.assertSuccess();
   }
 

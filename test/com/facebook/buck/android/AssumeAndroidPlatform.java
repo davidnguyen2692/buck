@@ -27,9 +27,10 @@ import com.facebook.buck.android.toolchain.impl.AndroidBuildToolsResolver;
 import com.facebook.buck.android.toolchain.impl.AndroidPlatformTargetProducer;
 import com.facebook.buck.android.toolchain.ndk.AndroidNdk;
 import com.facebook.buck.android.toolchain.ndk.impl.AndroidNdkHelper;
+import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
-import com.facebook.buck.util.HumanReadableException;
+import com.facebook.buck.util.VersionStringComparator;
 import java.nio.file.Paths;
 import java.util.Optional;
 
@@ -43,6 +44,36 @@ public class AssumeAndroidPlatform {
     Optional<AndroidNdk> androidNdk = AndroidNdkHelper.detectAndroidNdk(projectFilesystem);
 
     assumeTrue(androidNdk.isPresent());
+  }
+
+  public static void assumeArmIsAvailable() {
+    assumeTrue(isArmAvailable());
+  }
+
+  public static boolean isArmAvailable() {
+    ProjectFilesystem projectFilesystem =
+        TestProjectFilesystems.createProjectFilesystem(Paths.get(".").toAbsolutePath());
+    Optional<AndroidNdk> androidNdk = AndroidNdkHelper.detectAndroidNdk(projectFilesystem);
+
+    if (!androidNdk.isPresent()) {
+      return false;
+    }
+
+    VersionStringComparator comparator = new VersionStringComparator();
+
+    return comparator.compare(androidNdk.get().getNdkVersion(), "17") < 0;
+  }
+
+  public static void assumeUnifiedHeadersAvailable() {
+    ProjectFilesystem projectFilesystem =
+        TestProjectFilesystems.createProjectFilesystem(Paths.get(".").toAbsolutePath());
+    Optional<AndroidNdk> androidNdk = AndroidNdkHelper.detectAndroidNdk(projectFilesystem);
+
+    assumeTrue(androidNdk.isPresent());
+
+    VersionStringComparator comparator = new VersionStringComparator();
+
+    assumeTrue(comparator.compare(androidNdk.get().getNdkVersion(), "14") >= 0);
   }
 
   public static void assumeSdkIsAvailable() throws InterruptedException {

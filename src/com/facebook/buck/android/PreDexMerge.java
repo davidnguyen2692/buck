@@ -19,18 +19,19 @@ package com.facebook.buck.android;
 import com.facebook.buck.android.apkmodule.APKModule;
 import com.facebook.buck.android.apkmodule.APKModuleGraph;
 import com.facebook.buck.android.toolchain.AndroidPlatformTarget;
+import com.facebook.buck.core.build.buildable.context.BuildableContext;
+import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rulekey.AddToRuleKey;
+import com.facebook.buck.core.rules.impl.AbstractBuildRuleWithDeclaredAndExtraDeps;
+import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
-import com.facebook.buck.rules.AddToRuleKey;
-import com.facebook.buck.rules.BuildContext;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildableContext;
-import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.AbstractExecutionStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
@@ -38,7 +39,6 @@ import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.step.StepExecutionResults;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.MkdirStep;
-import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.sha1.Sha1HashCode;
 import com.facebook.buck.util.types.Pair;
 import com.google.common.base.Preconditions;
@@ -63,6 +63,7 @@ import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import javax.annotation.Nullable;
@@ -103,7 +104,7 @@ public class PreDexMerge extends AbstractBuildRuleWithDeclaredAndExtraDeps {
   private final ImmutableMultimap<APKModule, DexProducedFromJavaLibrary> preDexDeps;
   private final DexProducedFromJavaLibrary dexForUberRDotJava;
   private final ListeningExecutorService dxExecutorService;
-  private final Optional<Integer> xzCompressionLevel;
+  private final OptionalInt xzCompressionLevel;
   private final Optional<String> dxMaxHeapSize;
 
   public PreDexMerge(
@@ -116,7 +117,7 @@ public class PreDexMerge extends AbstractBuildRuleWithDeclaredAndExtraDeps {
       ImmutableMultimap<APKModule, DexProducedFromJavaLibrary> preDexDeps,
       DexProducedFromJavaLibrary dexForUberRDotJava,
       ListeningExecutorService dxExecutorService,
-      Optional<Integer> xzCompressionLevel,
+      OptionalInt xzCompressionLevel,
       Optional<String> dxMaxHeapSize,
       String dexTool) {
     super(buildTarget, projectFilesystem, params);

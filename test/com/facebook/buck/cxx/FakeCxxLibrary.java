@@ -18,19 +18,20 @@ package com.facebook.buck.cxx;
 
 import com.facebook.buck.android.packageable.AndroidPackageable;
 import com.facebook.buck.android.packageable.AndroidPackageableCollector;
+import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleResolver;
+import com.facebook.buck.core.rules.impl.NoopBuildRuleWithDeclaredAndExtraDeps;
+import com.facebook.buck.core.sourcepath.DefaultBuildTargetSourcePath;
+import com.facebook.buck.core.sourcepath.PathSourcePath;
+import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableInput;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.DefaultBuildTargetSourcePath;
-import com.facebook.buck.rules.NoopBuildRuleWithDeclaredAndExtraDeps;
-import com.facebook.buck.rules.PathSourcePath;
-import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.util.types.Either;
 import com.google.common.collect.FluentIterable;
@@ -92,7 +93,7 @@ public final class FakeCxxLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
 
   @Override
   public CxxPreprocessorInput getCxxPreprocessorInput(
-      CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver) {
+      CxxPlatform cxxPlatform, ActionGraphBuilder graphBuilder) {
     return CxxPreprocessorInput.builder()
         .addIncludes(
             CxxSymlinkTreeHeaders.builder()
@@ -100,7 +101,6 @@ public final class FakeCxxLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
                 .setNameToPathMap(
                     ImmutableSortedMap.of(
                         Paths.get("header.h"), DefaultBuildTargetSourcePath.of(publicHeaderTarget)))
-                .setBuildTarget(publicHeaderSymlinkTreeTarget)
                 .setRoot(DefaultBuildTargetSourcePath.of(publicHeaderSymlinkTreeTarget))
                 .setIncludeRoot(
                     Either.ofRight(DefaultBuildTargetSourcePath.of(publicHeaderSymlinkTreeTarget)))
@@ -110,11 +110,10 @@ public final class FakeCxxLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
 
   @Override
   public CxxPreprocessorInput getPrivateCxxPreprocessorInput(
-      CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver) {
+      CxxPlatform cxxPlatform, ActionGraphBuilder graphBuilder) {
     return CxxPreprocessorInput.builder()
         .addIncludes(
             CxxSymlinkTreeHeaders.builder()
-                .setBuildTarget(privateHeaderSymlinkTreeTarget)
                 .setIncludeType(CxxPreprocessables.IncludeType.LOCAL)
                 .setRoot(DefaultBuildTargetSourcePath.of(privateHeaderSymlinkTreeTarget))
                 .setIncludeRoot(
@@ -129,8 +128,8 @@ public final class FakeCxxLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
 
   @Override
   public ImmutableMap<BuildTarget, CxxPreprocessorInput> getTransitiveCxxPreprocessorInput(
-      CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver) {
-    return transitiveCxxPreprocessorInputCache.getUnchecked(cxxPlatform, ruleResolver);
+      CxxPlatform cxxPlatform, ActionGraphBuilder graphBuilder) {
+    return transitiveCxxPreprocessorInputCache.getUnchecked(cxxPlatform, graphBuilder);
   }
 
   @Override
@@ -149,7 +148,7 @@ public final class FakeCxxLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
       Linker.LinkableDepType type,
       boolean forceLinkWhole,
       ImmutableSet<NativeLinkable.LanguageExtensions> languageExtensions,
-      BuildRuleResolver ruleResolver) {
+      ActionGraphBuilder graphBuilder) {
     return type == Linker.LinkableDepType.STATIC
         ? NativeLinkableInput.of(
             ImmutableList.of(SourcePathArg.of(archive.getSourcePathToOutput())),
@@ -163,7 +162,7 @@ public final class FakeCxxLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
 
   @Override
   public NativeLinkable.Linkage getPreferredLinkage(
-      CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver) {
+      CxxPlatform cxxPlatform, ActionGraphBuilder graphBuilder) {
     return Linkage.ANY;
   }
 
@@ -177,7 +176,7 @@ public final class FakeCxxLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
 
   @Override
   public ImmutableMap<String, SourcePath> getSharedLibraries(
-      CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver) {
+      CxxPlatform cxxPlatform, ActionGraphBuilder graphBuilder) {
     return ImmutableMap.of(
         sharedLibrarySoname, PathSourcePath.of(getProjectFilesystem(), sharedLibraryOutput));
   }

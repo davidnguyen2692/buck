@@ -20,6 +20,7 @@ import static java.lang.Thread.sleep;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 
+import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.event.BuckEvent;
 import com.facebook.buck.event.BuckEventBusForTests;
 import com.facebook.buck.event.ConsoleEvent;
@@ -29,7 +30,6 @@ import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.TestExecutionContext;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.TestConsole;
-import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.ProcessExecutorParams;
 import com.facebook.buck.util.Verbosity;
 import com.facebook.buck.util.environment.Platform;
@@ -140,12 +140,9 @@ public class WorkerShellStepTest {
       ImmutableMap<String, WorkerJobResult> jobArgs, int poolCapacity) {
     WorkerProcessPool workerProcessPool =
         new WorkerProcessPool(
-            poolCapacity, Hashing.sha1().hashString(fakeWorkerStartupCommand, Charsets.UTF_8)) {
-          @Override
-          protected WorkerProcess startWorkerProcess() throws IOException {
-            return new FakeWorkerProcess(jobArgs);
-          }
-        };
+            poolCapacity,
+            Hashing.sha1().hashString(fakeWorkerStartupCommand, Charsets.UTF_8),
+            () -> new FakeWorkerProcess(jobArgs));
 
     ConcurrentHashMap<String, WorkerProcessPool> workerProcessMap = new ConcurrentHashMap<>();
     workerProcessMap.put(fakeWorkerStartupCommand, workerProcessPool);
@@ -153,26 +150,19 @@ public class WorkerShellStepTest {
     WorkerProcessPool persistentWorkerProcessPool =
         new WorkerProcessPool(
             poolCapacity,
-            Hashing.sha1().hashString(fakePersistentWorkerStartupCommand, Charsets.UTF_8)) {
-          @Override
-          protected WorkerProcess startWorkerProcess() throws IOException {
-            return new FakeWorkerProcess(jobArgs);
-          }
-        };
+            Hashing.sha1().hashString(fakePersistentWorkerStartupCommand, Charsets.UTF_8),
+            () -> new FakeWorkerProcess(jobArgs));
     ConcurrentHashMap<String, WorkerProcessPool> persistentWorkerProcessMap =
         new ConcurrentHashMap<>();
     persistentWorkerProcessMap.put(persistentWorkerKey, persistentWorkerProcessPool);
 
-    ExecutionContext context =
-        TestExecutionContext.newBuilder()
-            .setPlatform(Platform.LINUX)
-            .setWorkerProcessPools(workerProcessMap)
-            .setPersistentWorkerPools(persistentWorkerProcessMap)
-            .setConsole(new TestConsole(Verbosity.ALL))
-            .setBuckEventBus(BuckEventBusForTests.newInstance())
-            .build();
-
-    return context;
+    return TestExecutionContext.newBuilder()
+        .setPlatform(Platform.LINUX)
+        .setWorkerProcessPools(workerProcessMap)
+        .setPersistentWorkerPools(persistentWorkerProcessMap)
+        .setConsole(new TestConsole(Verbosity.ALL))
+        .setBuckEventBus(BuckEventBusForTests.newInstance())
+        .build();
   }
 
   @Test

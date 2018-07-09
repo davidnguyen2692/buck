@@ -16,21 +16,21 @@
 
 package com.facebook.buck.android;
 
+import com.facebook.buck.core.build.buildable.context.BuildableContext;
+import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rulekey.AddToRuleKey;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.attr.BuildOutputInitializer;
+import com.facebook.buck.core.rules.attr.InitializableFromDisk;
+import com.facebook.buck.core.rules.common.BuildableSupport;
+import com.facebook.buck.core.rules.impl.AbstractBuildRule;
+import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.AbstractBuildRule;
-import com.facebook.buck.rules.AddToRuleKey;
-import com.facebook.buck.rules.BuildContext;
-import com.facebook.buck.rules.BuildOutputInitializer;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildableContext;
-import com.facebook.buck.rules.BuildableSupport;
-import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
-import com.facebook.buck.rules.InitializableFromDisk;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.shell.BashStep;
 import com.facebook.buck.step.AbstractExecutionStep;
@@ -183,7 +183,7 @@ public class ResourcesFilter extends AbstractBuildRule
         .addAll(rulesWithResourceDirectories)
         .addAll(
             RichStream.from(postFilterResourcesCmd)
-                .flatMap(a -> BuildableSupport.getDepsCollection(a, ruleFinder).stream())
+                .flatMap(a -> BuildableSupport.getDeps(a, ruleFinder))
                 .toOnceIterable())
         .build();
   }

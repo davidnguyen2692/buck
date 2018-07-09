@@ -16,6 +16,7 @@
 package com.facebook.buck.event.listener;
 
 import com.facebook.buck.artifact_cache.HttpArtifactCacheEvent;
+import com.facebook.buck.core.build.event.BuildRuleEvent;
 import com.facebook.buck.distributed.DistBuildMode;
 import com.facebook.buck.distributed.DistBuildService;
 import com.facebook.buck.distributed.DistBuildUtil;
@@ -24,8 +25,10 @@ import com.facebook.buck.distributed.build_slave.BuildSlaveTimingStatsTracker;
 import com.facebook.buck.distributed.build_slave.CoordinatorBuildRuleEventsPublisher;
 import com.facebook.buck.distributed.build_slave.HealthCheckStatsTracker;
 import com.facebook.buck.distributed.build_slave.MinionBuildProgressTracker;
+import com.facebook.buck.distributed.build_slave.ServerSideBuildSlaveFinishedStatsEvent;
 import com.facebook.buck.distributed.thrift.BuildRuleFinishedEvent;
 import com.facebook.buck.distributed.thrift.BuildRuleStartedEvent;
+import com.facebook.buck.distributed.thrift.BuildRuleUnlockedEvent;
 import com.facebook.buck.distributed.thrift.BuildSlaveEvent;
 import com.facebook.buck.distributed.thrift.BuildSlaveEventType;
 import com.facebook.buck.distributed.thrift.BuildSlaveFinishedStats;
@@ -33,13 +36,13 @@ import com.facebook.buck.distributed.thrift.BuildSlaveRunId;
 import com.facebook.buck.distributed.thrift.BuildSlaveStatus;
 import com.facebook.buck.distributed.thrift.CoordinatorBuildProgress;
 import com.facebook.buck.distributed.thrift.CoordinatorBuildProgressEvent;
+import com.facebook.buck.distributed.thrift.MinionType;
 import com.facebook.buck.distributed.thrift.StampedeId;
+import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventListener;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.log.TimedLogger;
-import com.facebook.buck.model.BuildId;
-import com.facebook.buck.rules.BuildRuleEvent;
 import com.facebook.buck.util.network.hostname.HostnameFetching;
 import com.facebook.buck.util.timing.Clock;
 import com.google.common.base.Preconditions;
@@ -51,6 +54,7 @@ import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
@@ -79,6 +83,7 @@ public class DistBuildSlaveEventBusListener
   private static final int SHUTDOWN_TIMEOUT_SECONDS = 10;
 
   private final StampedeId stampedeId;
+  private volatile String jobName = "";
   private final BuildSlaveRunId buildSlaveRunId;
   private final Clock clock;
   private final ScheduledFuture<?> scheduledServerUpdates;
@@ -97,7 +102,7 @@ public class DistBuildSlaveEventBusListener
   private final AtomicInteger buildRulesBuildingCount = new AtomicInteger(0);
   private final AtomicInteger buildRulesFailureCount = new AtomicInteger(0);
 
-  private final HttpCacheUploadStats httpCacheUploadStats = new HttpCacheUploadStats();
+  private final RemoteCacheUploadStats remoteCacheUploadStats = new RemoteCacheUploadStats();
 
   private final FileMaterializationStatsTracker fileMaterializationStatsTracker;
   private final HealthCheckStatsTracker healthCheckStatsTracker;
@@ -106,8 +111,10 @@ public class DistBuildSlaveEventBusListener
 
   private volatile @Nullable CoordinatorBuildProgress coordinatorBuildProgress = null;
   private volatile @Nullable DistBuildService distBuildService;
-  private volatile Optional<Integer> exitCode = Optional.empty();
+  private volatile OptionalInt exitCode = OptionalInt.empty();
   private volatile boolean sentFinishedStatsToServer;
+  private volatile Optional<String> buildLabel = Optional.empty();
+  private volatile String minionType = MinionType.STANDARD_SPEC.name();
 
   public DistBuildSlaveEventBusListener(
       StampedeId stampedeId,
@@ -166,9 +173,6 @@ public class DistBuildSlaveEventBusListener
   }
 
   @Override
-  public void outputTrace(BuildId buildId) {}
-
-  @Override
   public void close() throws IOException {
     stopScheduledUpdates();
   }
@@ -182,15 +186,11 @@ public class DistBuildSlaveEventBusListener
         .setRulesBuildingCount(buildRulesBuildingCount.get())
         .setRulesFailureCount(buildRulesFailureCount.get())
         .setCacheRateStats(cacheRateStatsKeeper.getSerializableStats())
-        .setHttpArtifactTotalBytesUploaded(httpCacheUploadStats.getHttpArtifactTotalBytesUploaded())
-        .setHttpArtifactUploadsScheduledCount(
-            httpCacheUploadStats.getHttpArtifactTotalUploadsScheduledCount())
-        .setHttpArtifactUploadsOngoingCount(
-            httpCacheUploadStats.getHttpArtifactUploadsOngoingCount())
-        .setHttpArtifactUploadsSuccessCount(
-            httpCacheUploadStats.getHttpArtifactUploadsSuccessCount())
-        .setHttpArtifactUploadsFailureCount(
-            httpCacheUploadStats.getHttpArtifactUploadsFailureCount())
+        .setHttpArtifactTotalBytesUploaded(remoteCacheUploadStats.getBytesUploaded())
+        .setHttpArtifactUploadsScheduledCount(remoteCacheUploadStats.getScheduledCount())
+        .setHttpArtifactUploadsOngoingCount(remoteCacheUploadStats.getOngoingCount())
+        .setHttpArtifactUploadsSuccessCount(remoteCacheUploadStats.getSuccessCount())
+        .setHttpArtifactUploadsFailureCount(remoteCacheUploadStats.getFailureCount())
         .setFilesMaterializedCount(
             fileMaterializationStatsTracker.getTotalFilesMaterializedCount());
   }
@@ -199,6 +199,7 @@ public class DistBuildSlaveEventBusListener
     BuildSlaveFinishedStats finishedStats =
         new BuildSlaveFinishedStats()
             .setHostname(hostname)
+            .setJobName(jobName)
             .setDistBuildMode(distBuildMode.name())
             .setBuildSlaveStatus(createBuildSlaveStatus())
             .setFileMaterializationStats(
@@ -208,7 +209,7 @@ public class DistBuildSlaveEventBusListener
     Preconditions.checkState(
         exitCode.isPresent(),
         "BuildSlaveFinishedStats can only be generated after we are finished building.");
-    finishedStats.setExitCode(exitCode.get());
+    finishedStats.setExitCode(exitCode.getAsInt());
     return finishedStats;
   }
 
@@ -322,10 +323,20 @@ public class DistBuildSlaveEventBusListener
 
   /** Publishes events from slave back to client that kicked off build (via frontend) */
   public void sendFinalServerUpdates(int exitCode) {
-    this.exitCode = Optional.of(exitCode);
+    this.exitCode = OptionalInt.of(exitCode);
     stopScheduledUpdates();
     sendAllRulesFinishedEvent();
     sendFinishedStatsToFrontend(createBuildSlaveFinishedStats());
+  }
+
+  /** Sends a ServerSideBuildSlaveFinishedStatsEvent to the given BuckEventBus */
+  public void publishServerSideBuildSlaveFinishedStatsEvent(BuckEventBus eventBus) {
+    BuildSlaveFinishedStats buildSlaveFinishedStats = createBuildSlaveFinishedStats();
+    ServerSideBuildSlaveFinishedStatsEvent event =
+        new ServerSideBuildSlaveFinishedStatsEvent(
+            stampedeId, buildSlaveRunId, buildLabel, minionType, buildSlaveFinishedStats);
+
+    eventBus.post(event);
   }
 
   /** Record unexpected cache misses in build slaves. */
@@ -398,17 +409,17 @@ public class DistBuildSlaveEventBusListener
 
   @Subscribe
   public void onHttpArtifactCacheScheduledEvent(HttpArtifactCacheEvent.Scheduled event) {
-    httpCacheUploadStats.processHttpArtifactCacheScheduledEvent(event);
+    remoteCacheUploadStats.processScheduledEvent(event);
   }
 
   @Subscribe
   public void onHttpArtifactCacheStartedEvent(HttpArtifactCacheEvent.Started event) {
-    httpCacheUploadStats.processHttpArtifactCacheStartedEvent(event);
+    remoteCacheUploadStats.processStartedEvent(event);
   }
 
   @Subscribe
   public void onHttpArtifactCacheFinishedEvent(HttpArtifactCacheEvent.Finished event) {
-    httpCacheUploadStats.processHttpArtifactCacheFinishedEvent(event);
+    remoteCacheUploadStats.processFinishedEvent(event);
   }
 
   @Override
@@ -463,11 +474,49 @@ public class DistBuildSlaveEventBusListener
   }
 
   @Override
+  public void createBuildRuleUnlockedEvents(ImmutableList<String> unlockedTargets) {
+    if (unlockedTargets.size() == 0) {
+      return;
+    }
+    List<BuildSlaveEvent> ruleUnlockedEvents = new LinkedList<>();
+    for (String target : unlockedTargets) {
+      LOG.info(String.format("Queueing build rule unlocked event for target [%s]", target));
+      BuildRuleUnlockedEvent unlockedEvent = new BuildRuleUnlockedEvent();
+      unlockedEvent.setBuildTarget(target);
+
+      BuildSlaveEvent buildSlaveEvent =
+          DistBuildUtil.createBuildSlaveEvent(
+              BuildSlaveEventType.BUILD_RULE_UNLOCKED_EVENT, clock.currentTimeMillis());
+      buildSlaveEvent.setBuildRuleUnlockedEvent(unlockedEvent);
+      ruleUnlockedEvents.add(buildSlaveEvent);
+    }
+
+    synchronized (pendingSlaveEvents) {
+      pendingSlaveEvents.addAll(ruleUnlockedEvents);
+    }
+  }
+
+  @Override
   public void createMostBuildRulesCompletedEvent() {
     synchronized (pendingSlaveEvents) {
       pendingSlaveEvents.add(
           DistBuildUtil.createBuildSlaveEvent(
               BuildSlaveEventType.MOST_BUILD_RULES_FINISHED_EVENT, clock.currentTimeMillis()));
     }
+  }
+
+  public void setJobName(String jobName) {
+    this.jobName = jobName;
+  }
+
+  /** Sets build label that will be included in finished event */
+  public void setBuildLabel(String buildLabel) {
+    if (buildLabel != null && !buildLabel.equals("")) {
+      this.buildLabel = Optional.of(buildLabel);
+    }
+  }
+
+  public void setMinionType(String minionType) {
+    this.minionType = minionType;
   }
 }

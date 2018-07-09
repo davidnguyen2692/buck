@@ -19,24 +19,24 @@ package com.facebook.buck.cxx;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotEquals;
 
+import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rulekey.RuleKey;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
+import com.facebook.buck.core.sourcepath.PathSourcePath;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.BuildContext;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.FakeBuildContext;
 import com.facebook.buck.rules.FakeBuildableContext;
-import com.facebook.buck.rules.PathSourcePath;
-import com.facebook.buck.rules.RuleKey;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TestBuildRuleResolver;
 import com.facebook.buck.rules.keys.DefaultRuleKeyFactory;
 import com.facebook.buck.rules.keys.InputBasedRuleKeyFactory;
 import com.facebook.buck.rules.keys.TestDefaultRuleKeyFactory;
@@ -73,7 +73,7 @@ public class HeaderSymlinkTreeWithHeaderMapTest {
   private HeaderSymlinkTreeWithHeaderMap symlinkTreeBuildRule;
   private ImmutableMap<Path, SourcePath> links;
   private Path symlinkTreeRoot;
-  private BuildRuleResolver ruleResolver;
+  private ActionGraphBuilder graphBuilder;
   private SourcePathRuleFinder ruleFinder;
   private SourcePathResolver resolver;
 
@@ -106,8 +106,8 @@ public class HeaderSymlinkTreeWithHeaderMapTest {
     symlinkTreeRoot =
         BuildTargets.getGenPath(projectFilesystem, buildTarget, "%s/symlink-tree-root");
 
-    ruleResolver = new TestBuildRuleResolver();
-    ruleFinder = new SourcePathRuleFinder(ruleResolver);
+    graphBuilder = new TestActionGraphBuilder();
+    ruleFinder = new SourcePathRuleFinder(graphBuilder);
     resolver = DefaultSourcePathResolver.from(ruleFinder);
 
     // Setup the symlink tree buildable.
@@ -190,7 +190,7 @@ public class HeaderSymlinkTreeWithHeaderMapTest {
 
   @Test
   public void testSymlinkTreeRuleKeyChangesIfLinkTargetsChange() throws IOException {
-    ruleResolver.addToIndex(symlinkTreeBuildRule);
+    graphBuilder.addToIndex(symlinkTreeBuildRule);
 
     DefaultFileHashCache hashCache =
         DefaultFileHashCache.createDefaultFileHashCache(
@@ -219,7 +219,7 @@ public class HeaderSymlinkTreeWithHeaderMapTest {
   @Test
   public void testSymlinkTreeInputBasedRuleKeyDoesNotChangeIfLinkTargetsChange()
       throws IOException {
-    ruleResolver.addToIndex(symlinkTreeBuildRule);
+    graphBuilder.addToIndex(symlinkTreeBuildRule);
 
     InputBasedRuleKeyFactory ruleKeyFactory =
         new TestInputBasedRuleKeyFactory(

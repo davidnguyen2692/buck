@@ -17,20 +17,20 @@
 package com.facebook.buck.cli;
 
 import com.facebook.buck.config.BuckConfig;
+import com.facebook.buck.core.cell.Cell;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.sourcepath.PathSourcePath;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.parser.BuildTargetPatternTargetNodeParser;
 import com.facebook.buck.parser.Parser;
 import com.facebook.buck.parser.ParserConfig;
-import com.facebook.buck.parser.PerBuildState;
+import com.facebook.buck.parser.SpeculativeParsing;
 import com.facebook.buck.parser.TargetNodeSpec;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
 import com.facebook.buck.query.QueryBuildTarget;
 import com.facebook.buck.query.QueryFileTarget;
 import com.facebook.buck.query.QueryTarget;
-import com.facebook.buck.rules.Cell;
-import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.util.MoreMaps;
 import com.google.common.base.Functions;
 import com.google.common.collect.ImmutableList;
@@ -154,7 +154,7 @@ public class TargetPatternEvaluator {
             enableProfiling,
             executor,
             specs,
-            PerBuildState.SpeculativeParsing.DISABLED,
+            SpeculativeParsing.DISABLED,
             // We disable mapping //path/to:lib to //path/to:lib#default,static
             // because the query engine doesn't handle flavors very well.
             ParserConfig.ApplyDefaultFlavorsMode.DISABLED);

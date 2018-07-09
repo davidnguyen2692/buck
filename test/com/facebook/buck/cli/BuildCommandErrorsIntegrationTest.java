@@ -18,18 +18,20 @@ package com.facebook.buck.cli;
 
 import static org.junit.Assert.assertEquals;
 
+import com.facebook.buck.core.build.buildable.context.BuildableContext;
+import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
+import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.impl.AbstractBuildRule;
+import com.facebook.buck.core.rules.impl.NoopBuildRule;
+import com.facebook.buck.core.rules.knowntypes.KnownBuildRuleTypes;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.AbstractBuildRule;
-import com.facebook.buck.rules.BuildContext;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleCreationContext;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildableContext;
-import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.KnownBuildRuleTypes;
-import com.facebook.buck.rules.NoopBuildRule;
-import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.step.AbstractExecutionStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
@@ -38,9 +40,7 @@ import com.facebook.buck.testutil.ProcessResult;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TestDataHelper;
-import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.exceptions.BuckUncheckedExecutionException;
-import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Throwables;
@@ -508,7 +508,7 @@ public class BuildCommandErrorsIntegrationTest {
   @Value.Immutable
   interface AbstractMockArg {}
 
-  private class MockDescription implements Description<MockArg> {
+  private class MockDescription implements DescriptionWithTargetGraph<MockArg> {
     private BuildRuleFactory buildRuleFactory = null;
 
     @Override
@@ -518,7 +518,7 @@ public class BuildCommandErrorsIntegrationTest {
 
     @Override
     public BuildRule createBuildRule(
-        BuildRuleCreationContext context,
+        BuildRuleCreationContextWithTargetGraph context,
         BuildTarget buildTarget,
         BuildRuleParams params,
         MockArg args) {

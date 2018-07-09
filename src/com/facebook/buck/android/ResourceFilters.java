@@ -16,8 +16,8 @@
 
 package com.facebook.buck.android;
 
+import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreStrings;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
@@ -55,7 +55,10 @@ public class ResourceFilters {
           "menu",
           "raw",
           "values",
-          "xml");
+          "xml",
+          // "interpolator" is not officially documented in the above
+          // link, but several support library aar files use it.
+          "interpolator");
 
   /**
    * Represents the names and values of valid densities for resources as defined in

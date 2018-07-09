@@ -16,10 +16,10 @@
 
 package com.facebook.buck.jvm.java;
 
+import com.facebook.buck.core.rules.BuildRuleResolver;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.toolchain.ToolchainProvider;
 import java.util.function.Function;
 import javax.annotation.Nullable;
@@ -27,16 +27,19 @@ import javax.annotation.Nullable;
 public class JavaConfiguredCompilerFactory extends ConfiguredCompilerFactory {
   private final JavaBuckConfig javaBuckConfig;
   private final Function<ToolchainProvider, ExtraClasspathProvider> extraClasspathProviderSupplier;
+  private final JavacFactory javacFactory;
 
-  public JavaConfiguredCompilerFactory(JavaBuckConfig javaBuckConfig) {
-    this(javaBuckConfig, (toolchainProvider) -> ExtraClasspathProvider.EMPTY);
+  public JavaConfiguredCompilerFactory(JavaBuckConfig javaBuckConfig, JavacFactory javacFactory) {
+    this(javaBuckConfig, (toolchainProvider) -> ExtraClasspathProvider.EMPTY, javacFactory);
   }
 
   public JavaConfiguredCompilerFactory(
       JavaBuckConfig javaBuckConfig,
-      Function<ToolchainProvider, ExtraClasspathProvider> extraClasspathProviderSupplier) {
+      Function<ToolchainProvider, ExtraClasspathProvider> extraClasspathProviderSupplier,
+      JavacFactory javacFactory) {
     this.javaBuckConfig = javaBuckConfig;
     this.extraClasspathProviderSupplier = extraClasspathProviderSupplier;
+    this.javacFactory = javacFactory;
   }
 
   @Override
@@ -84,6 +87,6 @@ public class JavaConfiguredCompilerFactory extends ConfiguredCompilerFactory {
   }
 
   private Javac getJavac(BuildRuleResolver resolver, @Nullable JvmLibraryArg arg) {
-    return JavacFactory.create(new SourcePathRuleFinder(resolver), javaBuckConfig, arg);
+    return javacFactory.create(new SourcePathRuleFinder(resolver), arg);
   }
 }

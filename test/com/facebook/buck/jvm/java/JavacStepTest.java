@@ -24,14 +24,14 @@ import static org.hamcrest.Matchers.not;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 
+import com.facebook.buck.core.rules.BuildRuleResolver;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.event.BuckEventBusForTests;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.DefaultSourcePathResolver;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TestBuildRuleResolver;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.step.StepExecutionResults;
@@ -60,7 +60,7 @@ public class JavacStepTest {
   @Test
   public void successfulCompileDoesNotSendStdoutAndStderrToConsole() throws Exception {
     FakeJavac fakeJavac = new FakeJavac();
-    BuildRuleResolver buildRuleResolver = new TestBuildRuleResolver();
+    BuildRuleResolver buildRuleResolver = new TestActionGraphBuilder();
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(buildRuleResolver);
     SourcePathResolver sourcePathResolver = DefaultSourcePathResolver.from(ruleFinder);
     ProjectFilesystem fakeFilesystem = FakeProjectFilesystem.createJavaOnlyFilesystem();
@@ -107,7 +107,7 @@ public class JavacStepTest {
   @Test
   public void failedCompileSendsStdoutAndStderrToConsole() throws Exception {
     FakeJavac fakeJavac = new FakeJavac();
-    BuildRuleResolver buildRuleResolver = new TestBuildRuleResolver();
+    BuildRuleResolver buildRuleResolver = new TestActionGraphBuilder();
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(buildRuleResolver);
     SourcePathResolver sourcePathResolver = DefaultSourcePathResolver.from(ruleFinder);
     ProjectFilesystem fakeFilesystem = FakeProjectFilesystem.createJavaOnlyFilesystem();
@@ -157,7 +157,7 @@ public class JavacStepTest {
   @Test
   public void existingBootclasspathDirSucceeds() throws Exception {
     FakeJavac fakeJavac = new FakeJavac();
-    BuildRuleResolver buildRuleResolver = new TestBuildRuleResolver();
+    BuildRuleResolver buildRuleResolver = new TestActionGraphBuilder();
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(buildRuleResolver);
     SourcePathResolver sourcePathResolver = DefaultSourcePathResolver.from(ruleFinder);
     ProjectFilesystem fakeFilesystem = FakeProjectFilesystem.createJavaOnlyFilesystem();
@@ -209,7 +209,7 @@ public class JavacStepTest {
   @Test
   public void bootclasspathResolvedToAbsolutePath() {
     FakeJavac fakeJavac = new FakeJavac();
-    BuildRuleResolver buildRuleResolver = new TestBuildRuleResolver();
+    BuildRuleResolver buildRuleResolver = new TestActionGraphBuilder();
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(buildRuleResolver);
     SourcePathResolver sourcePathResolver = DefaultSourcePathResolver.from(ruleFinder);
     ProjectFilesystem fakeFilesystem = FakeProjectFilesystem.createJavaOnlyFilesystem();
@@ -267,7 +267,7 @@ public class JavacStepTest {
   @Test
   public void missingBootclasspathDirFailsWithError() throws Exception {
     FakeJavac fakeJavac = new FakeJavac();
-    BuildRuleResolver buildRuleResolver = new TestBuildRuleResolver();
+    BuildRuleResolver buildRuleResolver = new TestActionGraphBuilder();
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(buildRuleResolver);
     SourcePathResolver sourcePathResolver = DefaultSourcePathResolver.from(ruleFinder);
     ProjectFilesystem fakeFilesystem = FakeProjectFilesystem.createJavaOnlyFilesystem();

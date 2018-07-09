@@ -16,11 +16,11 @@
 
 package com.facebook.buck.maven;
 
+import com.facebook.buck.maven.aether.Repository;
 import com.facebook.buck.util.json.ObjectMappers;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.MoreObjects;
-import com.google.common.base.Preconditions;
 import java.io.IOException;
 import java.nio.file.Paths;
 import java.util.ArrayList;
@@ -63,22 +63,6 @@ public class ArtifactConfig {
     public boolean showHelp;
   }
 
-  public static class Repository {
-    private @Nullable String url;
-    public @Nullable String user;
-    public @Nullable String password;
-
-    public Repository() {}
-
-    public Repository(String url) {
-      this.url = url;
-    }
-
-    public String getUrl() {
-      return Preconditions.checkNotNull(url);
-    }
-  }
-
   public List<Repository> repositories = new ArrayList<>();
 
   public List<String> artifacts = new ArrayList<>();
@@ -115,7 +99,7 @@ public class ArtifactConfig {
   private static void usage(CmdLineParser parser) {
     System.out.println("Import Maven JARs as Buck build rules.");
     System.out.println();
-    System.out.println("Usage: java -jar resolver.jar [OPTIONS] -repo REPO artifact...");
+    System.out.println("Usage: java -jar graphBuilder.jar [OPTIONS] -repo REPO artifact...");
     System.out.println();
     System.out.println(
         "Artifacts are of the form group:artifact[:extension[:classifier]]:version, "

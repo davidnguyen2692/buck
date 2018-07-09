@@ -18,27 +18,28 @@ package com.facebook.buck.cxx.toolchain.nativelink;
 
 import static org.hamcrest.MatcherAssert.assertThat;
 
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleResolver;
+import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
+import com.facebook.buck.core.sourcepath.PathSourcePath;
+import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable.Linkage;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.rules.PathSourcePath;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.TestBuildRuleResolver;
 import com.facebook.buck.rules.args.StringArg;
-import com.facebook.buck.util.HumanReadableException;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
 import java.util.Optional;
+import java.util.stream.Collectors;
 import org.hamcrest.Matchers;
 import org.junit.Test;
 
@@ -84,19 +85,19 @@ public class NativeLinkablesTest {
         Linker.LinkableDepType type,
         boolean forceLinkWhole,
         ImmutableSet<NativeLinkable.LanguageExtensions> languageExtensions,
-        BuildRuleResolver ruleResolver) {
+        ActionGraphBuilder graphBuilder) {
       return nativeLinkableInput;
     }
 
     @Override
     public NativeLinkable.Linkage getPreferredLinkage(
-        CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver) {
+        CxxPlatform cxxPlatform, ActionGraphBuilder graphBuilder) {
       return preferredLinkage;
     }
 
     @Override
     public ImmutableMap<String, SourcePath> getSharedLibraries(
-        CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver) {
+        CxxPlatform cxxPlatform, ActionGraphBuilder graphBuilder) {
       return sharedLibraries;
     }
   }
@@ -122,10 +123,12 @@ public class NativeLinkablesTest {
     assertThat(
         NativeLinkables.getNativeLinkables(
                 CxxPlatformUtils.DEFAULT_PLATFORM,
-                new TestBuildRuleResolver(),
+                new TestActionGraphBuilder(),
                 ImmutableList.of(a),
                 Linker.LinkableDepType.SHARED)
-            .keySet(),
+            .stream()
+            .map(NativeLinkable::getBuildTarget)
+            .collect(Collectors.toSet()),
         Matchers.not(Matchers.hasItem(b.getBuildTarget())));
   }
 
@@ -150,10 +153,12 @@ public class NativeLinkablesTest {
     assertThat(
         NativeLinkables.getNativeLinkables(
                 CxxPlatformUtils.DEFAULT_PLATFORM,
-                new TestBuildRuleResolver(),
+                new TestActionGraphBuilder(),
                 ImmutableList.of(a),
                 Linker.LinkableDepType.SHARED)
-            .keySet(),
+            .stream()
+            .map(NativeLinkable::getBuildTarget)
+            .collect(Collectors.toSet()),
         Matchers.hasItem(b.getBuildTarget()));
   }
 
@@ -178,10 +183,12 @@ public class NativeLinkablesTest {
     assertThat(
         NativeLinkables.getNativeLinkables(
                 CxxPlatformUtils.DEFAULT_PLATFORM,
-                new TestBuildRuleResolver(),
+                new TestActionGraphBuilder(),
                 ImmutableList.of(a),
                 Linker.LinkableDepType.SHARED)
-            .keySet(),
+            .stream()
+            .map(NativeLinkable::getBuildTarget)
+            .collect(Collectors.toSet()),
         Matchers.hasItem(b.getBuildTarget()));
   }
 
@@ -206,10 +213,12 @@ public class NativeLinkablesTest {
     assertThat(
         NativeLinkables.getNativeLinkables(
                 CxxPlatformUtils.DEFAULT_PLATFORM,
-                new TestBuildRuleResolver(),
+                new TestActionGraphBuilder(),
                 ImmutableList.of(a),
                 Linker.LinkableDepType.STATIC)
-            .keySet(),
+            .stream()
+            .map(NativeLinkable::getBuildTarget)
+            .collect(Collectors.toSet()),
         Matchers.hasItem(b.getBuildTarget()));
   }
 
@@ -242,7 +251,7 @@ public class NativeLinkablesTest {
     ImmutableSortedMap<String, SourcePath> sharedLibs =
         NativeLinkables.getTransitiveSharedLibraries(
             CxxPlatformUtils.DEFAULT_PLATFORM,
-            new TestBuildRuleResolver(),
+            new TestActionGraphBuilder(),
             ImmutableList.of(a),
             r -> Optional.empty(),
             true);
@@ -278,10 +287,12 @@ public class NativeLinkablesTest {
     assertThat(
         NativeLinkables.getNativeLinkables(
                 CxxPlatformUtils.DEFAULT_PLATFORM,
-                new TestBuildRuleResolver(),
+                new TestActionGraphBuilder(),
                 ImmutableList.of(a),
                 Linker.LinkableDepType.STATIC)
-            .keySet(),
+            .stream()
+            .map(NativeLinkable::getBuildTarget)
+            .collect(Collectors.toSet()),
         Matchers.not(Matchers.hasItem(c.getBuildTarget())));
   }
 
@@ -318,7 +329,7 @@ public class NativeLinkablesTest {
             ImmutableMap.of("liba.so", FakeSourcePath.of("liba2.so")));
     NativeLinkables.getTransitiveSharedLibraries(
         CxxPlatformUtils.DEFAULT_PLATFORM,
-        new TestBuildRuleResolver(),
+        new TestActionGraphBuilder(),
         ImmutableList.of(a, b),
         n -> Optional.empty(),
         true);
@@ -346,7 +357,7 @@ public class NativeLinkablesTest {
     ImmutableSortedMap<String, SourcePath> sharedLibs =
         NativeLinkables.getTransitiveSharedLibraries(
             CxxPlatformUtils.DEFAULT_PLATFORM,
-            new TestBuildRuleResolver(),
+            new TestActionGraphBuilder(),
             ImmutableList.of(a, b),
             n -> Optional.empty(),
             true);
@@ -356,7 +367,7 @@ public class NativeLinkablesTest {
 
   @Test
   public void traversePredicate() {
-    BuildRuleResolver ruleResolver = new TestBuildRuleResolver();
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     FakeNativeLinkable b =
         new FakeNativeLinkable(
             "//:b",
@@ -375,23 +386,26 @@ public class NativeLinkablesTest {
             ImmutableMap.of());
     assertThat(
         NativeLinkables.getNativeLinkables(
-            CxxPlatformUtils.DEFAULT_PLATFORM,
-            ruleResolver,
-            ImmutableList.of(a),
-            Linker.LinkableDepType.STATIC,
-            n -> true),
-        Matchers.equalTo(
-            ImmutableMap.<BuildTarget, NativeLinkable>of(
-                a.getBuildTarget(), a,
-                b.getBuildTarget(), b)));
+                CxxPlatformUtils.DEFAULT_PLATFORM,
+                graphBuilder,
+                ImmutableList.of(a),
+                Linker.LinkableDepType.STATIC,
+                n -> true)
+            .stream()
+            .map(NativeLinkable::getBuildTarget)
+            .collect(Collectors.toSet()),
+        Matchers.equalTo(ImmutableSet.of(a.getBuildTarget(), b.getBuildTarget())));
     assertThat(
         NativeLinkables.getNativeLinkables(
-            CxxPlatformUtils.DEFAULT_PLATFORM,
-            ruleResolver,
-            ImmutableList.of(a),
-            Linker.LinkableDepType.STATIC,
-            a::equals),
-        Matchers.equalTo(ImmutableMap.<BuildTarget, NativeLinkable>of(a.getBuildTarget(), a)));
+                CxxPlatformUtils.DEFAULT_PLATFORM,
+                graphBuilder,
+                ImmutableList.of(a),
+                Linker.LinkableDepType.STATIC,
+                a::equals)
+            .stream()
+            .map(NativeLinkable::getBuildTarget)
+            .collect(Collectors.toSet()),
+        Matchers.equalTo(ImmutableSet.of(a.getBuildTarget())));
   }
 
   @Test
@@ -415,7 +429,7 @@ public class NativeLinkablesTest {
     ImmutableSortedMap<String, SourcePath> sharedLibs =
         NativeLinkables.getTransitiveSharedLibraries(
             CxxPlatformUtils.DEFAULT_PLATFORM,
-            new TestBuildRuleResolver(),
+            new TestActionGraphBuilder(),
             ImmutableList.of(a),
             r -> Optional.empty(),
             true);

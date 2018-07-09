@@ -1,20 +1,17 @@
+fixed_deps = [
+    "//prebuilt_cxx_library:exclamation",
+]
+
+if host_info().os.is_windows:
+    fixed_deps = [
+        "//prebuilt_cxx_library:exclamation_src",
+    ]
+
 cxx_library(
     name = "output_fixed",
     srcs = ["output_fixed.cpp"],
     exported_headers = ["output_fixed.h"],
     link_style = "static",
-    platform_compiler_flags = [
-        [
-            "windows",
-            WINDOWS_COMPILE_FLAGS,
-        ],
-    ],
-    platform_linker_flags = [
-        [
-            "windows",
-            WINDOWS_LINK_FLAGS,
-        ],
-    ],
     visibility = ["PUBLIC"],
-    deps = [],
+    deps = fixed_deps,
 )

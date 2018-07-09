@@ -16,20 +16,20 @@
 
 package com.facebook.buck.cxx;
 
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleResolver;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.toolchain.toolprovider.ToolProvider;
+import com.facebook.buck.core.util.immutables.BuckStylePackageVisibleTuple;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.ElfSharedLibraryInterfaceParams;
 import com.facebook.buck.cxx.toolchain.SharedLibraryInterfaceFactory;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.ToolProvider;
 import com.facebook.buck.rules.args.Arg;
-import com.facebook.buck.util.immutables.BuckStylePackageVisibleTuple;
 import com.google.common.collect.ImmutableList;
 import org.immutables.value.Value;
 

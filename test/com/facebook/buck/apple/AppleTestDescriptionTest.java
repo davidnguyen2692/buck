@@ -22,26 +22,26 @@ import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assume.assumeThat;
 
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.targetgraph.TargetGraph;
+import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
+import com.facebook.buck.core.model.targetgraph.TargetNode;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
+import com.facebook.buck.core.sourcepath.SourceWithFlags;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.cxx.CxxLink;
 import com.facebook.buck.cxx.CxxStrip;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.SourceWithFlags;
-import com.facebook.buck.rules.TargetGraph;
-import com.facebook.buck.rules.TargetNode;
-import com.facebook.buck.rules.TestBuildRuleResolver;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.macros.LocationMacro;
 import com.facebook.buck.rules.macros.StringWithMacrosUtils;
 import com.facebook.buck.shell.Genrule;
 import com.facebook.buck.shell.GenruleBuilder;
-import com.facebook.buck.testutil.TargetGraphFactory;
 import com.facebook.buck.util.RichStream;
 import com.facebook.buck.util.environment.Platform;
 import com.facebook.buck.util.types.Either;
@@ -68,12 +68,12 @@ public class AppleTestDescriptionTest {
             .setSrcs(ImmutableSortedSet.of(SourceWithFlags.of(FakeSourcePath.of("foo.c"))))
             .setInfoPlist(FakeSourcePath.of("Info.plist"));
     TargetGraph targetGraph = TargetGraphFactory.newInstance(builder.build(), depBuilder.build());
-    BuildRuleResolver resolver = new TestBuildRuleResolver(targetGraph);
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder(targetGraph);
     SourcePathResolver pathResolver =
-        DefaultSourcePathResolver.from(new SourcePathRuleFinder(resolver));
-    Genrule dep = depBuilder.build(resolver, targetGraph);
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
+    Genrule dep = depBuilder.build(graphBuilder, targetGraph);
     assertThat(builder.build().getExtraDeps(), Matchers.hasItem(dep.getBuildTarget()));
-    AppleTest test = builder.build(resolver, targetGraph);
+    AppleTest test = builder.build(graphBuilder, targetGraph);
     CxxStrip strip =
         (CxxStrip)
             RichStream.from(test.getBuildDeps())
@@ -131,10 +131,10 @@ public class AppleTestDescriptionTest {
             testHostBundleBuilder.build(),
             testHostBinaryBuilder.build(),
             uiTestTargetBundleBuilder.build());
-    BuildRuleResolver resolver = new TestBuildRuleResolver(targetGraph);
-    resolver.requireRule(testHostBundleTarget);
-    resolver.requireRule(uiTestTargetAppBundleTarget);
-    AppleTest test = testBuilder.build(resolver, targetGraph);
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder(targetGraph);
+    graphBuilder.requireRule(testHostBundleTarget);
+    graphBuilder.requireRule(uiTestTargetAppBundleTarget);
+    AppleTest test = testBuilder.build(graphBuilder, targetGraph);
 
     assertTrue(test.isUiTest());
     assertTrue(test.hasTestHost());
@@ -171,7 +171,7 @@ public class AppleTestDescriptionTest {
     TargetGraph targetGraph =
         TargetGraphFactory.newInstance(
             testNode, testHostBundleBuilder.build(), testHostBinaryBuilder.build());
-    BuildRuleResolver resolver = new TestBuildRuleResolver(targetGraph);
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder(targetGraph);
 
     // with app tests there is a binary to use as -bundle_loader linker arg
     TestHostInfo testHostInfo =
@@ -180,7 +180,7 @@ public class AppleTestDescriptionTest {
             .createTestHostInfo(
                 testTarget,
                 false,
-                resolver,
+                graphBuilder,
                 testHostBundleTarget,
                 Optional.empty(),
                 AppleDebugFormat.DWARF,
@@ -196,7 +196,7 @@ public class AppleTestDescriptionTest {
             .createTestHostInfo(
                 testTarget,
                 true,
-                resolver,
+                graphBuilder,
                 testHostBundleTarget,
                 Optional.empty(),
                 AppleDebugFormat.DWARF,
@@ -253,7 +253,7 @@ public class AppleTestDescriptionTest {
             testHostBinaryBuilder.build(),
             uiTestTargetBinaryBuilder.build(),
             uiTestTargetBundleBuilder.build());
-    BuildRuleResolver resolver = new TestBuildRuleResolver(targetGraph);
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder(targetGraph);
 
     TestHostInfo testHostInfo =
         testNode
@@ -261,7 +261,7 @@ public class AppleTestDescriptionTest {
             .createTestHostInfo(
                 testTarget,
                 false,
-                resolver,
+                graphBuilder,
                 testHostBundleTarget,
                 Optional.empty(),
                 AppleDebugFormat.DWARF,
@@ -276,7 +276,7 @@ public class AppleTestDescriptionTest {
             .createTestHostInfo(
                 testTarget,
                 true,
-                resolver,
+                graphBuilder,
                 testHostBundleTarget,
                 Optional.of(uiTestTargetBundleTarget),
                 AppleDebugFormat.DWARF,

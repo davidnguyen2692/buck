@@ -205,10 +205,10 @@ public class DoctorCommandIntegrationTest {
               httpServletResponse.setStatus(200);
               request.setHandled(true);
 
-              if (request.getUri().getPath().equals("/status.php")) {
+              if (request.getHttpURI().getPath().equals("/status.php")) {
                 return;
               }
-              requestPath.set(request.getUri().getPath());
+              requestPath.set(request.getHttpURI().getPath());
               requestMethod.set(request.getMethod());
               requestBody.set(ByteStreams.toByteArray(httpServletRequest.getInputStream()));
               try (DataOutputStream out =
@@ -270,7 +270,7 @@ public class DoctorCommandIntegrationTest {
               httpResponse.setStatus(200);
               request.setHandled(true);
 
-              if (request.getUri().getPath().equals("/status.php")) {
+              if (request.getHttpURI().getPath().equals("/status.php")) {
                 return;
               }
 
@@ -346,6 +346,9 @@ public class DoctorCommandIntegrationTest {
             .map(Object::toString)
             .collect(Collectors.toList()),
         Matchers.hasItem(Matchers.endsWith("extra.txt")));
+    assertThat(
+        reporter.getDefectReport().getUserLocalConfiguration().getConfigOverrides().get("foo.bar"),
+        Matchers.equalTo("baz"));
   }
 
   @Test
@@ -408,14 +411,14 @@ public class DoctorCommandIntegrationTest {
         httpResponse.setStatus(200);
         request.setHandled(true);
 
-        if (request.getUri().getPath().equals("/status.php")) {
+        if (request.getHttpURI().getPath().equals("/status.php")) {
           return;
         }
 
         httpResponse.setContentType("application/json");
         httpResponse.setCharacterEncoding("utf-8");
 
-        requestPath.set(request.getUri().getPath());
+        requestPath.set(request.getHttpURI().getPath());
         requestMethod.set(request.getMethod());
         requestBody.set(ByteStreams.toByteArray(httpRequest.getInputStream()));
 

@@ -18,14 +18,14 @@ package com.facebook.buck.cxx;
 
 import static org.junit.Assert.assertThat;
 
+import com.facebook.buck.core.rules.BuildRuleResolver;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TestBuildRuleResolver;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.FileListableLinkerInputArg;
 import com.facebook.buck.rules.args.SourcePathArg;
@@ -49,7 +49,7 @@ public class CxxPrepareForLinkStepTest {
   @Test
   public void testCreateCxxPrepareForLinkStep() {
     Path dummyPath = Paths.get("dummy");
-    BuildRuleResolver buildRuleResolver = new TestBuildRuleResolver();
+    BuildRuleResolver buildRuleResolver = new TestActionGraphBuilder();
     SourcePathResolver pathResolver =
         DefaultSourcePathResolver.from(new SourcePathRuleFinder(buildRuleResolver));
 
@@ -136,7 +136,7 @@ public class CxxPrepareForLinkStepTest {
       throws IOException, InterruptedException {
     ExecutionContext context = TestExecutionContext.newInstance();
 
-    BuildRuleResolver buildRuleResolver = new TestBuildRuleResolver();
+    BuildRuleResolver buildRuleResolver = new TestActionGraphBuilder();
     SourcePathResolver pathResolver =
         DefaultSourcePathResolver.from(new SourcePathRuleFinder(buildRuleResolver));
 

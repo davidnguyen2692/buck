@@ -18,7 +18,7 @@ package com.facebook.buck.rules.modern.config;
 
 import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.config.ConfigView;
-import com.facebook.buck.util.immutables.BuckStyleTuple;
+import com.facebook.buck.core.util.immutables.BuckStyleTuple;
 import org.immutables.value.Value;
 
 /** Various configuration for ModernBuildRule behavior. */
@@ -27,8 +27,18 @@ import org.immutables.value.Value;
 abstract class AbstractModernBuildRuleConfig implements ConfigView<BuckConfig> {
   public static final String SECTION = "modern_build_rule";
 
+  public static final int DEFAULT_REMOTE_PORT = 19080;
+
   public Strategy getBuildStrategy() {
     return getDelegate().getEnum(SECTION, "strategy", Strategy.class).orElse(Strategy.DEFAULT);
+  }
+
+  public String getRemoteHost() {
+    return getDelegate().getValue(SECTION, "remote_host").orElse("localhost");
+  }
+
+  public int getRemotePort() {
+    return getDelegate().getInteger(SECTION, "remote_port").orElse(19030);
   }
 
   /**
@@ -40,7 +50,13 @@ abstract class AbstractModernBuildRuleConfig implements ConfigView<BuckConfig> {
   public enum Strategy {
     NONE,
 
+    GRPC_REMOTE,
+
+    DEBUG_GRPC_SERVICE_IN_PROCESS,
+
     DEBUG_ISOLATED_OUT_OF_PROCESS,
+    DEBUG_ISOLATED_OUT_OF_PROCESS_GRPC,
+
     DEBUG_ISOLATED_IN_PROCESS,
     // Creates a strategy that serializes and deserializes ModernBuildRules in memory and then
     // builds the deserialized version.

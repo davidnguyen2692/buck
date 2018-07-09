@@ -18,21 +18,21 @@ package com.facebook.buck.cxx;
 
 import static org.junit.Assert.assertEquals;
 
-import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
+import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
+import com.facebook.buck.core.toolchain.tool.Tool;
+import com.facebook.buck.core.toolchain.tool.impl.CommandTool;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.CommandTool;
-import com.facebook.buck.rules.DefaultSourcePathResolver;
-import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.FakeBuildContext;
 import com.facebook.buck.rules.FakeTestRule;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TestBuildRuleParams;
-import com.facebook.buck.rules.TestBuildRuleResolver;
-import com.facebook.buck.rules.Tool;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.TestExecutionContext;
@@ -41,7 +41,6 @@ import com.facebook.buck.test.TestResults;
 import com.facebook.buck.test.TestRunningOptions;
 import com.facebook.buck.test.selectors.TestSelectorList;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
-import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -72,10 +71,10 @@ public class CxxTestTest {
           createBuildParams(),
           new CommandTool.Builder().build(),
           ImmutableMap.of(),
-          Suppliers.ofInstance(ImmutableList.of()),
+          ImmutableList.of(),
           ImmutableSortedSet.of(),
           ImmutableSet.of(),
-          Suppliers.ofInstance(ImmutableSortedSet.of()),
+          unused2 -> ImmutableSortedSet.of(),
           ImmutableSet.of(),
           ImmutableSet.of(),
           /* runTestSeparately */ false,
@@ -148,7 +147,7 @@ public class CxxTestTest {
     Path expectedOutput = Paths.get("output");
     Path expectedResults = Paths.get("results");
 
-    BuildRuleResolver ruleResolver = new TestBuildRuleResolver();
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     FakeCxxTest cxxTest =
         new FakeCxxTest() {
 
@@ -181,13 +180,13 @@ public class CxxTestTest {
             return ImmutableList.of();
           }
         };
-    ruleResolver.addToIndex(cxxTest);
+    graphBuilder.addToIndex(cxxTest);
 
     ExecutionContext executionContext = TestExecutionContext.newInstance();
     Callable<TestResults> result =
         cxxTest.interpretTestResults(
             executionContext,
-            DefaultSourcePathResolver.from(new SourcePathRuleFinder(ruleResolver)),
+            DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder)),
             /* isUsingTestSelectors */ false);
     result.call();
   }

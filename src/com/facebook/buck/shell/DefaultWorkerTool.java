@@ -16,20 +16,20 @@
 
 package com.facebook.buck.shell;
 
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rulekey.AddToRuleKey;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.attr.BuildOutputInitializer;
+import com.facebook.buck.core.rules.attr.HasRuntimeDeps;
+import com.facebook.buck.core.rules.attr.InitializableFromDisk;
+import com.facebook.buck.core.rules.common.BuildableSupport;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.toolchain.tool.DelegatingTool;
+import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.file.WriteFile;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.AddToRuleKey;
-import com.facebook.buck.rules.BuildOutputInitializer;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildableSupport;
-import com.facebook.buck.rules.DelegatingTool;
-import com.facebook.buck.rules.HasRuntimeDeps;
-import com.facebook.buck.rules.InitializableFromDisk;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.Tool;
 import com.google.common.hash.HashCode;
 import java.nio.file.Path;
 import java.util.SortedSet;

@@ -17,22 +17,24 @@
 package com.facebook.buck.rules.modern.builders;
 
 import com.facebook.buck.config.BuckConfig;
+import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.cell.impl.DefaultCellPathResolver;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.sourcepath.BuildTargetSourcePath;
+import com.facebook.buck.core.sourcepath.DefaultBuildTargetSourcePath;
+import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.sourcepath.resolver.impl.AbstractSourcePathResolver;
 import com.facebook.buck.event.BuckEventBus;
+import com.facebook.buck.event.LeafEvents;
+import com.facebook.buck.io.filesystem.BuckPaths;
 import com.facebook.buck.io.filesystem.EmbeddedCellBuckOutInfo;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.ProjectFilesystemFactory;
 import com.facebook.buck.io.filesystem.impl.DefaultProjectFilesystemFactory;
 import com.facebook.buck.jvm.core.JavaPackageFinder;
 import com.facebook.buck.jvm.java.JavaBuckConfig;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.plugin.impl.BuckPluginManagerFactory;
-import com.facebook.buck.rules.AbstractSourcePathResolver;
-import com.facebook.buck.rules.BuildContext;
-import com.facebook.buck.rules.BuildTargetSourcePath;
-import com.facebook.buck.rules.DefaultBuildTargetSourcePath;
-import com.facebook.buck.rules.DefaultCellPathResolver;
-import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
-import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.modern.Deserializer;
 import com.facebook.buck.rules.modern.Deserializer.DataProvider;
 import com.facebook.buck.rules.modern.ModernBuildRule;
@@ -44,6 +46,7 @@ import com.facebook.buck.util.Console;
 import com.facebook.buck.util.DefaultProcessExecutor;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.RichStream;
+import com.facebook.buck.util.Scope;
 import com.facebook.buck.util.config.Config;
 import com.facebook.buck.util.config.Configs;
 import com.facebook.buck.util.environment.Architecture;
@@ -52,12 +55,14 @@ import com.facebook.buck.util.exceptions.BuckUncheckedExecutionException;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.hash.HashCode;
+import java.io.BufferedInputStream;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
@@ -76,11 +81,12 @@ public abstract class IsolatedBuildableBuilder {
   private final Function<Optional<String>, ProjectFilesystem> filesystemFunction;
   private final Deserializer.ClassFinder classFinder;
   private final Path dataRoot;
+  private final BuckEventBus eventBus;
 
   @SuppressWarnings("PMD.EmptyCatchBlock")
   IsolatedBuildableBuilder(Path workRoot, Path projectRoot) throws IOException {
     Path canonicalWorkRoot = workRoot.toRealPath().normalize();
-    Path canonicalProjectRoot = canonicalWorkRoot.resolve(projectRoot);
+    Path canonicalProjectRoot = canonicalWorkRoot.resolve(projectRoot).normalize();
 
     this.dataRoot = workRoot.resolve("__data__");
 
@@ -174,7 +180,7 @@ public abstract class IsolatedBuildableBuilder {
     JavaPackageFinder javaPackageFinder =
         buckConfig.getView(JavaBuckConfig.class).createDefaultJavaPackageFinder();
     Console console = createConsole();
-    BuckEventBus eventBus = createEventBus(console);
+    this.eventBus = createEventBus(console);
     ProcessExecutor processExecutor = new DefaultProcessExecutor(console);
 
     this.executionContext =
@@ -228,8 +234,26 @@ public abstract class IsolatedBuildableBuilder {
         .forEachThrowing(
             name -> {
               // Sadly, some things assume this exists and writes to it.
-              Files.createDirectories(
-                  filesystemFunction.apply(Optional.of(name)).getBuckPaths().getTmpDir());
+              ProjectFilesystem fs = filesystemFunction.apply(Optional.of(name));
+              BuckPaths configuredPaths = fs.getBuckPaths();
+              Files.createDirectories(configuredPaths.getTmpDir());
+
+              if (!configuredPaths.getConfiguredBuckOut().equals(configuredPaths.getBuckOut())
+                  && buckConfig.getBuckOutCompatLink()
+                  && Platform.detect() != Platform.WINDOWS) {
+                BuckPaths unconfiguredPaths =
+                    configuredPaths.withConfiguredBuckOut(configuredPaths.getBuckOut());
+                ImmutableMap<Path, Path> paths =
+                    ImmutableMap.of(
+                        unconfiguredPaths.getGenDir(), configuredPaths.getGenDir(),
+                        unconfiguredPaths.getScratchDir(), configuredPaths.getScratchDir());
+                for (Map.Entry<Path, Path> entry : paths.entrySet()) {
+                  filesystem.createSymLink(
+                      entry.getKey(),
+                      entry.getKey().getParent().relativize(entry.getValue()),
+                      /* force */ false);
+                }
+              }
             });
   }
 
@@ -239,20 +263,26 @@ public abstract class IsolatedBuildableBuilder {
 
   /** Deserializes the BuildableAndTarget corresponding to hash and builds it. */
   public void build(HashCode hash) throws IOException, StepFailedException, InterruptedException {
-    Deserializer deserializer = new Deserializer(filesystemFunction, classFinder);
+    Deserializer deserializer =
+        new Deserializer(filesystemFunction, classFinder, buildContext::getSourcePathResolver);
 
-    BuildableAndTarget reconstructed =
-        deserializer.deserialize(
-            getProvider(dataRoot.resolve(hash.toString())), BuildableAndTarget.class);
+    BuildableAndTarget reconstructed;
+    try (Scope ignored = LeafEvents.scope(eventBus, "deserializing")) {
+      reconstructed =
+          deserializer.deserialize(
+              getProvider(dataRoot.resolve(hash.toString())), BuildableAndTarget.class);
+    }
 
-    for (Step step :
-        ModernBuildRule.stepsForBuildable(
-            buildContext,
-            reconstructed.buildable,
-            filesystemFunction.apply(reconstructed.target.getCell()),
-            reconstructed.target)) {
-      new DefaultStepRunner()
-          .runStepForBuildTarget(executionContext, step, Optional.of(reconstructed.target));
+    try (Scope ignored = LeafEvents.scope(eventBus, "steps")) {
+      for (Step step :
+          ModernBuildRule.stepsForBuildable(
+              buildContext,
+              reconstructed.buildable,
+              filesystemFunction.apply(reconstructed.target.getCell()),
+              reconstructed.target)) {
+        new DefaultStepRunner()
+            .runStepForBuildTarget(executionContext, step, Optional.of(reconstructed.target));
+      }
     }
   }
 
@@ -264,7 +294,7 @@ public abstract class IsolatedBuildableBuilder {
       public InputStream getData() {
         try {
           Path path = dir.resolve("__value__");
-          return new FileInputStream(path.toFile());
+          return new BufferedInputStream(new FileInputStream(path.toFile()));
         } catch (FileNotFoundException e) {
           throw new RuntimeException(e);
         }

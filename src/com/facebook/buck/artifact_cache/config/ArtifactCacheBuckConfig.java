@@ -19,8 +19,8 @@ package com.facebook.buck.artifact_cache.config;
 import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.config.ConfigView;
 import com.facebook.buck.config.resources.ResourcesConfig;
+import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.slb.SlbBuckConfig;
-import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.unit.SizeUnit;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -241,7 +241,7 @@ public class ArtifactCacheBuckConfig implements ConfigView<BuckConfig> {
         .orElse(DEFAULT_HTTP_STORE_RETRY_INTERVAL);
   }
 
-  public boolean hasAtLeastOneWriteableCache() {
+  public boolean hasAtLeastOneWriteableRemoteCache() {
     return getHttpCacheEntries()
         .stream()
         .anyMatch(entry -> entry.getCacheReadMode().equals(CacheReadMode.READWRITE));

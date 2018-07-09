@@ -16,6 +16,7 @@
 
 package com.facebook.buck.distributed;
 
+import com.facebook.buck.core.model.BuildId;
 import com.facebook.buck.distributed.thrift.AppendBuildSlaveEventsRequest;
 import com.facebook.buck.distributed.thrift.AppendBuildSlaveEventsResponse;
 import com.facebook.buck.distributed.thrift.BuildJob;
@@ -48,9 +49,12 @@ import com.facebook.buck.distributed.thrift.FileInfo;
 import com.facebook.buck.distributed.thrift.FrontendRequest;
 import com.facebook.buck.distributed.thrift.FrontendRequestType;
 import com.facebook.buck.distributed.thrift.FrontendResponse;
+import com.facebook.buck.distributed.thrift.MinionRequirements;
+import com.facebook.buck.distributed.thrift.MinionType;
 import com.facebook.buck.distributed.thrift.MultiGetBuildSlaveEventsRequest;
 import com.facebook.buck.distributed.thrift.MultiGetBuildSlaveEventsResponse;
 import com.facebook.buck.distributed.thrift.PathWithUnixSeparators;
+import com.facebook.buck.distributed.thrift.SchedulingEnvironmentType;
 import com.facebook.buck.distributed.thrift.SequencedBuildSlaveEvent;
 import com.facebook.buck.distributed.thrift.SetCoordinatorRequest;
 import com.facebook.buck.distributed.thrift.SetCoordinatorResponse;
@@ -63,7 +67,6 @@ import com.facebook.buck.distributed.thrift.StoreBuildSlaveFinishedStatsResponse
 import com.facebook.buck.distributed.thrift.UpdateBuildSlaveStatusRequest;
 import com.facebook.buck.distributed.thrift.UpdateBuildSlaveStatusResponse;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildId;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.google.common.collect.ImmutableList;
@@ -103,9 +106,12 @@ public class DistBuildServiceTest {
   private DistBuildService distBuildService;
   private ListeningExecutorService executor;
   private ClientStatsTracker distBuildClientStatsTracker;
+  private static final SchedulingEnvironmentType ENVIRONMENT_TYPE =
+      SchedulingEnvironmentType.IDENTICAL_HARDWARE;
   private static final String REPOSITORY = "repositoryOne";
   private static final String TENANT_ID = "tenantOne";
   private static final String BUILD_LABEL = "unit_test";
+  private static final String MINION_TYPE = "standard_type";
   private static final String USERNAME = "unit_test_user";
   private static final List<String> BUILD_TARGETS = Lists.newArrayList();
 
@@ -114,7 +120,7 @@ public class DistBuildServiceTest {
     frontendService = EasyMock.createStrictMock(FrontendService.class);
     executor = MoreExecutors.listeningDecorator(Executors.newSingleThreadExecutor());
     distBuildService = new DistBuildService(frontendService, USERNAME);
-    distBuildClientStatsTracker = new ClientStatsTracker(BUILD_LABEL);
+    distBuildClientStatsTracker = new ClientStatsTracker(BUILD_LABEL, MINION_TYPE);
   }
 
   @After
@@ -264,7 +270,7 @@ public class DistBuildServiceTest {
         distBuildService.createBuild(
             new BuildId("33-44"),
             BuildMode.REMOTE_BUILD,
-            1,
+            new MinionRequirements(),
             REPOSITORY,
             TENANT_ID,
             BUILD_TARGETS,
@@ -714,12 +720,15 @@ public class DistBuildServiceTest {
     EasyMock.replay(frontendService);
 
     StampedeId stampedeId = createStampedeId("minions, here I come");
+    String buildLabel = "behold-my-glory";
     int minionCount = 21;
     String minionQueueName = "a_happy_place_indeed";
-    distBuildService.enqueueMinions(stampedeId, minionCount, minionQueueName);
+    distBuildService.enqueueMinions(
+        stampedeId, buildLabel, minionCount, minionQueueName, MinionType.STANDARD_SPEC);
     Assert.assertEquals(FrontendRequestType.ENQUEUE_MINIONS, request.getValue().getType());
     EnqueueMinionsRequest minionsRequest = request.getValue().getEnqueueMinionsRequest();
     Assert.assertEquals(stampedeId, minionsRequest.getStampedeId());
+    Assert.assertEquals(buildLabel, minionsRequest.getBuildLabel());
     Assert.assertEquals(minionCount, minionsRequest.getNumberOfMinions());
     Assert.assertEquals(minionQueueName, minionsRequest.getMinionQueue());
     EasyMock.verify(frontendService);

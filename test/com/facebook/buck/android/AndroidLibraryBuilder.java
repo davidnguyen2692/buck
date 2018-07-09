@@ -20,13 +20,15 @@ import static com.facebook.buck.jvm.java.JavaCompilationConstants.ANDROID_JAVAC_
 import static com.facebook.buck.jvm.java.JavaCompilationConstants.DEFAULT_JAVA_CONFIG;
 
 import com.facebook.buck.android.toolchain.AndroidPlatformTarget;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.targetgraph.AbstractNodeBuilder;
+import com.facebook.buck.core.sourcepath.PathSourcePath;
+import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.jvm.java.JavaBuckConfig;
+import com.facebook.buck.jvm.java.JavaCompilationConstants;
 import com.facebook.buck.jvm.java.JavaConfiguredCompilerFactory;
+import com.facebook.buck.jvm.java.toolchain.JavaToolchain;
 import com.facebook.buck.jvm.java.toolchain.JavacOptionsProvider;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.AbstractNodeBuilder;
-import com.facebook.buck.rules.PathSourcePath;
-import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.query.Query;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.toolchain.ToolchainProvider;
@@ -36,16 +38,20 @@ import java.util.Optional;
 
 public class AndroidLibraryBuilder
     extends AbstractNodeBuilder<
-        AndroidLibraryDescriptionArg.Builder, AndroidLibraryDescriptionArg,
-        AndroidLibraryDescription, AndroidLibrary> {
+        AndroidLibraryDescriptionArg.Builder,
+        AndroidLibraryDescriptionArg,
+        AndroidLibraryDescription,
+        AndroidLibrary> {
 
   private static final AndroidLibraryCompilerFactory JAVA_ONLY_COMPILER_FACTORY =
-      language ->
-          new JavaConfiguredCompilerFactory(DEFAULT_JAVA_CONFIG, AndroidClasspathProvider::new);
+      (language, factory) ->
+          new JavaConfiguredCompilerFactory(
+              DEFAULT_JAVA_CONFIG, AndroidClasspathProvider::new, factory);
 
   private AndroidLibraryBuilder(BuildTarget target, JavaBuckConfig javaBuckConfig) {
     super(
-        new AndroidLibraryDescription(javaBuckConfig, JAVA_ONLY_COMPILER_FACTORY),
+        new AndroidLibraryDescription(
+            javaBuckConfig, JAVA_ONLY_COMPILER_FACTORY, createToolchainProviderForAndroidLibrary()),
         target,
         new FakeProjectFilesystem(),
         createToolchainProviderForAndroidLibrary(),
@@ -67,6 +73,7 @@ public class AndroidLibraryBuilder
             JavacOptionsProvider.DEFAULT_NAME, JavacOptionsProvider.of(ANDROID_JAVAC_OPTIONS))
         .withToolchain(
             AndroidPlatformTarget.DEFAULT_NAME, TestAndroidPlatformTargetFactory.create())
+        .withToolchain(JavaToolchain.DEFAULT_NAME, JavaCompilationConstants.DEFAULT_JAVA_TOOLCHAIN)
         .build();
   }
 

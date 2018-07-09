@@ -16,12 +16,12 @@
 
 package com.facebook.buck.rules.coercer;
 
-import static com.facebook.buck.rules.TestCellBuilder.createCellRoots;
+import static com.facebook.buck.core.cell.TestCellBuilder.createCellRoots;
 import static org.hamcrest.Matchers.containsString;
 import static org.junit.Assert.assertEquals;
 
+import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import java.lang.reflect.Proxy;

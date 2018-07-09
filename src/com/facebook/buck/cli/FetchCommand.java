@@ -17,6 +17,21 @@
 package com.facebook.buck.cli;
 
 import com.facebook.buck.command.Build;
+import com.facebook.buck.core.build.distributed.synchronization.impl.NoOpRemoteBuildRuleCompletionWaiter;
+import com.facebook.buck.core.build.engine.config.CachingBuildEngineBuckConfig;
+import com.facebook.buck.core.build.engine.delegate.LocalCachingBuildEngineDelegate;
+import com.facebook.buck.core.build.engine.impl.CachingBuildEngine;
+import com.facebook.buck.core.build.engine.impl.MetadataChecker;
+import com.facebook.buck.core.build.event.BuildEvent;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.actiongraph.ActionGraphAndBuilder;
+import com.facebook.buck.core.model.actiongraph.computation.ActionGraphCache;
+import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
+import com.facebook.buck.core.model.targetgraph.TargetGraphAndBuildTargets;
+import com.facebook.buck.core.rulekey.RuleKey;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.transformer.impl.FetchTargetNodeToBuildRuleTransformer;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.file.HttpArchiveDescription;
 import com.facebook.buck.file.HttpFileDescription;
@@ -24,27 +39,12 @@ import com.facebook.buck.file.RemoteFileDescription;
 import com.facebook.buck.file.downloader.Downloader;
 import com.facebook.buck.file.downloader.impl.StackedDownloader;
 import com.facebook.buck.jvm.java.JavaBuckConfig;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.parser.ParserConfig;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
-import com.facebook.buck.rules.ActionGraphAndResolver;
-import com.facebook.buck.rules.ActionGraphCache;
-import com.facebook.buck.rules.BuildEvent;
-import com.facebook.buck.rules.CachingBuildEngine;
-import com.facebook.buck.rules.CachingBuildEngineBuckConfig;
-import com.facebook.buck.rules.DefaultSourcePathResolver;
-import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.LocalCachingBuildEngineDelegate;
-import com.facebook.buck.rules.MetadataChecker;
-import com.facebook.buck.rules.NoOpRemoteBuildRuleCompletionWaiter;
-import com.facebook.buck.rules.RuleKey;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TargetGraphAndBuildTargets;
 import com.facebook.buck.rules.keys.RuleKeyCacheRecycler;
 import com.facebook.buck.rules.keys.RuleKeyCacheScope;
 import com.facebook.buck.rules.keys.RuleKeyFactories;
 import com.facebook.buck.step.DefaultStepRunner;
-import com.facebook.buck.util.CloseableMemoizedSupplier;
 import com.facebook.buck.util.CommandLineException;
 import com.facebook.buck.util.ExitCode;
 import com.facebook.buck.util.MoreExceptions;
@@ -53,7 +53,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
 import java.io.IOException;
 import java.util.Optional;
-import java.util.concurrent.ForkJoinPool;
 
 public class FetchCommand extends BuildCommand {
 
@@ -65,22 +64,15 @@ public class FetchCommand extends BuildCommand {
       throw new CommandLineException("must specify at least one build target");
     }
 
-    // Post the build started event, setting it to the Parser recorded start time if appropriate.
     BuildEvent.Started started = BuildEvent.started(getArguments());
-    if (params.getParser().getParseStartTime().isPresent()) {
-      params.getBuckEventBus().post(started, params.getParser().getParseStartTime().get());
-    } else {
-      params.getBuckEventBus().post(started);
-    }
+    params.getBuckEventBus().post(started);
 
     FetchTargetNodeToBuildRuleTransformer ruleGenerator = createFetchTransformer(params);
     ExitCode exitCode;
 
     try (CommandThreadManager pool =
-            new CommandThreadManager("Fetch", getConcurrencyLimit(params.getBuckConfig()));
-        CloseableMemoizedSupplier<ForkJoinPool> poolSupplier =
-            getForkJoinPoolSupplier(params.getBuckConfig())) {
-      ActionGraphAndResolver actionGraphAndResolver;
+        new CommandThreadManager("Fetch", getConcurrencyLimit(params.getBuckConfig())); ) {
+      ActionGraphAndBuilder actionGraphAndBuilder;
       ImmutableSet<BuildTarget> buildTargets;
       try {
         ParserConfig parserConfig = params.getBuckConfig().getView(ParserConfig.class);
@@ -97,11 +89,9 @@ public class FetchCommand extends BuildCommand {
         if (params.getBuckConfig().getBuildVersions()) {
           result = toVersionedTargetGraph(params, result);
         }
-        actionGraphAndResolver =
+        actionGraphAndBuilder =
             Preconditions.checkNotNull(
-                new ActionGraphCache(
-                        params.getBuckConfig().getMaxActionGraphCacheEntries(),
-                        params.getBuckConfig().getMaxActionGraphNodeCacheEntries())
+                new ActionGraphCache(params.getBuckConfig().getMaxActionGraphCacheEntries())
                     .getFreshActionGraph(
                         params.getBuckEventBus(),
                         ruleGenerator,
@@ -109,8 +99,7 @@ public class FetchCommand extends BuildCommand {
                         params.getCell().getCellProvider(),
                         params.getBuckConfig().getActionGraphParallelizationMode(),
                         params.getBuckConfig().getShouldInstrumentActionGraph(),
-                        params.getBuckConfig().getIncrementalActionGraphMode(),
-                        poolSupplier));
+                        params.getPoolSupplier()));
         buildTargets = ruleGenerator.getDownloadableTargets();
       } catch (BuildFileParseException | VersionException e) {
         params
@@ -125,13 +114,13 @@ public class FetchCommand extends BuildCommand {
       LocalCachingBuildEngineDelegate localCachingBuildEngineDelegate =
           new LocalCachingBuildEngineDelegate(params.getFileHashCache());
       SourcePathRuleFinder sourcePathRuleFinder =
-          new SourcePathRuleFinder(actionGraphAndResolver.getResolver());
+          new SourcePathRuleFinder(actionGraphAndBuilder.getActionGraphBuilder());
       try (RuleKeyCacheScope<RuleKey> ruleKeyCacheScope =
               getDefaultRuleKeyCacheScope(
                   params,
                   new RuleKeyCacheRecycler.SettingsAffectingCache(
                       params.getBuckConfig().getKeySeed(),
-                      actionGraphAndResolver.getActionGraph()));
+                      actionGraphAndBuilder.getActionGraph()));
           CachingBuildEngine buildEngine =
               new CachingBuildEngine(
                   localCachingBuildEngineDelegate,
@@ -143,7 +132,7 @@ public class FetchCommand extends BuildCommand {
                   cachingBuildEngineBuckConfig.getBuildDepFiles(),
                   cachingBuildEngineBuckConfig.getBuildMaxDepFileCacheEntries(),
                   cachingBuildEngineBuckConfig.getBuildArtifactCacheSizeLimit(),
-                  actionGraphAndResolver.getResolver(),
+                  actionGraphAndBuilder.getActionGraphBuilder(),
                   sourcePathRuleFinder,
                   DefaultSourcePathResolver.from(sourcePathRuleFinder),
                   params.getBuildInfoStoreManager(),
@@ -152,13 +141,13 @@ public class FetchCommand extends BuildCommand {
                   RuleKeyFactories.of(
                       params.getRuleKeyConfiguration(),
                       localCachingBuildEngineDelegate.getFileHashCache(),
-                      actionGraphAndResolver.getResolver(),
+                      actionGraphAndBuilder.getActionGraphBuilder(),
                       params.getBuckConfig().getBuildInputRuleKeyFileSizeLimit(),
                       ruleKeyCacheScope.getCache()),
                   new NoOpRemoteBuildRuleCompletionWaiter());
           Build build =
               new Build(
-                  actionGraphAndResolver.getResolver(),
+                  actionGraphAndBuilder.getActionGraphBuilder(),
                   params.getCell(),
                   buildEngine,
                   params.getArtifactCacheFactory().newInstance(),
@@ -192,7 +181,7 @@ public class FetchCommand extends BuildCommand {
     Downloader downloader =
         StackedDownloader.createFromConfig(
             params.getBuckConfig(), params.getCell().getToolchainProvider());
-    ImmutableSet<Description<?>> fetchingDescriptions =
+    ImmutableSet<DescriptionWithTargetGraph<?>> fetchingDescriptions =
         ImmutableSet.of(
             new RemoteFileDescription(downloader),
             new HttpFileDescription(downloader),

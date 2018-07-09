@@ -16,14 +16,15 @@
 
 package com.facebook.buck.artifact_cache;
 
+import com.facebook.buck.core.exceptions.handler.HumanReadableExceptionAugmentor;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.event.ArtifactCompressionEvent;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.io.file.BorrowablePath;
 import com.facebook.buck.io.file.MostFiles;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.util.CloseableHolder;
 import com.facebook.buck.util.ErrorLogger;
 import com.facebook.buck.util.NamedTemporaryFile;
@@ -92,7 +93,8 @@ public class ArtifactUploader {
                             ruleKeys,
                             buildTarget);
                       }
-                    })
+                    },
+                    new HumanReadableExceptionAugmentor(ImmutableMap.of()))
                 .logException(t);
           }
 
@@ -120,7 +122,8 @@ public class ArtifactUploader {
                               zip.get(),
                               buildTarget);
                         }
-                      })
+                      },
+                      new HumanReadableExceptionAugmentor(ImmutableMap.of()))
                   .logException(e);
             }
           }

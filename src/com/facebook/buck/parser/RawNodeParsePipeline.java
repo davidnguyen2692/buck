@@ -15,14 +15,16 @@
  */
 package com.facebook.buck.parser;
 
+import com.facebook.buck.core.cell.Cell;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.UnflavoredBuildTarget;
+import com.facebook.buck.core.rules.knowntypes.KnownBuildRuleTypes;
+import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.io.file.MorePaths;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.UnflavoredBuildTarget;
+import com.facebook.buck.model.ImmutableUnflavoredBuildTarget;
 import com.facebook.buck.parser.PipelineNodeCache.Cache;
 import com.facebook.buck.parser.exceptions.BuildTargetException;
 import com.facebook.buck.parser.exceptions.NoSuchBuildTargetException;
-import com.facebook.buck.rules.Cell;
-import com.facebook.buck.rules.KnownBuildRuleTypes;
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.util.concurrent.Futures;
@@ -42,7 +44,9 @@ public class RawNodeParsePipeline extends ParsePipeline<Map<String, Object>> {
   public RawNodeParsePipeline(
       Cache<Path, ImmutableSet<Map<String, Object>>> cache,
       ProjectBuildFileParserPool projectBuildFileParserPool,
-      ListeningExecutorService executorService) {
+      ListeningExecutorService executorService,
+      BuckEventBus eventBus) {
+    super(eventBus);
     this.executorService = executorService;
     this.cache = new PipelineNodeCache<>(cache);
     this.projectBuildFileParserPool = projectBuildFileParserPool;
@@ -71,7 +75,7 @@ public class RawNodeParsePipeline extends ParsePipeline<Map<String, Object>> {
               "Raw data claims to come from [%s], but we tried rooting it at [%s].",
               basePath, otherBasePath));
     }
-    return UnflavoredBuildTarget.builder()
+    return ImmutableUnflavoredBuildTarget.builder()
         .setBaseName(UnflavoredBuildTarget.BUILD_TARGET_PREFIX + basePath)
         .setShortName(name)
         .setCellPath(cellRoot)
@@ -96,9 +100,13 @@ public class RawNodeParsePipeline extends ParsePipeline<Map<String, Object>> {
             return Futures.immediateCancelledFuture();
           }
 
-          return projectBuildFileParserPool.getAllRulesAndMetaRules(
-              cell, buildFile, processedBytes, executorService);
-        });
+          return Futures.transform(
+              projectBuildFileParserPool.getBuildFileManifest(
+                  eventBus, cell, buildFile, processedBytes, executorService),
+              buildFileManifest -> buildFileManifest.toRawNodes(),
+              executorService);
+        },
+        eventBus);
   }
 
   @Override
@@ -125,5 +133,11 @@ public class RawNodeParsePipeline extends ParsePipeline<Map<String, Object>> {
               buildTarget, cell.getAbsolutePathToBuildFile(buildTarget));
         },
         executorService);
+  }
+
+  @Override
+  public void close() {
+    super.close();
+    projectBuildFileParserPool.close();
   }
 }

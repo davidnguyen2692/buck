@@ -16,155 +16,108 @@
 
 package com.facebook.buck.rules.modern.builders;
 
+import com.facebook.buck.event.BuckEventBus;
+import com.facebook.buck.event.LeafEvents;
 import com.facebook.buck.io.file.MostFiles;
-import com.facebook.buck.rules.modern.builders.thrift.ActionResult;
-import com.facebook.buck.rules.modern.builders.thrift.Digest;
-import com.facebook.buck.rules.modern.builders.thrift.OutputDirectory;
-import com.facebook.buck.rules.modern.builders.thrift.OutputFile;
-import com.facebook.buck.util.Ansi;
-import com.facebook.buck.util.CapturingPrintStream;
-import com.facebook.buck.util.Console;
-import com.facebook.buck.util.DefaultProcessExecutor;
+import com.facebook.buck.rules.modern.builders.Protocol.Command;
+import com.facebook.buck.rules.modern.builders.Protocol.OutputDirectory;
+import com.facebook.buck.rules.modern.builders.Protocol.OutputFile;
+import com.facebook.buck.rules.modern.builders.RemoteExecutionService.ExecutionResult;
 import com.facebook.buck.util.NamedTemporaryDirectory;
-import com.facebook.buck.util.ProcessExecutor.Result;
-import com.facebook.buck.util.ProcessExecutorParams;
-import com.facebook.buck.util.ProcessExecutorParams.Builder;
-import com.facebook.buck.util.RichStream;
-import com.facebook.buck.util.Verbosity;
-import com.facebook.buck.util.function.ThrowingSupplier;
-import com.google.common.base.Charsets;
-import com.google.common.base.Preconditions;
+import com.facebook.buck.util.Scope;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSortedMap;
-import com.google.common.hash.HashCode;
-import com.google.common.hash.Hashing;
-import com.google.common.io.MoreFiles;
 import java.io.Closeable;
 import java.io.IOException;
-import java.io.InputStream;
-import java.nio.ByteBuffer;
-import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Set;
-import java.util.stream.Stream;
+import java.util.Optional;
 
 /** IsolatedExecution implementation that will run buildrules in a subprocess. */
 public class OutOfProcessIsolatedExecution extends RemoteExecution {
-  private static final long MAX_INLINED_SIZE_BYTES = 1000;
+
   private final NamedTemporaryDirectory workDir;
+  private final LocalContentAddressedStorage storage;
+  private final RemoteExecutionService executionService;
+  private final Protocol protocol;
 
   /**
    * Returns a RemoteExecution implementation that uses a local CAS and a separate local temporary
    * directory for execution.
    */
-  public static OutOfProcessIsolatedExecution create() throws IOException {
+  public static OutOfProcessIsolatedExecution create(Protocol protocol, BuckEventBus eventBus)
+      throws IOException {
     NamedTemporaryDirectory workDir = new NamedTemporaryDirectory("__work__");
     LocalContentAddressedStorage storage =
-        new LocalContentAddressedStorage(
-            workDir.getPath().resolve("__cache__"), InputsDigestBuilder::defaultDigestForStruct);
-    return new OutOfProcessIsolatedExecution(workDir, storage);
+        new LocalContentAddressedStorage(workDir.getPath().resolve("__cache__"), protocol);
+    return new OutOfProcessIsolatedExecution(workDir, storage, protocol, eventBus);
   }
 
   private OutOfProcessIsolatedExecution(
-      NamedTemporaryDirectory workDir, LocalContentAddressedStorage storage) throws IOException {
-    super(
-        storage,
-        new RemoteExecutionService() {
-          @Override
-          public ActionResult execute(
-              ImmutableList<String> command,
-              ImmutableSortedMap<String, String> commandEnvironment,
-              Digest inputsRootDigest,
-              Set<Path> outputs)
-              throws IOException, InterruptedException {
-            Path buildDir = workDir.getPath().resolve(inputsRootDigest.hash);
-            try (Closeable ignored = () -> MostFiles.deleteRecursively(buildDir)) {
-              storage.materializeInputs(buildDir, inputsRootDigest);
+      NamedTemporaryDirectory workDir,
+      LocalContentAddressedStorage storage,
+      final Protocol protocol,
+      BuckEventBus eventBus)
+      throws IOException {
+    super(eventBus);
+    this.storage = storage;
+    this.protocol = protocol;
+    this.executionService =
+        (digest, inputsRootDigest, outputs) -> {
+          Path buildDir = workDir.getPath().resolve(inputsRootDigest.getHash());
+          try (Closeable ignored = () -> MostFiles.deleteRecursively(buildDir)) {
+            Optional<Command> command;
+            try (Scope ignored2 = LeafEvents.scope(getEventBus(), "materializing_inputs")) {
+              command = storage.materializeInputs(buildDir, inputsRootDigest, Optional.of(digest));
+            }
 
-              Builder paramsBuilder = ProcessExecutorParams.builder();
-              paramsBuilder.setCommand(command);
-              paramsBuilder.setEnvironment(commandEnvironment);
-              paramsBuilder.setDirectory(buildDir);
-              CapturingPrintStream stdOut = new CapturingPrintStream();
-              CapturingPrintStream stdErr = new CapturingPrintStream();
-              Console console =
-                  new Console(Verbosity.STANDARD_INFORMATION, stdOut, stdErr, Ansi.withoutTty());
-              Result result =
-                  new DefaultProcessExecutor(console).launchAndExecute(paramsBuilder.build());
-
-              // TODO(cjhopman): Should outputs be returned on failure?
-              ImmutableList.Builder<OutputFile> outputFilesBuilder = ImmutableList.builder();
-              ImmutableList.Builder<OutputDirectory> outputDirsBuilder = ImmutableList.builder();
-              if (result.getExitCode() == 0) {
-                ImmutableMap.Builder<Digest, ThrowingSupplier<InputStream, IOException>>
-                    requiredDataBuilder = ImmutableMap.builder();
-
-                collectOutputs(
-                    outputs, buildDir, outputFilesBuilder, outputDirsBuilder, requiredDataBuilder);
-                storage.addMissing(requiredDataBuilder.build());
+            ActionRunner.ActionResult actionResult =
+                new ActionRunner(protocol, eventBus)
+                    .runAction(
+                        command.get().getCommand(),
+                        command.get().getEnvironment(),
+                        outputs,
+                        buildDir);
+            try (Scope ignored2 = LeafEvents.scope(getEventBus(), "uploading_results")) {
+              storage.addMissing(actionResult.requiredData);
+            }
+            return new ExecutionResult() {
+              @Override
+              public ImmutableList<OutputDirectory> getOutputDirectories() {
+                return actionResult.outputDirectories;
               }
 
-              return new ActionResult(
-                  outputFilesBuilder.build(),
-                  outputDirsBuilder.build(),
-                  result.getExitCode(),
-                  null,
-                  null,
-                  ByteBuffer.wrap(result.getStderr().get().getBytes(Charsets.UTF_8)),
-                  null);
-            }
-          }
-
-          public void collectOutputs(
-              Set<Path> outputs,
-              Path buildDir,
-              ImmutableList.Builder<OutputFile> outputFilesBuilder,
-              ImmutableList.Builder<OutputDirectory> outputDirsBuilder,
-              ImmutableMap.Builder<Digest, ThrowingSupplier<InputStream, IOException>>
-                  requiredDataBuilder)
-              throws IOException {
-            for (Path output : outputs) {
-              Path path = buildDir.resolve(output);
-              Preconditions.checkState(Files.exists(path));
-              if (Files.isDirectory(path)) {
-                InputsDigestBuilder builder =
-                    InputsDigestBuilder.createDefault(path, this::hashFile);
-
-                try (Stream<Path> contents = Files.walk(path)) {
-                  RichStream.from(contents)
-                      .forEachThrowing(
-                          entry -> {
-                            if (Files.isRegularFile(entry)) {
-                              builder.addFile(path.relativize(entry), Files.isExecutable(entry));
-                            }
-                          });
-                }
-
-                Inputs inputs = builder.build();
-                outputDirsBuilder.add(
-                    new OutputDirectory(output.toString(), inputs.getTreeDigest()));
-                requiredDataBuilder.putAll(inputs.getRequiredData());
-              } else {
-                long size = Files.size(path);
-                Digest digest = new Digest(hashFile(path).toString(), size);
-                boolean isExecutable = Files.isExecutable(path);
-                ByteBuffer content =
-                    size < MAX_INLINED_SIZE_BYTES
-                        ? ByteBuffer.wrap(Files.readAllBytes(path))
-                        : null;
-                outputFilesBuilder.add(
-                    new OutputFile(output.toString(), digest, content, isExecutable));
-                requiredDataBuilder.put(digest, () -> Files.newInputStream(path));
+              @Override
+              public ImmutableList<OutputFile> getOutputFiles() {
+                return actionResult.outputFiles;
               }
-            }
-          }
 
-          public HashCode hashFile(Path file) throws IOException {
-            return MoreFiles.asByteSource(file).hash(Hashing.sha1());
+              @Override
+              public int getExitCode() {
+                return actionResult.exitCode;
+              }
+
+              @Override
+              public Optional<String> getStderr() {
+                return Optional.of(actionResult.stderr);
+              }
+            };
           }
-        });
+        };
     this.workDir = workDir;
+  }
+
+  @Override
+  protected Protocol getProtocol() {
+    return protocol;
+  }
+
+  @Override
+  protected ContentAddressedStorage getStorage() {
+    return storage;
+  }
+
+  @Override
+  protected RemoteExecutionService getExecutionService() {
+    return executionService;
   }
 
   @Override

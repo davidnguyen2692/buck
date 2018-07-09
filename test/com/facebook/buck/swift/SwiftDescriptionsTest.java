@@ -19,18 +19,18 @@ package com.facebook.buck.swift;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
 
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rules.BuildRuleResolver;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
+import com.facebook.buck.core.sourcepath.PathSourcePath;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.sourcepath.SourceWithFlags;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.cxx.CxxLibraryDescriptionArg;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.rules.PathSourcePath;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.SourceWithFlags;
-import com.facebook.buck.rules.TestBuildRuleResolver;
 import com.google.common.collect.ImmutableSortedSet;
 import org.junit.Test;
 
@@ -38,7 +38,7 @@ public class SwiftDescriptionsTest {
 
   @Test
   public void testPopulateSwiftLibraryDescriptionArg() throws Exception {
-    BuildRuleResolver resolver = new TestBuildRuleResolver();
+    BuildRuleResolver resolver = new TestActionGraphBuilder();
     SourcePathResolver pathResolver =
         DefaultSourcePathResolver.from(new SourcePathRuleFinder(resolver));
     BuildTarget buildTarget = BuildTargetFactory.newInstance("//foo:bar");

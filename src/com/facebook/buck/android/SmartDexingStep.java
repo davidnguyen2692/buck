@@ -17,10 +17,10 @@ package com.facebook.buck.android;
 
 import com.facebook.buck.android.DxStep.Option;
 import com.facebook.buck.android.toolchain.AndroidPlatformTarget;
+import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.step.DefaultStepRunner;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
@@ -58,6 +58,7 @@ import java.util.Collection;
 import java.util.EnumSet;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
@@ -92,7 +93,7 @@ public class SmartDexingStep implements Step {
   private final Path successDir;
   private final EnumSet<DxStep.Option> dxOptions;
   private final ListeningExecutorService executorService;
-  private final Optional<Integer> xzCompressionLevel;
+  private final OptionalInt xzCompressionLevel;
   private final Optional<String> dxMaxHeapSize;
   private final BuildTarget target;
   private final String dexTool;
@@ -122,7 +123,7 @@ public class SmartDexingStep implements Step {
       Path successDir,
       EnumSet<Option> dxOptions,
       ListeningExecutorService executorService,
-      Optional<Integer> xzCompressionLevel,
+      OptionalInt xzCompressionLevel,
       Optional<String> dxMaxHeapSize,
       String dexTool) {
     this.target = target;
@@ -149,8 +150,22 @@ public class SmartDexingStep implements Step {
     this.dexTool = dexTool;
   }
 
+  /**
+   * @return Optimal (in terms of both memory and performance) number of parallel threads to run
+   *     dexer. The implementation uses running machine hardware characteristics to determine this.
+   */
   public static int determineOptimalThreadCount() {
-    return Runtime.getRuntime().availableProcessors();
+    // Most processors these days have hyperthreading that multiplies the amount of logical
+    // processors reported by Java. So in case of 1 CPU, 2 physical cores with hyperthreading, the
+    // call to Runtime.getRuntime().availableProcessors() would return 1*2*2 = 4, assuming 2 hyper
+    // threads per core, which is common but in fact may be more than that.
+    // Using hyper threads does not help to dex faster, but consumes a lot of memory, so it makes
+    // sense to base heuristics on the number of physical cores.
+    // Unfortunately there is no good way to detect the number of physical cores in pure Java,
+    // so we just divide the total number of logical processors by two to cover the majority of
+    // cases.
+    // TODO(buck_team): Implement cross-platform hardware capabilities detection and use it here
+    return Math.max(Runtime.getRuntime().availableProcessors() / 2, 1);
   }
 
   @Override
@@ -189,18 +204,12 @@ public class SmartDexingStep implements Step {
             Step concatStep =
                 new ConcatStep(
                     filesystem, ImmutableList.copyOf(secondaryDexJars), secondaryBlobOutput);
-            Step xzStep;
-
-            if (xzCompressionLevel.isPresent()) {
-              xzStep =
-                  new XzStep(
-                      filesystem,
-                      secondaryBlobOutput,
-                      secondaryCompressedBlobOutput,
-                      xzCompressionLevel.get().intValue());
-            } else {
-              xzStep = new XzStep(filesystem, secondaryBlobOutput, secondaryCompressedBlobOutput);
-            }
+            Step xzStep =
+                new XzStep(
+                    filesystem,
+                    secondaryBlobOutput,
+                    secondaryCompressedBlobOutput,
+                    xzCompressionLevel.orElse(XzStep.DEFAULT_COMPRESSION_LEVEL));
             stepRunner.runStepForBuildTarget(context, concatStep, Optional.empty());
             stepRunner.runStepForBuildTarget(context, xzStep, Optional.empty());
           }
@@ -345,7 +354,7 @@ public class SmartDexingStep implements Step {
     private final Path outputHashPath;
     private final EnumSet<Option> dxOptions;
     @Nullable private String newInputsHash;
-    private final Optional<Integer> xzCompressionLevel;
+    private final OptionalInt xzCompressionLevel;
     private final Optional<String> dxMaxHeapSize;
     private final String dexTool;
 
@@ -359,7 +368,7 @@ public class SmartDexingStep implements Step {
         Path outputPath,
         Path outputHashPath,
         EnumSet<Option> dxOptions,
-        Optional<Integer> xzCompressionLevel,
+        OptionalInt xzCompressionLevel,
         Optional<String> dxMaxHeapSize,
         String dexTool) {
       this.target = target;
@@ -447,7 +456,7 @@ public class SmartDexingStep implements Step {
       Collection<Path> filesToDex,
       Path outputPath,
       EnumSet<Option> dxOptions,
-      Optional<Integer> xzCompressionLevel,
+      OptionalInt xzCompressionLevel,
       Optional<String> dxMaxHeapSize,
       String dexTool) {
 
@@ -486,7 +495,7 @@ public class SmartDexingStep implements Step {
               repackedJar,
               repackedJar.resolveSibling(repackedJar.getFileName() + ".meta")));
       if (xzCompressionLevel.isPresent()) {
-        steps.add(new XzStep(filesystem, repackedJar, xzCompressionLevel.get().intValue()));
+        steps.add(new XzStep(filesystem, repackedJar, xzCompressionLevel.getAsInt()));
       } else {
         steps.add(new XzStep(filesystem, repackedJar));
       }

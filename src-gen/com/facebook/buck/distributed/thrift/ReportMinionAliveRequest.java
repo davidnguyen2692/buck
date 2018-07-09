@@ -13,17 +13,20 @@ public class ReportMinionAliveRequest implements org.apache.thrift.TBase<ReportM
 
   private static final org.apache.thrift.protocol.TField MINION_ID_FIELD_DESC = new org.apache.thrift.protocol.TField("minionId", org.apache.thrift.protocol.TType.STRING, (short)1);
   private static final org.apache.thrift.protocol.TField STAMPEDE_ID_FIELD_DESC = new org.apache.thrift.protocol.TField("stampedeId", org.apache.thrift.protocol.TType.STRUCT, (short)2);
+  private static final org.apache.thrift.protocol.TField RUN_ID_FIELD_DESC = new org.apache.thrift.protocol.TField("runId", org.apache.thrift.protocol.TType.STRUCT, (short)3);
 
   private static final org.apache.thrift.scheme.SchemeFactory STANDARD_SCHEME_FACTORY = new ReportMinionAliveRequestStandardSchemeFactory();
   private static final org.apache.thrift.scheme.SchemeFactory TUPLE_SCHEME_FACTORY = new ReportMinionAliveRequestTupleSchemeFactory();
 
   public java.lang.String minionId; // optional
   public com.facebook.buck.distributed.thrift.StampedeId stampedeId; // optional
+  public com.facebook.buck.distributed.thrift.BuildSlaveRunId runId; // optional
 
   /** The set of fields this struct contains, along with convenience methods for finding and manipulating them. */
   public enum _Fields implements org.apache.thrift.TFieldIdEnum {
     MINION_ID((short)1, "minionId"),
-    STAMPEDE_ID((short)2, "stampedeId");
+    STAMPEDE_ID((short)2, "stampedeId"),
+    RUN_ID((short)3, "runId");
 
     private static final java.util.Map<java.lang.String, _Fields> byName = new java.util.HashMap<java.lang.String, _Fields>();
 
@@ -42,6 +45,8 @@ public class ReportMinionAliveRequest implements org.apache.thrift.TBase<ReportM
           return MINION_ID;
         case 2: // STAMPEDE_ID
           return STAMPEDE_ID;
+        case 3: // RUN_ID
+          return RUN_ID;
         default:
           return null;
       }
@@ -82,7 +87,7 @@ public class ReportMinionAliveRequest implements org.apache.thrift.TBase<ReportM
   }
 
   // isset id assignments
-  private static final _Fields optionals[] = {_Fields.MINION_ID,_Fields.STAMPEDE_ID};
+  private static final _Fields optionals[] = {_Fields.MINION_ID,_Fields.STAMPEDE_ID,_Fields.RUN_ID};
   public static final java.util.Map<_Fields, org.apache.thrift.meta_data.FieldMetaData> metaDataMap;
   static {
     java.util.Map<_Fields, org.apache.thrift.meta_data.FieldMetaData> tmpMap = new java.util.EnumMap<_Fields, org.apache.thrift.meta_data.FieldMetaData>(_Fields.class);
@@ -90,6 +95,8 @@ public class ReportMinionAliveRequest implements org.apache.thrift.TBase<ReportM
         new org.apache.thrift.meta_data.FieldValueMetaData(org.apache.thrift.protocol.TType.STRING)));
     tmpMap.put(_Fields.STAMPEDE_ID, new org.apache.thrift.meta_data.FieldMetaData("stampedeId", org.apache.thrift.TFieldRequirementType.OPTIONAL, 
         new org.apache.thrift.meta_data.StructMetaData(org.apache.thrift.protocol.TType.STRUCT, com.facebook.buck.distributed.thrift.StampedeId.class)));
+    tmpMap.put(_Fields.RUN_ID, new org.apache.thrift.meta_data.FieldMetaData("runId", org.apache.thrift.TFieldRequirementType.OPTIONAL, 
+        new org.apache.thrift.meta_data.StructMetaData(org.apache.thrift.protocol.TType.STRUCT, com.facebook.buck.distributed.thrift.BuildSlaveRunId.class)));
     metaDataMap = java.util.Collections.unmodifiableMap(tmpMap);
     org.apache.thrift.meta_data.FieldMetaData.addStructMetaDataMap(ReportMinionAliveRequest.class, metaDataMap);
   }
@@ -107,6 +114,9 @@ public class ReportMinionAliveRequest implements org.apache.thrift.TBase<ReportM
     if (other.isSetStampedeId()) {
       this.stampedeId = new com.facebook.buck.distributed.thrift.StampedeId(other.stampedeId);
     }
+    if (other.isSetRunId()) {
+      this.runId = new com.facebook.buck.distributed.thrift.BuildSlaveRunId(other.runId);
+    }
   }
 
   public ReportMinionAliveRequest deepCopy() {
@@ -117,6 +127,7 @@ public class ReportMinionAliveRequest implements org.apache.thrift.TBase<ReportM
   public void clear() {
     this.minionId = null;
     this.stampedeId = null;
+    this.runId = null;
   }
 
   public java.lang.String getMinionId() {
@@ -167,6 +178,30 @@ public class ReportMinionAliveRequest implements org.apache.thrift.TBase<ReportM
     }
   }
 
+  public com.facebook.buck.distributed.thrift.BuildSlaveRunId getRunId() {
+    return this.runId;
+  }
+
+  public ReportMinionAliveRequest setRunId(com.facebook.buck.distributed.thrift.BuildSlaveRunId runId) {
+    this.runId = runId;
+    return this;
+  }
+
+  public void unsetRunId() {
+    this.runId = null;
+  }
+
+  /** Returns true if field runId is set (has been assigned a value) and false otherwise */
+  public boolean isSetRunId() {
+    return this.runId != null;
+  }
+
+  public void setRunIdIsSet(boolean value) {
+    if (!value) {
+      this.runId = null;
+    }
+  }
+
   public void setFieldValue(_Fields field, java.lang.Object value) {
     switch (field) {
     case MINION_ID:
@@ -185,6 +220,14 @@ public class ReportMinionAliveRequest implements org.apache.thrift.TBase<ReportM
       }
       break;
 
+    case RUN_ID:
+      if (value == null) {
+        unsetRunId();
+      } else {
+        setRunId((com.facebook.buck.distributed.thrift.BuildSlaveRunId)value);
+      }
+      break;
+
     }
   }
 
@@ -195,6 +238,9 @@ public class ReportMinionAliveRequest implements org.apache.thrift.TBase<ReportM
 
     case STAMPEDE_ID:
       return getStampedeId();
+
+    case RUN_ID:
+      return getRunId();
 
     }
     throw new java.lang.IllegalStateException();
@@ -211,6 +257,8 @@ public class ReportMinionAliveRequest implements org.apache.thrift.TBase<ReportM
       return isSetMinionId();
     case STAMPEDE_ID:
       return isSetStampedeId();
+    case RUN_ID:
+      return isSetRunId();
     }
     throw new java.lang.IllegalStateException();
   }
@@ -248,6 +296,15 @@ public class ReportMinionAliveRequest implements org.apache.thrift.TBase<ReportM
         return false;
     }
 
+    boolean this_present_runId = true && this.isSetRunId();
+    boolean that_present_runId = true && that.isSetRunId();
+    if (this_present_runId || that_present_runId) {
+      if (!(this_present_runId && that_present_runId))
+        return false;
+      if (!this.runId.equals(that.runId))
+        return false;
+    }
+
     return true;
   }
 
@@ -262,6 +319,10 @@ public class ReportMinionAliveRequest implements org.apache.thrift.TBase<ReportM
     hashCode = hashCode * 8191 + ((isSetStampedeId()) ? 131071 : 524287);
     if (isSetStampedeId())
       hashCode = hashCode * 8191 + stampedeId.hashCode();
+
+    hashCode = hashCode * 8191 + ((isSetRunId()) ? 131071 : 524287);
+    if (isSetRunId())
+      hashCode = hashCode * 8191 + runId.hashCode();
 
     return hashCode;
   }
@@ -290,6 +351,16 @@ public class ReportMinionAliveRequest implements org.apache.thrift.TBase<ReportM
     }
     if (isSetStampedeId()) {
       lastComparison = org.apache.thrift.TBaseHelper.compareTo(this.stampedeId, other.stampedeId);
+      if (lastComparison != 0) {
+        return lastComparison;
+      }
+    }
+    lastComparison = java.lang.Boolean.valueOf(isSetRunId()).compareTo(other.isSetRunId());
+    if (lastComparison != 0) {
+      return lastComparison;
+    }
+    if (isSetRunId()) {
+      lastComparison = org.apache.thrift.TBaseHelper.compareTo(this.runId, other.runId);
       if (lastComparison != 0) {
         return lastComparison;
       }
@@ -333,6 +404,16 @@ public class ReportMinionAliveRequest implements org.apache.thrift.TBase<ReportM
       }
       first = false;
     }
+    if (isSetRunId()) {
+      if (!first) sb.append(", ");
+      sb.append("runId:");
+      if (this.runId == null) {
+        sb.append("null");
+      } else {
+        sb.append(this.runId);
+      }
+      first = false;
+    }
     sb.append(")");
     return sb.toString();
   }
@@ -342,6 +423,9 @@ public class ReportMinionAliveRequest implements org.apache.thrift.TBase<ReportM
     // check for sub-struct validity
     if (stampedeId != null) {
       stampedeId.validate();
+    }
+    if (runId != null) {
+      runId.validate();
     }
   }
 
@@ -396,6 +480,15 @@ public class ReportMinionAliveRequest implements org.apache.thrift.TBase<ReportM
               org.apache.thrift.protocol.TProtocolUtil.skip(iprot, schemeField.type);
             }
             break;
+          case 3: // RUN_ID
+            if (schemeField.type == org.apache.thrift.protocol.TType.STRUCT) {
+              struct.runId = new com.facebook.buck.distributed.thrift.BuildSlaveRunId();
+              struct.runId.read(iprot);
+              struct.setRunIdIsSet(true);
+            } else { 
+              org.apache.thrift.protocol.TProtocolUtil.skip(iprot, schemeField.type);
+            }
+            break;
           default:
             org.apache.thrift.protocol.TProtocolUtil.skip(iprot, schemeField.type);
         }
@@ -425,6 +518,13 @@ public class ReportMinionAliveRequest implements org.apache.thrift.TBase<ReportM
           oprot.writeFieldEnd();
         }
       }
+      if (struct.runId != null) {
+        if (struct.isSetRunId()) {
+          oprot.writeFieldBegin(RUN_ID_FIELD_DESC);
+          struct.runId.write(oprot);
+          oprot.writeFieldEnd();
+        }
+      }
       oprot.writeFieldStop();
       oprot.writeStructEnd();
     }
@@ -449,19 +549,25 @@ public class ReportMinionAliveRequest implements org.apache.thrift.TBase<ReportM
       if (struct.isSetStampedeId()) {
         optionals.set(1);
       }
-      oprot.writeBitSet(optionals, 2);
+      if (struct.isSetRunId()) {
+        optionals.set(2);
+      }
+      oprot.writeBitSet(optionals, 3);
       if (struct.isSetMinionId()) {
         oprot.writeString(struct.minionId);
       }
       if (struct.isSetStampedeId()) {
         struct.stampedeId.write(oprot);
       }
+      if (struct.isSetRunId()) {
+        struct.runId.write(oprot);
+      }
     }
 
     @Override
     public void read(org.apache.thrift.protocol.TProtocol prot, ReportMinionAliveRequest struct) throws org.apache.thrift.TException {
       org.apache.thrift.protocol.TTupleProtocol iprot = (org.apache.thrift.protocol.TTupleProtocol) prot;
-      java.util.BitSet incoming = iprot.readBitSet(2);
+      java.util.BitSet incoming = iprot.readBitSet(3);
       if (incoming.get(0)) {
         struct.minionId = iprot.readString();
         struct.setMinionIdIsSet(true);
@@ -470,6 +576,11 @@ public class ReportMinionAliveRequest implements org.apache.thrift.TBase<ReportM
         struct.stampedeId = new com.facebook.buck.distributed.thrift.StampedeId();
         struct.stampedeId.read(iprot);
         struct.setStampedeIdIsSet(true);
+      }
+      if (incoming.get(2)) {
+        struct.runId = new com.facebook.buck.distributed.thrift.BuildSlaveRunId();
+        struct.runId.read(iprot);
+        struct.setRunIdIsSet(true);
       }
     }
   }

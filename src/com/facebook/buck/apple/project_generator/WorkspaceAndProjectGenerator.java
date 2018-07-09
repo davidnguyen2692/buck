@@ -25,9 +25,17 @@ import com.facebook.buck.apple.AppleDependenciesCache;
 import com.facebook.buck.apple.AppleTestDescriptionArg;
 import com.facebook.buck.apple.XcodeWorkspaceConfigDescription;
 import com.facebook.buck.apple.XcodeWorkspaceConfigDescriptionArg;
-import com.facebook.buck.apple.project_generator.ProjectGenerator.Option;
 import com.facebook.buck.apple.xcode.XCScheme;
 import com.facebook.buck.apple.xcode.xcodeproj.PBXTarget;
+import com.facebook.buck.core.cell.Cell;
+import com.facebook.buck.core.description.arg.HasTests;
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.Flavor;
+import com.facebook.buck.core.model.UnflavoredBuildTarget;
+import com.facebook.buck.core.model.targetgraph.TargetGraph;
+import com.facebook.buck.core.model.targetgraph.TargetNode;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.event.BuckEventBus;
@@ -35,17 +43,9 @@ import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.graph.TopologicalSort;
 import com.facebook.buck.halide.HalideBuckConfig;
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.model.UnflavoredBuildTarget;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.Cell;
-import com.facebook.buck.rules.HasTests;
-import com.facebook.buck.rules.TargetGraph;
-import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.keys.config.RuleKeyConfiguration;
 import com.facebook.buck.swift.SwiftBuckConfig;
-import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.Optionals;
 import com.facebook.buck.util.json.ObjectMappers;
 import com.google.common.annotations.VisibleForTesting;
@@ -73,7 +73,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.function.Function;
 import java.util.stream.Stream;
@@ -88,16 +87,16 @@ public class WorkspaceAndProjectGenerator {
   private final XcodeWorkspaceConfigDescriptionArg workspaceArguments;
   private final BuildTarget workspaceBuildTarget;
   private final FocusedModuleTargetMatcher focusModules;
-  private final ImmutableSet<ProjectGenerator.Option> projectGeneratorOptions;
+  private final ProjectGeneratorOptions projectGeneratorOptions;
   private final boolean combinedProject;
   private final boolean parallelizeBuild;
   private final CxxPlatform defaultCxxPlatform;
-  private final ImmutableSet<String> appleCxxFlavors;
+  private final ImmutableSet<Flavor> appleCxxFlavors;
 
   private Optional<ProjectGenerator> combinedProjectGenerator;
   private final Map<String, SchemeGenerator> schemeGenerators = new HashMap<>();
   private final String buildFileName;
-  private final Function<TargetNode<?, ?>, BuildRuleResolver> buildRuleResolverForNode;
+  private final Function<TargetNode<?, ?>, ActionGraphBuilder> graphBuilderForNode;
   private final BuckEventBus buckEventBus;
   private final RuleKeyConfiguration ruleKeyConfiguration;
 
@@ -117,14 +116,14 @@ public class WorkspaceAndProjectGenerator {
       TargetGraph projectGraph,
       XcodeWorkspaceConfigDescriptionArg workspaceArguments,
       BuildTarget workspaceBuildTarget,
-      Set<Option> projectGeneratorOptions,
+      ProjectGeneratorOptions projectGeneratorOptions,
       boolean combinedProject,
       FocusedModuleTargetMatcher focusModules,
       boolean parallelizeBuild,
       CxxPlatform defaultCxxPlatform,
-      ImmutableSet<String> appleCxxFlavors,
+      ImmutableSet<Flavor> appleCxxFlavors,
       String buildFileName,
-      Function<TargetNode<?, ?>, BuildRuleResolver> buildRuleResolverForNode,
+      Function<TargetNode<?, ?>, ActionGraphBuilder> graphBuilderForNode,
       BuckEventBus buckEventBus,
       RuleKeyConfiguration ruleKeyConfiguration,
       HalideBuckConfig halideBuckConfig,
@@ -138,13 +137,13 @@ public class WorkspaceAndProjectGenerator {
     this.projGenerationStateCache = new ProjectGenerationStateCache();
     this.workspaceArguments = workspaceArguments;
     this.workspaceBuildTarget = workspaceBuildTarget;
-    this.projectGeneratorOptions = ImmutableSet.copyOf(projectGeneratorOptions);
+    this.projectGeneratorOptions = projectGeneratorOptions;
     this.combinedProject = combinedProject;
     this.parallelizeBuild = parallelizeBuild;
     this.defaultCxxPlatform = defaultCxxPlatform;
     this.appleCxxFlavors = appleCxxFlavors;
     this.buildFileName = buildFileName;
-    this.buildRuleResolverForNode = buildRuleResolverForNode;
+    this.graphBuilderForNode = graphBuilderForNode;
     this.buckEventBus = buckEventBus;
     this.swiftBuckConfig = swiftBuckConfig;
     this.combinedProjectGenerator = Optional.empty();
@@ -223,8 +222,8 @@ public class WorkspaceAndProjectGenerator {
 
     buildWorkspaceSchemes(
         projectGraph,
-        projectGeneratorOptions.contains(ProjectGenerator.Option.INCLUDE_TESTS),
-        projectGeneratorOptions.contains(ProjectGenerator.Option.INCLUDE_DEPENDENCIES_TESTS),
+        projectGeneratorOptions.shouldIncludeTests(),
+        projectGeneratorOptions.shouldIncludeDependenciesTests(),
         workspaceName,
         workspaceArguments,
         schemeConfigsBuilder,
@@ -262,8 +261,7 @@ public class WorkspaceAndProjectGenerator {
 
     writeWorkspaceMetaData(outputDirectory, workspaceName);
 
-    if (projectGeneratorOptions.contains(
-        ProjectGenerator.Option.GENERATE_HEADERS_SYMLINK_TREES_ONLY)) {
+    if (projectGeneratorOptions.shouldGenerateHeaderSymlinkTreesOnly()) {
       return workspaceGenerator.getWorkspaceDir();
     } else {
       ImmutableMap<BuildTarget, PBXTarget> buildTargetToTarget =
@@ -490,7 +488,7 @@ public class WorkspaceAndProjectGenerator {
                 focusModules,
                 defaultCxxPlatform,
                 appleCxxFlavors,
-                buildRuleResolverForNode,
+                graphBuilderForNode,
                 buckEventBus,
                 halideBuckConfig,
                 cxxBuckConfig,
@@ -547,7 +545,7 @@ public class WorkspaceAndProjectGenerator {
             focusModules,
             defaultCxxPlatform,
             appleCxxFlavors,
-            buildRuleResolverForNode,
+            graphBuilderForNode,
             buckEventBus,
             halideBuckConfig,
             cxxBuckConfig,
@@ -649,6 +647,11 @@ public class WorkspaceAndProjectGenerator {
                   Optional.of(dependenciesCache),
                   Preconditions.checkNotNull(projectGraph.get(extraTarget))),
               Optional::of));
+    }
+
+    for (BuildTarget extraShallowTarget : schemeArguments.getExtraShallowTargets()) {
+      schemeNameToSrcTargetNodeBuilder.put(
+          schemeName, Optional.of(projectGraph.get(extraShallowTarget)));
     }
 
     extraTestNodesBuilder.putAll(
@@ -949,6 +952,7 @@ public class WorkspaceAndProjectGenerator {
               XcodeWorkspaceConfigDescription.getActionConfigNamesFromArg(workspaceArguments),
               targetToProjectPathMap,
               schemeConfigArg.getEnvironmentVariables(),
+              schemeConfigArg.getAdditionalSchemeActions(),
               schemeConfigArg.getLaunchStyle().orElse(XCScheme.LaunchAction.LaunchStyle.AUTO));
       schemeGenerator.writeScheme();
       schemeGenerators.put(schemeName, schemeGenerator);

@@ -18,6 +18,19 @@ package com.facebook.buck.apple;
 
 import com.facebook.buck.apple.platform_type.ApplePlatformType;
 import com.facebook.buck.apple.toolchain.AppleCxxPlatform;
+import com.facebook.buck.core.build.buildable.context.BuildableContext;
+import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.FlavorDomain;
+import com.facebook.buck.core.model.HasOutputName;
+import com.facebook.buck.core.rulekey.AddToRuleKey;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRuleResolver;
+import com.facebook.buck.core.rules.impl.AbstractBuildRuleWithDeclaredAndExtraDeps;
+import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.cxx.CxxPreprocessorDep;
 import com.facebook.buck.cxx.CxxPreprocessorInput;
 import com.facebook.buck.cxx.TransitiveCxxPreprocessorInputCache;
@@ -28,19 +41,7 @@ import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableCacheKey;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableInput;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.model.FlavorDomain;
-import com.facebook.buck.model.HasOutputName;
-import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
-import com.facebook.buck.rules.AddToRuleKey;
-import com.facebook.buck.rules.BuildContext;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildableContext;
-import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.rules.coercer.FrameworkPath;
@@ -169,7 +170,7 @@ public class PrebuiltAppleFramework extends AbstractBuildRuleWithDeclaredAndExtr
 
   @Override
   public CxxPreprocessorInput getCxxPreprocessorInput(
-      CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver) {
+      CxxPlatform cxxPlatform, ActionGraphBuilder graphBuilder) {
     CxxPreprocessorInput.Builder builder = CxxPreprocessorInput.builder();
 
     if (isPlatformSupported(cxxPlatform)) {
@@ -181,8 +182,8 @@ public class PrebuiltAppleFramework extends AbstractBuildRuleWithDeclaredAndExtr
 
   @Override
   public ImmutableMap<BuildTarget, CxxPreprocessorInput> getTransitiveCxxPreprocessorInput(
-      CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver) {
-    return transitiveCxxPreprocessorInputCache.getUnchecked(cxxPlatform, ruleResolver);
+      CxxPlatform cxxPlatform, ActionGraphBuilder graphBuilder) {
+    return transitiveCxxPreprocessorInputCache.getUnchecked(cxxPlatform, graphBuilder);
   }
 
   @Override
@@ -245,7 +246,7 @@ public class PrebuiltAppleFramework extends AbstractBuildRuleWithDeclaredAndExtr
       Linker.LinkableDepType type,
       boolean forceLinkWhole,
       ImmutableSet<LanguageExtensions> languageExtensions,
-      BuildRuleResolver ruleResolver) {
+      ActionGraphBuilder graphBuilder) {
     // forceLinkWhole is not needed for PrebuiltAppleFramework so we provide constant value
     return nativeLinkableCache.getUnchecked(
         NativeLinkableCacheKey.of(cxxPlatform.getFlavor(), type, false, cxxPlatform));
@@ -253,13 +254,13 @@ public class PrebuiltAppleFramework extends AbstractBuildRuleWithDeclaredAndExtr
 
   @Override
   public NativeLinkable.Linkage getPreferredLinkage(
-      CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver) {
+      CxxPlatform cxxPlatform, ActionGraphBuilder graphBuilder) {
     return this.preferredLinkage;
   }
 
   @Override
   public ImmutableMap<String, SourcePath> getSharedLibraries(
-      CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver) {
+      CxxPlatform cxxPlatform, ActionGraphBuilder graphBuilder) {
     return ImmutableMap.of();
   }
 }

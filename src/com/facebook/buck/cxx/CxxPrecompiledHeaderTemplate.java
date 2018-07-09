@@ -16,22 +16,21 @@
 
 package com.facebook.buck.cxx;
 
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.Flavor;
+import com.facebook.buck.core.model.InternalFlavor;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.impl.DependencyAggregation;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.Preprocessor;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.Flavor;
-import com.facebook.buck.model.InternalFlavor;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.DependencyAggregation;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
 import java.nio.file.Path;
-import java.util.Optional;
 import java.util.function.Function;
 
 /**
@@ -70,7 +69,7 @@ public class CxxPrecompiledHeaderTemplate extends PreInclude {
       CxxPlatform cxxPlatform,
       CxxSource.Type sourceType,
       ImmutableList<String> sourceFlags,
-      BuildRuleResolver ruleResolver,
+      ActionGraphBuilder graphBuilder,
       SourcePathRuleFinder ruleFinder,
       SourcePathResolver pathResolver) {
 
@@ -83,14 +82,13 @@ public class CxxPrecompiledHeaderTemplate extends PreInclude {
     // and nothing related to the deps of this particular rule (hence 'getNonIncludePathFlags').
     CxxToolFlags compilerFlags =
         CxxToolFlags.concat(
-            preprocessorDelegateForCxxRule.getNonIncludePathFlags(
-                /* no pch */ Optional.empty(), pathResolver),
+            preprocessorDelegateForCxxRule.getNonIncludePathFlags(pathResolver),
             computedCompilerFlags);
 
     // Now build a new pp-delegate specially for this PCH rule.
     PreprocessorDelegate preprocessorDelegate =
         buildPreprocessorDelegate(
-            cxxPlatform, preprocessor, compilerFlags, ruleResolver, pathResolver);
+            cxxPlatform, preprocessor, compilerFlags, graphBuilder, pathResolver);
 
     // Language needs to be part of the key, PCHs built under a different language are incompatible.
     // (Replace `c++` with `cxx`; avoid default scrubbing which would make it the cryptic `c__`.)
@@ -101,7 +99,7 @@ public class CxxPrecompiledHeaderTemplate extends PreInclude {
       depsBuilder.add(rule);
     }
 
-    depsBuilder.add(requireAggregatedDepsRule(cxxPlatform, ruleResolver, ruleFinder));
+    depsBuilder.add(requireAggregatedDepsRule(cxxPlatform, graphBuilder, ruleFinder));
     depsBuilder.add(preprocessorDelegate);
 
     return requirePrecompiledHeader(
@@ -114,6 +112,6 @@ public class CxxPrecompiledHeaderTemplate extends PreInclude {
         getBuildTarget().getUnflavoredBuildTarget(),
         ImmutableSortedSet.of(
             cxxPlatform.getFlavor(), InternalFlavor.of(Flavor.replaceInvalidCharacters(pchBaseID))),
-        ruleResolver);
+        graphBuilder);
   }
 }

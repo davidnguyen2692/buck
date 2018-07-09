@@ -34,15 +34,18 @@ public class MinionHealthTracker {
   private final Set<String> untrackedMinions;
   private final Clock clock;
   private final long maxMinionSilenceMillis;
+  private final int maxConsecutiveSlowDeadMinionChecks;
   private final long slowHeartbeatWarningThresholdMillis;
 
   private long lastDeadMinionCheckMillis = -1;
+  private int consecutiveSlowDeadMinionChecks = 0;
 
   private final HealthCheckStatsTracker healthCheckStatsTracker;
 
   public MinionHealthTracker(
       Clock clock,
       long maxMinionSilenceMillis,
+      int maxConsecutiveSlowDeadMinionChecks,
       long expectedHeartbeatIntervalMillis,
       long slowHeartbeatWarningThresholdMillis,
       HealthCheckStatsTracker healthCheckStatsTracker) {
@@ -55,6 +58,7 @@ public class MinionHealthTracker {
         "The maxMinionSilenceMillis value needs to be positive. Found [%d] instead.",
         maxMinionSilenceMillis);
     this.maxMinionSilenceMillis = maxMinionSilenceMillis;
+    this.maxConsecutiveSlowDeadMinionChecks = maxConsecutiveSlowDeadMinionChecks;
     this.slowHeartbeatWarningThresholdMillis = slowHeartbeatWarningThresholdMillis;
     this.minions = Maps.newConcurrentMap();
     this.untrackedMinions = Sets.newConcurrentHashSet();
@@ -62,20 +66,59 @@ public class MinionHealthTracker {
   }
 
   /** Heartbeat reports a minion is currently alive and happily running. */
-  public void reportMinionAlive(String minionId) {
+  public void reportMinionAlive(String minionId, String runId) {
     LOG.debug(String.format("Received keep alive heartbeat from Minion [%s]", minionId));
-    minions.computeIfAbsent(minionId, key -> new MinionTrackingInfo(minionId)).reportHealthy();
+    minions
+        .computeIfAbsent(
+            minionId,
+            key -> new MinionTrackingInfo(minionId, runId, slowHeartbeatWarningThresholdMillis))
+        .reportHealthy(clock.currentTimeMillis(), healthCheckStatsTracker);
   }
 
   /** Returns all minions that are currently thought to be dead/not-healthy. */
   public MinionHealthStatus checkMinionHealth() {
     boolean firstRun = lastDeadMinionCheckMillis == -1;
 
-    List<String> deadMinionIds = Lists.newArrayList();
+    List<MinionTrackingInfo> deadMinionIds = Lists.newArrayList();
     boolean hasAliveMinions = false;
     long currentMillis = clock.currentTimeMillis();
     long timeSinceLastDeadMinionCheck = currentMillis - lastDeadMinionCheckMillis;
 
+    boolean deadMinionCheckWasSlow =
+        timeSinceLastDeadMinionCheck > slowHeartbeatWarningThresholdMillis;
+    if (!firstRun && deadMinionCheckWasSlow) {
+      LOG.warn(
+          String.format(
+              "Coordinator took [%d] ms to run dead minion check. This is higher than warning threshold [%d] ms. Last check ts [%d]. Current check ts [%d].",
+              timeSinceLastDeadMinionCheck,
+              slowHeartbeatWarningThresholdMillis,
+              lastDeadMinionCheckMillis,
+              currentMillis));
+      consecutiveSlowDeadMinionChecks++;
+    } else {
+      consecutiveSlowDeadMinionChecks = 0;
+    }
+
+    // If the coordinator was slow, skip minion health check, as they will be negatively affected,
+    // unless we hit the maxConsecutiveDeadMinionChecks limit.
+    if (firstRun
+        || !deadMinionCheckWasSlow
+        || consecutiveSlowDeadMinionChecks >= maxConsecutiveSlowDeadMinionChecks) {
+      hasAliveMinions = checkMinionHealthInner(deadMinionIds, hasAliveMinions, currentMillis);
+    }
+
+    if (!firstRun) {
+      healthCheckStatsTracker.recordDeadMinionCheckSample(
+          timeSinceLastDeadMinionCheck, deadMinionCheckWasSlow);
+    }
+
+    lastDeadMinionCheckMillis = currentMillis;
+
+    return new MinionHealthStatus(deadMinionIds, hasAliveMinions);
+  }
+
+  private boolean checkMinionHealthInner(
+      List<MinionTrackingInfo> deadMinionIds, boolean hasAliveMinions, long currentMillis) {
     for (MinionTrackingInfo minion : minions.values()) {
       if (untrackedMinions.contains(minion.getMinionId())) {
         continue;
@@ -88,7 +131,7 @@ public class MinionHealthTracker {
             String.format(
                 "Minion [%s] failed healthcheck. Marking as dead. Last heartbeat ts [%d]. Current ts [%d].",
                 minion.minionId, lastHeartbeatMillis, currentMillis));
-        deadMinionIds.add(minion.getMinionId());
+        deadMinionIds.add(minion);
       } else {
         hasAliveMinions = true; // At least one minion is alive
       }
@@ -104,27 +147,7 @@ public class MinionHealthTracker {
                 currentMillis));
       }
     }
-
-    boolean deadMinionCheckWasSlow =
-        timeSinceLastDeadMinionCheck > slowHeartbeatWarningThresholdMillis;
-    if (!firstRun && deadMinionCheckWasSlow) {
-      LOG.warn(
-          String.format(
-              "Coordinator took [%d] ms to run dead minion check. This is higher than warning threshold [%d] ms. Last check ts [%d]. Current check ts [%d].",
-              timeSinceLastDeadMinionCheck,
-              slowHeartbeatWarningThresholdMillis,
-              lastDeadMinionCheckMillis,
-              currentMillis));
-    }
-
-    if (!firstRun) {
-      healthCheckStatsTracker.recordDeadMinionCheckSample(
-          timeSinceLastDeadMinionCheck, deadMinionCheckWasSlow);
-    }
-
-    lastDeadMinionCheckMillis = currentMillis;
-
-    return new MinionHealthStatus(deadMinionIds, hasAliveMinions);
+    return hasAliveMinions;
   }
 
   /**
@@ -136,15 +159,15 @@ public class MinionHealthTracker {
 
   /** Contains details about status of all minions that have taken part in the build */
   public static class MinionHealthStatus {
-    private final List<String> deadMinions;
+    private final List<MinionTrackingInfo> deadMinions;
     private final boolean hasAliveMinions;
 
-    public MinionHealthStatus(List<String> deadMinions, boolean hasAliveMinions) {
+    public MinionHealthStatus(List<MinionTrackingInfo> deadMinions, boolean hasAliveMinions) {
       this.deadMinions = deadMinions;
       this.hasAliveMinions = hasAliveMinions;
     }
 
-    public List<String> getDeadMinions() {
+    public List<MinionTrackingInfo> getDeadMinions() {
       return deadMinions;
     }
 
@@ -153,17 +176,25 @@ public class MinionHealthTracker {
     }
   }
 
-  private class MinionTrackingInfo {
+  /** Contains health check details for a single minion */
+  public static class MinionTrackingInfo {
     private final String minionId;
+    private final String runId;
+    private final long slowHeartbeatWarningThresholdMillis;
     private long lastHeartbeatMillis = -1;
 
-    public MinionTrackingInfo(String minionId) {
+    public MinionTrackingInfo(
+        String minionId, String runId, long slowHeartbeatWarningThresholdMillis) {
       this.minionId = minionId;
+      this.runId = runId;
+      this.slowHeartbeatWarningThresholdMillis = slowHeartbeatWarningThresholdMillis;
     }
 
-    public synchronized void reportHealthy() {
+    /** Record that coordinator has received a heartbeat from a minion */
+    public synchronized void reportHealthy(
+        long currentHealthCheckMillis, HealthCheckStatsTracker healthCheckStatsTracker) {
       boolean firstRun = lastHeartbeatMillis == -1;
-      long currentHealthCheckMillis = clock.currentTimeMillis();
+
       long elapsedTimeSinceLastHeartbeat = currentHealthCheckMillis - lastHeartbeatMillis;
 
       boolean heartbeatWasSlow =
@@ -188,8 +219,6 @@ public class MinionHealthTracker {
         healthCheckStatsTracker.recordHeartbeatSample(
             minionId, elapsedTimeSinceLastHeartbeat, heartbeatWasSlow);
       }
-
-      firstRun = false;
     }
 
     public synchronized long getLastHeartbeatMillis() {
@@ -198,6 +227,10 @@ public class MinionHealthTracker {
 
     public String getMinionId() {
       return minionId;
+    }
+
+    public String getRunId() {
+      return runId;
     }
   }
 }

@@ -20,6 +20,7 @@ import com.facebook.buck.distributed.BuildStatusUtil;
 import com.facebook.buck.distributed.DistBuildService;
 import com.facebook.buck.distributed.ExitCode;
 import com.facebook.buck.distributed.build_slave.MinionHealthTracker.MinionHealthStatus;
+import com.facebook.buck.distributed.build_slave.MinionHealthTracker.MinionTrackingInfo;
 import com.facebook.buck.distributed.thrift.BuildJob;
 import com.facebook.buck.distributed.thrift.BuildStatus;
 import com.facebook.buck.distributed.thrift.CoordinatorService;
@@ -32,14 +33,18 @@ import com.facebook.buck.distributed.thrift.StampedeId;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.log.TimedLogger;
 import com.facebook.buck.slb.ThriftException;
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.MoreExecutors;
 import java.io.Closeable;
 import java.io.IOException;
 import java.net.InetAddress;
+import java.nio.file.Path;
+import java.util.HashSet;
 import java.util.Optional;
 import java.util.OptionalInt;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
@@ -52,6 +57,7 @@ import org.apache.thrift.transport.TNonblockingServerSocket;
 import org.apache.thrift.transport.TTransportException;
 
 public class ThriftCoordinatorServer implements Closeable {
+
   /** Information about the exit state of the Coordinator. */
   public static class ExitState {
 
@@ -122,6 +128,9 @@ public class ThriftCoordinatorServer implements Closeable {
   private final MinionHealthTracker minionHealthTracker;
   private final DistBuildService distBuildService;
   private final MinionCountProvider minionCountProvider;
+  private final Optional<String> coordinatorMinionId;
+  private final boolean releasingMinionsEarlyEnabled;
+  private final Set<String> deadMinions;
 
   private volatile OptionalInt port;
 
@@ -139,18 +148,23 @@ public class ThriftCoordinatorServer implements Closeable {
       CoordinatorBuildRuleEventsPublisher coordinatorBuildRuleEventsPublisher,
       MinionHealthTracker minionHealthTracker,
       DistBuildService distBuildService,
-      MinionCountProvider minionCountProvider) {
+      MinionCountProvider minionCountProvider,
+      Optional<String> coordinatorMinionId,
+      boolean releasingMinionsEarlyEnabled) {
     this.eventListener = eventListener;
     this.stampedeId = stampedeId;
     this.coordinatorBuildRuleEventsPublisher = coordinatorBuildRuleEventsPublisher;
     this.minionHealthTracker = minionHealthTracker;
     this.distBuildService = distBuildService;
     this.minionCountProvider = minionCountProvider;
+    this.coordinatorMinionId = coordinatorMinionId;
+    this.releasingMinionsEarlyEnabled = releasingMinionsEarlyEnabled;
     this.lock = new Object();
     this.exitCodeFuture = new CompletableFuture<>();
     this.chromeTraceTracker = new DistBuildTraceTracker(stampedeId);
     this.port = port;
     this.handler = new IdleCoordinatorService();
+    this.deadMinions = new HashSet<>();
     CoordinatorServiceHandler handlerWrapper = new CoordinatorServiceHandler();
     this.processor = new CoordinatorService.Processor<>(handlerWrapper);
     queue.addListener(() -> switchToActiveModeOrFail(queue), MoreExecutors.directExecutor());
@@ -185,12 +199,29 @@ public class ThriftCoordinatorServer implements Closeable {
     MinionHealthStatus minionHealthStatus = minionHealthTracker.checkMinionHealth();
 
     if (allocator != null) {
-      for (String deadMinion : minionHealthStatus.getDeadMinions()) {
-        allocator.handleMinionFailure(deadMinion);
+      for (MinionTrackingInfo deadMinion : minionHealthStatus.getDeadMinions()) {
+        if (deadMinions.contains(deadMinion.getMinionId())) {
+          continue;
+        }
+
+        allocator.handleMinionFailure(deadMinion.getMinionId());
+        try {
+          // TODO(alisdair): ideally this should happen on another thread so that there is no
+          // potential to cause health-check/coordinator timeouts if the calls are too slow.
+          LOG.info(String.format("Updating status for [%s] to LOST.", deadMinion.getRunId()));
+          distBuildService.updateBuildSlaveBuildStatus(
+              stampedeId, deadMinion.getRunId(), BuildStatus.LOST);
+          deadMinions.add(deadMinion.getMinionId());
+        } catch (IOException e) {
+          LOG.error(
+              e,
+              String.format(
+                  "Failed to update minion status to LOST for minion [%s]", deadMinion.getRunId()));
+        }
       }
     }
 
-    Optional<Integer> totalMinionCount = minionCountProvider.getTotalMinionCount();
+    OptionalInt totalMinionCount = minionCountProvider.getTotalMinionCount();
     totalMinionCount.ifPresent(
         count -> {
           int deadMinionCount = minionHealthStatus.getDeadMinions().size();
@@ -258,13 +289,6 @@ public class ThriftCoordinatorServer implements Closeable {
     }
   }
 
-  /** Create a {@link DistBuildTrace} based on timestamps of rules processed by the minions. */
-  public DistBuildTrace generateTrace() {
-    synchronized (lock) {
-      return chromeTraceTracker.generateTrace();
-    }
-  }
-
   public Future<ExitState> getExitState() {
     return exitCodeFuture;
   }
@@ -281,13 +305,37 @@ public class ThriftCoordinatorServer implements Closeable {
     }
   }
 
+  /** Exports the stampede distbuild chrome trace to argument file. */
+  public boolean exportChromeTraceIfSuccess(Path traceFilePath) {
+    return exportChromeTraceIfSuccessInternal(traceFilePath, getExitState(), chromeTraceTracker);
+  }
+
+  @VisibleForTesting
+  static boolean exportChromeTraceIfSuccessInternal(
+      Path traceFilePath, Future<ExitState> exitState, DistBuildTraceTracker chromeTraceTracker) {
+    try {
+      if (exitState.isDone() && exitState.get().exitCode == 0) {
+        DistBuildTrace trace = chromeTraceTracker.generateTrace();
+        trace.dumpToChromeTrace(traceFilePath);
+        return true;
+      }
+    } catch (InterruptedException | ExecutionException | IOException e) {
+      LOG.error(
+          e, String.format("Failed to export the stampede trace to file [%s].", traceFilePath));
+    }
+
+    return false;
+  }
+
   private void switchToActiveModeOrFail(Future<BuildTargetsQueue> queueFuture) {
     Preconditions.checkState(queueFuture.isDone());
     try {
       LOG.info("Switching Coordinator to Active mode now.");
       BuildTargetsQueue queue = queueFuture.get();
       chromeTraceTracker.setBuildGraph(queue.getDistributableBuildGraph());
-      MinionWorkloadAllocator allocator = new MinionWorkloadAllocator(queue, chromeTraceTracker);
+      allocator =
+          new MinionWorkloadAllocator(
+              queue, chromeTraceTracker, coordinatorMinionId, releasingMinionsEarlyEnabled);
       this.handler =
           new ActiveCoordinatorService(
               allocator, exitCodeFuture, coordinatorBuildRuleEventsPublisher, minionHealthTracker);
@@ -318,6 +366,7 @@ public class ThriftCoordinatorServer implements Closeable {
       try {
         checkBuildId(request.getStampedeId());
         Preconditions.checkArgument(request.isSetMinionId());
+        Preconditions.checkArgument(request.isSetRunId());
         return handler.reportMinionAlive(request);
       } catch (Throwable e) {
         LOG.error(
@@ -357,6 +406,7 @@ public class ThriftCoordinatorServer implements Closeable {
 
       checkBuildId(request.getStampedeId());
       Preconditions.checkArgument(request.isSetMinionId());
+      Preconditions.checkArgument(request.isSetMinionType());
       Preconditions.checkArgument(request.isSetLastExitCode());
 
       synchronized (lock) {

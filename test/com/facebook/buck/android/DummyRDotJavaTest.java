@@ -20,6 +20,13 @@ import static com.facebook.buck.jvm.java.JavaCompilationConstants.ANDROID_JAVAC_
 import static com.facebook.buck.jvm.java.JavaCompilationConstants.DEFAULT_JAVAC;
 import static org.junit.Assert.assertEquals;
 
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.java.AnnotationProcessingParams;
@@ -29,18 +36,11 @@ import com.facebook.buck.jvm.java.ExtraClasspathProvider;
 import com.facebook.buck.jvm.java.JavacOptions;
 import com.facebook.buck.jvm.java.JavacStep;
 import com.facebook.buck.jvm.java.JavacToJarStepFactory;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.FakeBuildContext;
 import com.facebook.buck.rules.FakeBuildableContext;
 import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TestBuildRuleResolver;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.TestExecutionContext;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
@@ -60,11 +60,11 @@ public class DummyRDotJavaTest {
   @Test
   public void testBuildSteps() {
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
-    BuildRuleResolver ruleResolver = new TestBuildRuleResolver();
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(ruleResolver);
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
     SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
     BuildRule resourceRule1 =
-        ruleResolver.addToIndex(
+        graphBuilder.addToIndex(
             AndroidResourceRuleBuilder.newBuilder()
                 .setRuleFinder(ruleFinder)
                 .setBuildTarget(BuildTargetFactory.newInstance("//android_res/com/example:res1"))
@@ -73,7 +73,7 @@ public class DummyRDotJavaTest {
                 .build());
     setAndroidResourceBuildOutput(resourceRule1);
     BuildRule resourceRule2 =
-        ruleResolver.addToIndex(
+        graphBuilder.addToIndex(
             AndroidResourceRuleBuilder.newBuilder()
                 .setRuleFinder(ruleFinder)
                 .setBuildTarget(BuildTargetFactory.newInstance("//android_res/com/example:res2"))
@@ -180,7 +180,7 @@ public class DummyRDotJavaTest {
   @Test
   public void testRDotJavaBinFolder() {
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(new TestBuildRuleResolver());
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(new TestActionGraphBuilder());
     SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
     BuildTarget buildTarget = BuildTargetFactory.newInstance("//java/com/example:library");
     DummyRDotJava dummyRDotJava =

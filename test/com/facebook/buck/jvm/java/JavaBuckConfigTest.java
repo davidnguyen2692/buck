@@ -32,16 +32,16 @@ import static org.junit.Assume.assumeThat;
 import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.config.BuckConfigTestUtils;
 import com.facebook.buck.config.FakeBuckConfig;
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.jvm.java.abi.AbiGenerationMode;
 import com.facebook.buck.parser.exceptions.NoSuchBuildTargetException;
-import com.facebook.buck.rules.DefaultSourcePathResolver;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TestBuildRuleResolver;
 import com.facebook.buck.testutil.TemporaryPaths;
-import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.environment.Architecture;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.base.Joiner;
@@ -60,7 +60,7 @@ import org.junit.Test;
 public class JavaBuckConfigTest {
 
   private static final SourcePathResolver PATH_RESOLVER =
-      DefaultSourcePathResolver.from(new SourcePathRuleFinder(new TestBuildRuleResolver()));
+      DefaultSourcePathResolver.from(new SourcePathRuleFinder(new TestActionGraphBuilder()));
 
   @Rule public TemporaryPaths temporaryFolder = new TemporaryPaths();
   private ProjectFilesystem defaultFilesystem;
@@ -163,7 +163,7 @@ public class JavaBuckConfigTest {
                 .join("[tools]", "    javac = " + javac.toString().replace("\\", "\\\\")));
     JavaBuckConfig config = createWithDefaultFilesystem(reader);
 
-    assertEquals(Optional.of(javac), config.getJavacPath());
+    assertEquals(config.getDelegate().getPathSourcePath(javac), config.getJavacPath().get());
   }
 
   @Test
@@ -267,7 +267,7 @@ public class JavaBuckConfigTest {
     BuckConfig buckConfig = FakeBuckConfig.builder().build();
     JavaBuckConfig javaConfig = buckConfig.getView(JavaBuckConfig.class);
 
-    Javac javac = JavacFactory.create(null, javaConfig, null);
+    Javac javac = JavacFactoryHelper.createJavacFactory(javaConfig).create(null, null);
     assertTrue(javac.getClass().toString(), javac instanceof Jsr199Javac);
   }
 
@@ -282,7 +282,8 @@ public class JavaBuckConfigTest {
         FakeBuckConfig.builder().setFilesystem(defaultFilesystem).setSections(sections).build();
     JavaBuckConfig javaConfig = buckConfig.getView(JavaBuckConfig.class);
 
-    assertEquals(javac, JavacFactory.create(null, javaConfig, null).getShortName());
+    assertEquals(
+        javac, JavacFactoryHelper.createJavacFactory(javaConfig).create(null, null).getShortName());
   }
 
   @Test
@@ -356,21 +357,6 @@ public class JavaBuckConfigTest {
     assumeThat(config.getJavacSpec().getJavacSource(), is(Javac.Source.JDK));
 
     assertTrue(config.trackClassUsage());
-  }
-
-  @Test
-  public void testJavaLocationInProcessByDefault() throws IOException, NoSuchBuildTargetException {
-    JavaBuckConfig config = createWithDefaultFilesystem(new StringReader(""));
-    assertThat(
-        config.getJavacSpec().getJavacLocation(), Matchers.equalTo(Javac.Location.IN_PROCESS));
-  }
-
-  @Test
-  public void testJavaLocationInProcess() throws IOException, NoSuchBuildTargetException {
-    String content = Joiner.on('\n').join("[java]", "    location = IN_PROCESS");
-    JavaBuckConfig config = createWithDefaultFilesystem(new StringReader(content));
-    assertThat(
-        config.getJavacSpec().getJavacLocation(), Matchers.equalTo(Javac.Location.IN_PROCESS));
   }
 
   @Test

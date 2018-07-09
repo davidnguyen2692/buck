@@ -19,13 +19,13 @@ package com.facebook.buck.android;
 import static org.junit.Assert.assertEquals;
 
 import com.facebook.buck.android.AndroidBuildConfig.ReadValuesStep;
+import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.description.DescriptionCache;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.FakeBuildContext;
 import com.facebook.buck.rules.FakeBuildableContext;
 import com.facebook.buck.rules.TestBuildRuleParams;
@@ -40,7 +40,6 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
 import java.util.Optional;
-import org.easymock.EasyMock;
 import org.junit.Test;
 
 /** Unit test for {@link AndroidBuildConfig}. */
@@ -82,17 +81,16 @@ public class AndroidBuildConfigTest {
   public void testGetTypeMethodOfBuilder() {
     assertEquals(
         "android_build_config",
-        Description.getBuildRuleType(AndroidBuildConfigDescription.class).getName());
+        DescriptionCache.getBuildRuleType(AndroidBuildConfigDescription.class).getName());
   }
 
   @Test
   public void testReadValuesStep() throws Exception {
     Path pathToValues = Paths.get("src/values.txt");
 
-    ProjectFilesystem projectFilesystem = EasyMock.createMock(ProjectFilesystem.class);
-    EasyMock.expect(projectFilesystem.readLines(pathToValues))
-        .andReturn(ImmutableList.of("boolean DEBUG = false", "String FOO = \"BAR\""));
-    EasyMock.replay(projectFilesystem);
+    ProjectFilesystem projectFilesystem = new FakeProjectFilesystem();
+    projectFilesystem.writeLinesToPath(
+        ImmutableList.of("boolean DEBUG = false", "String FOO = \"BAR\""), pathToValues);
 
     ReadValuesStep step = new ReadValuesStep(projectFilesystem, pathToValues);
     ExecutionContext context = TestExecutionContext.newBuilder().build();
@@ -104,8 +102,6 @@ public class AndroidBuildConfigTest {
                 BuildConfigFields.Field.of("boolean", "DEBUG", "false"),
                 BuildConfigFields.Field.of("String", "FOO", "\"BAR\""))),
         step.get());
-
-    EasyMock.verify(projectFilesystem);
   }
 
   private static AndroidBuildConfig createSimpleBuildConfigRule() {

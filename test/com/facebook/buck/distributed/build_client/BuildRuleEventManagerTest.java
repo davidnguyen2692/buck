@@ -18,7 +18,7 @@ package com.facebook.buck.distributed.build_client;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
-import com.facebook.buck.rules.RemoteBuildRuleCompletionNotifier;
+import com.facebook.buck.core.build.distributed.synchronization.RemoteBuildRuleCompletionNotifier;
 import com.facebook.buck.util.timing.Clock;
 import org.easymock.EasyMock;
 import org.junit.Before;
@@ -66,6 +66,20 @@ public class BuildRuleEventManagerTest {
 
     eventManager.recordBuildRuleStartedEvent(BUILD_TARGET_ONE);
     eventManager.recordBuildRuleStartedEvent(BUILD_TARGET_TWO);
+
+    EasyMock.verify(remoteBuildRuleCompletionNotifier);
+  }
+
+  @Test
+  public void testBuildRuleUnlockedEventsNotifiedImmediately() {
+    remoteBuildRuleCompletionNotifier.signalCompletionOfBuildRule(BUILD_TARGET_ONE);
+    EasyMock.expectLastCall();
+    remoteBuildRuleCompletionNotifier.signalCompletionOfBuildRule(BUILD_TARGET_TWO);
+    EasyMock.expectLastCall();
+    EasyMock.replay(remoteBuildRuleCompletionNotifier);
+
+    eventManager.recordBuildRuleUnlockedEvent(BUILD_TARGET_ONE);
+    eventManager.recordBuildRuleUnlockedEvent(BUILD_TARGET_TWO);
 
     EasyMock.verify(remoteBuildRuleCompletionNotifier);
   }

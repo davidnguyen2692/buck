@@ -21,6 +21,11 @@ import static org.junit.Assert.assertThat;
 import static org.junit.Assume.assumeTrue;
 
 import com.facebook.buck.config.FakeBuckConfig;
+import com.facebook.buck.core.rules.BuildRuleResolver;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.cxx.toolchain.Archiver;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
@@ -29,11 +34,6 @@ import com.facebook.buck.cxx.toolchain.objectfile.ObjectFileCommonModificationDa
 import com.facebook.buck.cxx.toolchain.objectfile.ObjectFileScrubbers;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.DefaultSourcePathResolver;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TestBuildRuleResolver;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.TestExecutionContext;
 import com.facebook.buck.step.fs.FileScrubberStep;
@@ -69,7 +69,7 @@ public class ArchiveStepIntegrationTest {
         CxxPlatformUtils.build(new CxxBuckConfig(FakeBuckConfig.builder().build()));
 
     // Build up the paths to various files the archive step will use.
-    BuildRuleResolver ruleResolver = new TestBuildRuleResolver();
+    BuildRuleResolver ruleResolver = new TestActionGraphBuilder();
     SourcePathResolver sourcePathResolver =
         DefaultSourcePathResolver.from(new SourcePathRuleFinder(ruleResolver));
     Archiver archiver = platform.getAr().resolve(ruleResolver);
@@ -121,7 +121,7 @@ public class ArchiveStepIntegrationTest {
         CxxPlatformUtils.build(new CxxBuckConfig(FakeBuckConfig.builder().build()));
 
     // Build up the paths to various files the archive step will use.
-    BuildRuleResolver ruleResolver = new TestBuildRuleResolver();
+    BuildRuleResolver ruleResolver = new TestActionGraphBuilder();
     SourcePathResolver sourcePathResolver =
         DefaultSourcePathResolver.from(new SourcePathRuleFinder(ruleResolver));
     Archiver archiver = platform.getAr().resolve(ruleResolver);
@@ -162,7 +162,7 @@ public class ArchiveStepIntegrationTest {
         CxxPlatformUtils.build(new CxxBuckConfig(FakeBuckConfig.builder().build()));
 
     // Build up the paths to various files the archive step will use.
-    BuildRuleResolver ruleResolver = new TestBuildRuleResolver();
+    BuildRuleResolver ruleResolver = new TestActionGraphBuilder();
     SourcePathResolver sourcePathResolver =
         DefaultSourcePathResolver.from(new SourcePathRuleFinder(ruleResolver));
     Archiver archiver = platform.getAr().resolve(ruleResolver);
@@ -207,7 +207,7 @@ public class ArchiveStepIntegrationTest {
         CxxPlatformUtils.build(new CxxBuckConfig(FakeBuckConfig.builder().build()));
 
     // Build up the paths to various files the archive step will use.
-    BuildRuleResolver ruleResolver = new TestBuildRuleResolver();
+    BuildRuleResolver ruleResolver = new TestActionGraphBuilder();
     SourcePathResolver sourcePathResolver =
         DefaultSourcePathResolver.from(new SourcePathRuleFinder(ruleResolver));
     Archiver archiver = platform.getAr().resolve(ruleResolver);

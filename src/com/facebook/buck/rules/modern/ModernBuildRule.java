@@ -16,26 +16,29 @@
 
 package com.facebook.buck.rules.modern;
 
+import com.facebook.buck.core.build.buildable.context.BuildableContext;
+import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rulekey.RuleKeyObjectSink;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleResolver;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.attr.SupportsInputBasedRuleKey;
+import com.facebook.buck.core.rules.impl.AbstractBuildRule;
+import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.AbstractBuildRule;
-import com.facebook.buck.rules.BuildContext;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildableContext;
-import com.facebook.buck.rules.CacheableBuildRule;
-import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
-import com.facebook.buck.rules.RuleKeyObjectSink;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.keys.AlterRuleKeys;
-import com.facebook.buck.rules.keys.SupportsInputBasedRuleKey;
 import com.facebook.buck.rules.modern.impl.DefaultClassInfoFactory;
 import com.facebook.buck.rules.modern.impl.DefaultInputRuleResolver;
+import com.facebook.buck.rules.modern.impl.DepsComputingVisitor;
+import com.facebook.buck.rules.modern.impl.InputsVisitor;
+import com.facebook.buck.rules.modern.impl.OutputPathVisitor;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
+import com.facebook.buck.step.fs.RmStep;
 import com.facebook.buck.util.MoreSuppliers;
 import com.facebook.buck.util.types.Either;
 import com.google.common.base.Preconditions;
@@ -104,7 +107,7 @@ import javax.annotation.Nullable;
  * }</pre>
  */
 public class ModernBuildRule<T extends Buildable> extends AbstractBuildRule
-    implements CacheableBuildRule, SupportsInputBasedRuleKey {
+    implements SupportsInputBasedRuleKey {
   private final OutputPathResolver outputPathResolver;
 
   private final Supplier<ImmutableSortedSet<BuildRule>> deps;
@@ -145,7 +148,7 @@ public class ModernBuildRule<T extends Buildable> extends AbstractBuildRule
 
   private ImmutableSortedSet<BuildRule> computeDeps() {
     ImmutableSortedSet.Builder<BuildRule> depsBuilder = ImmutableSortedSet.naturalOrder();
-    classInfo.computeDeps(buildable, inputRuleResolver, depsBuilder::add);
+    classInfo.visit(buildable, new DepsComputingVisitor(inputRuleResolver, depsBuilder::add));
     return depsBuilder.build();
   }
 
@@ -159,7 +162,7 @@ public class ModernBuildRule<T extends Buildable> extends AbstractBuildRule
   public static <T extends Buildable> ImmutableSortedSet<SourcePath> computeInputs(
       T buildable, ClassInfo<T> classInfo) {
     ImmutableSortedSet.Builder<SourcePath> depsBuilder = ImmutableSortedSet.naturalOrder();
-    classInfo.getInputs(buildable, depsBuilder::add);
+    classInfo.visit(buildable, new InputsVisitor(depsBuilder::add));
     return depsBuilder.build();
   }
 
@@ -173,6 +176,14 @@ public class ModernBuildRule<T extends Buildable> extends AbstractBuildRule
     return null;
   }
 
+  /**
+   * This field could be used unsafely, most ModernBuildRule should never need this directly and it
+   * should only be used within the getBuildSteps() call.
+   */
+  public OutputPathResolver getOutputPathResolver() {
+    return outputPathResolver;
+  }
+
   @Override
   public void updateBuildRuleResolver(
       BuildRuleResolver ruleResolver,
@@ -180,15 +191,10 @@ public class ModernBuildRule<T extends Buildable> extends AbstractBuildRule
       SourcePathResolver pathResolver) {
     this.inputRuleResolver = new DefaultInputRuleResolver(ruleFinder);
   }
+
   // -----------------------------------------------------------------------------------------------
   // ---------- These function's behaviors can be changed with interfaces on the Buildable ---------
   // -----------------------------------------------------------------------------------------------
-
-  @Override
-  public final boolean isCacheable() {
-    // Uses instanceof to force this to be non-dynamic.
-    return !(buildable instanceof HasBrokenCaching);
-  }
 
   @Override
   public final boolean inputBasedRuleKeyIsEnabled() {
@@ -215,15 +221,13 @@ public class ModernBuildRule<T extends Buildable> extends AbstractBuildRule
   }
 
   @Override
-  public final String getType() {
-    return classInfo.getType();
-  }
-
-  @Override
   public final ImmutableList<Step> getBuildSteps(
       BuildContext context, BuildableContext buildableContext) {
-    recordOutputs(buildableContext);
-    return stepsForBuildable(context, buildable, getProjectFilesystem(), getBuildTarget());
+    ImmutableList.Builder<Path> outputsBuilder = ImmutableList.builder();
+    recordOutputs(outputsBuilder::add);
+    ImmutableList<Path> outputs = outputsBuilder.build();
+    outputs.forEach(buildableContext::recordArtifact);
+    return stepsForBuildable(context, buildable, getProjectFilesystem(), getBuildTarget(), outputs);
   }
 
   /**
@@ -231,9 +235,23 @@ public class ModernBuildRule<T extends Buildable> extends AbstractBuildRule
    * (callers should call recordOutputs() themselves).
    */
   public static <T extends Buildable> ImmutableList<Step> stepsForBuildable(
-      BuildContext context, T buildable, ProjectFilesystem filesystem, BuildTarget buildTarget) {
+      BuildContext context,
+      T buildable,
+      ProjectFilesystem filesystem,
+      BuildTarget buildTarget,
+      Iterable<Path> outputs) {
     ImmutableList.Builder<Step> stepBuilder = ImmutableList.builder();
     OutputPathResolver outputPathResolver = new DefaultOutputPathResolver(filesystem, buildTarget);
+
+    // TODO(cjhopman): This should probably actually be handled by the build engine.
+    for (Path output : outputs) {
+      stepBuilder.add(
+          RmStep.of(
+                  BuildCellRelativePath.fromCellRelativePath(
+                      context.getBuildCellRootPath(), filesystem, output))
+              .withRecursive(true));
+    }
+
     stepBuilder.addAll(
         MakeCleanDirectoryStep.of(
             BuildCellRelativePath.fromCellRelativePath(
@@ -242,6 +260,7 @@ public class ModernBuildRule<T extends Buildable> extends AbstractBuildRule
         MakeCleanDirectoryStep.of(
             BuildCellRelativePath.fromCellRelativePath(
                 context.getBuildCellRootPath(), filesystem, outputPathResolver.getTempPath())));
+
     stepBuilder.addAll(
         buildable.getBuildSteps(
             context,
@@ -260,14 +279,40 @@ public class ModernBuildRule<T extends Buildable> extends AbstractBuildRule
     return stepBuilder.build();
   }
 
+  /** Return the steps for a buildable. */
+  public static <T extends Buildable> ImmutableList<Step> stepsForBuildable(
+      BuildContext context, T buildable, ProjectFilesystem filesystem, BuildTarget buildTarget) {
+    ImmutableList.Builder<Path> outputs = ImmutableList.builder();
+    recordOutputs(
+        outputs::add,
+        new DefaultOutputPathResolver(filesystem, buildTarget),
+        DefaultClassInfoFactory.forInstance(buildable),
+        buildable);
+    return stepsForBuildable(context, buildable, filesystem, buildTarget, outputs.build());
+  }
+
   /**
    * Records the outputs of this buildrule. An output will only be recorded once (i.e. no duplicates
    * and if a directory is recorded, none of its contents will be).
    */
   public void recordOutputs(BuildableContext buildableContext) {
+    recordOutputs(buildableContext, outputPathResolver, classInfo, buildable);
+  }
+
+  /**
+   * Records the outputs of this buildrule. An output will only be recorded once (i.e. no duplicates
+   * and if a directory is recorded, none of its contents will be).
+   */
+  public static <T extends Buildable> void recordOutputs(
+      BuildableContext buildableContext,
+      OutputPathResolver outputPathResolver,
+      ClassInfo<T> classInfo,
+      T buildable) {
     Stream.Builder<Path> collector = Stream.builder();
     collector.add(outputPathResolver.getRootPath());
-    classInfo.getOutputs(buildable, path -> collector.add(outputPathResolver.resolvePath(path)));
+    classInfo.visit(
+        buildable,
+        new OutputPathVisitor(path1 -> collector.add(outputPathResolver.resolvePath(path1))));
     // ImmutableSet guarantees that iteration order is unchanged.
     Set<Path> outputs = collector.build().collect(ImmutableSet.toImmutableSet());
     for (Path path : outputs) {
@@ -278,7 +323,7 @@ public class ModernBuildRule<T extends Buildable> extends AbstractBuildRule
     }
   }
 
-  private boolean shouldRecord(Set<Path> outputs, Path path) {
+  private static boolean shouldRecord(Set<Path> outputs, Path path) {
     Path parent = path.getParent();
     while (parent != null) {
       if (outputs.contains(parent)) {

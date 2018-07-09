@@ -16,13 +16,13 @@
 
 package com.facebook.buck.js;
 
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.Flavor;
+import com.facebook.buck.core.model.FlavorDomain;
+import com.facebook.buck.core.model.InternalFlavor;
+import com.facebook.buck.core.model.UserFlavor;
+import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.io.file.MorePaths;
-import com.facebook.buck.model.Flavor;
-import com.facebook.buck.model.FlavorDomain;
-import com.facebook.buck.model.InternalFlavor;
-import com.facebook.buck.model.UserFlavor;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.types.Either;
 import com.facebook.buck.util.types.Pair;
 import com.google.common.base.Charsets;
@@ -128,5 +128,12 @@ public class JsFlavors {
         .orElseThrow(
             () ->
                 new HumanReadableException("A platform flavor must be passed for release builds"));
+  }
+
+  static boolean shouldBePassedToWorker(Flavor flavor) {
+    return !flavor.equals(LIBRARY_FILES)
+        && !flavor.equals(ANDROID_RESOURCES)
+        && !flavor.equals(FORCE_JS_BUNDLE)
+        && !isFileFlavor(flavor);
   }
 }

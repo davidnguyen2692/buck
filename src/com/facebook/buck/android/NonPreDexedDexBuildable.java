@@ -20,22 +20,23 @@ import static com.facebook.buck.android.AndroidBinaryBuildable.SMART_DEX_SECONDA
 
 import com.facebook.buck.android.apkmodule.APKModule;
 import com.facebook.buck.android.toolchain.AndroidPlatformTarget;
+import com.facebook.buck.core.build.buildable.context.BuildableContext;
+import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rulekey.AddToRuleKey;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.common.BuildableSupport;
+import com.facebook.buck.core.rules.impl.AbstractBuildRule;
+import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.toolchain.tool.Tool;
+import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.java.AccumulateClassNamesStep;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.AbstractBuildRule;
-import com.facebook.buck.rules.AddToRuleKey;
-import com.facebook.buck.rules.BuildContext;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildableContext;
-import com.facebook.buck.rules.BuildableSupport;
-import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.shell.AbstractGenruleStep;
 import com.facebook.buck.step.AbstractExecutionStep;
@@ -47,7 +48,6 @@ import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.util.MoreSuppliers;
 import com.facebook.buck.util.RichStream;
-import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.util.types.Pair;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
@@ -74,6 +74,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.Set;
 import java.util.SortedSet;
 import java.util.function.Consumer;
@@ -100,7 +101,7 @@ class NonPreDexedDexBuildable extends AbstractBuildRule {
   private final Optional<ImmutableSortedMap<APKModule, ImmutableList<SourcePath>>>
       moduleMappedClasspathEntriesToDex;
 
-  @AddToRuleKey private final Optional<Integer> optimizationPasses;
+  @AddToRuleKey private final OptionalInt optimizationPasses;
   @AddToRuleKey private final boolean shouldProguard;
   @AddToRuleKey private final Optional<Arg> preprocessJavaClassesBash;
   @AddToRuleKey private final Optional<String> proguardAgentPath;
@@ -113,7 +114,7 @@ class NonPreDexedDexBuildable extends AbstractBuildRule {
   @AddToRuleKey private final APKModule rootAPKModule;
   @AddToRuleKey private final ProGuardObfuscateStep.SdkProguardType sdkProguardConfig;
   @AddToRuleKey private final boolean skipProguard;
-  @AddToRuleKey private final Optional<Integer> xzCompressionLevel;
+  @AddToRuleKey private final OptionalInt xzCompressionLevel;
   @AddToRuleKey private final boolean shouldSplitDex;
   @AddToRuleKey private final String dexTool;
 
@@ -144,7 +145,7 @@ class NonPreDexedDexBuildable extends AbstractBuildRule {
 
     ProGuardObfuscateStep.SdkProguardType getSdkProguardConfig();
 
-    Optional<Integer> getOptimizationPasses();
+    OptionalInt getOptimizationPasses();
 
     Optional<List<String>> getProguardJvmArgs();
 
@@ -169,7 +170,7 @@ class NonPreDexedDexBuildable extends AbstractBuildRule {
           moduleMappedClasspathEntriesToDex,
       ImmutableList<SourcePath> proguardConfigs,
       APKModule rootAPKModule,
-      Optional<Integer> xzCompressionLevel,
+      OptionalInt xzCompressionLevel,
       boolean shouldSplitDex,
       NonPredexedDexBuildableArgs args,
       ProjectFilesystem filesystem,

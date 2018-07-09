@@ -16,6 +16,9 @@
 
 package com.facebook.buck.model;
 
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.Flavor;
+import com.facebook.buck.core.model.InternalFlavor;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.util.BuckCellArg;
@@ -26,9 +29,7 @@ import java.nio.file.Path;
 import java.util.Optional;
 import javax.annotation.Nullable;
 
-/**
- * Exposes some {@link com.facebook.buck.model.BuildTarget} logic that is only visible for testing.
- */
+/** Exposes some {@link BuildTarget} logic that is only visible for testing. */
 public class BuildTargetFactory {
 
   private BuildTargetFactory() {
@@ -53,25 +54,28 @@ public class BuildTargetFactory {
     Preconditions.checkArgument(parts.length == 2);
     String[] nameAndFlavor = parts[1].split("#");
     if (nameAndFlavor.length != 2) {
-      return BuildTarget.of(UnflavoredBuildTarget.of(root, cellName, parts[0], parts[1]));
+      return ImmutableBuildTarget.of(
+          ImmutableUnflavoredBuildTarget.of(root, cellName, parts[0], parts[1]));
     }
     String[] flavors = nameAndFlavor[1].split(",");
-    return BuildTarget.of(
-        UnflavoredBuildTarget.of(root, cellName, parts[0], nameAndFlavor[0]),
+    return ImmutableBuildTarget.of(
+        ImmutableUnflavoredBuildTarget.of(root, cellName, parts[0], nameAndFlavor[0]),
         RichStream.from(flavors).map(InternalFlavor::of).toOnceIterable());
   }
 
   public static BuildTarget newInstance(Path cellPath, String baseName, String shortName) {
     BuckCellArg arg = BuckCellArg.of(baseName);
-    return BuildTarget.of(
-        UnflavoredBuildTarget.of(cellPath, arg.getCellName(), arg.getBasePath(), shortName));
+    return ImmutableBuildTarget.of(
+        ImmutableUnflavoredBuildTarget.of(
+            cellPath, arg.getCellName(), arg.getBasePath(), shortName));
   }
 
   public static BuildTarget newInstance(
       Path cellPath, String baseName, String shortName, Flavor... flavors) {
     BuckCellArg arg = BuckCellArg.of(baseName);
-    return BuildTarget.of(
-        UnflavoredBuildTarget.of(cellPath, arg.getCellName(), arg.getBasePath(), shortName),
+    return ImmutableBuildTarget.of(
+        ImmutableUnflavoredBuildTarget.of(
+            cellPath, arg.getCellName(), arg.getBasePath(), shortName),
         ImmutableSet.copyOf(flavors));
   }
 }

@@ -24,28 +24,26 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
-import static org.junit.Assume.assumeTrue;
 
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.BuildId;
 import com.facebook.buck.io.WatchmanWatcher;
-import com.facebook.buck.model.BuildId;
 import com.facebook.buck.testutil.ProcessResult;
 import com.facebook.buck.testutil.TemporaryPaths;
-import com.facebook.buck.testutil.integration.DelegatingInputStream;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TestContext;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.util.CapturingPrintStream;
 import com.facebook.buck.util.ExitCode;
-import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.Threads;
 import com.facebook.buck.util.environment.CommandMode;
-import com.facebook.buck.util.environment.Platform;
 import com.google.common.base.Charsets;
 import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Optional;
@@ -113,7 +111,6 @@ public class DaemonIntegrationTest {
   public void whenClientTimeoutDetectedThenMainThreadIsInterrupted()
       throws InterruptedException, IOException {
     long timeoutMillis = 100;
-    long intervalMillis = timeoutMillis * 2; // Interval > timeout to trigger disconnection.
     ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, "exclusive_execution", tmp);
     workspace.setUp();
@@ -121,10 +118,7 @@ public class DaemonIntegrationTest {
     // Build an NGContext connected to an NGInputStream reading from a stream that will timeout.
     Thread.currentThread().setName("Test");
     try (TestContext context =
-        new TestContext(
-            ImmutableMap.copyOf(System.getenv()),
-            TestContext.createHeartBeatStream(intervalMillis),
-            timeoutMillis)) {
+        new TestContext(ImmutableMap.copyOf(System.getenv()), timeoutMillis)) {
       Thread thread = Thread.currentThread();
       context.addClientListener(
           reason -> {
@@ -132,39 +126,6 @@ public class DaemonIntegrationTest {
           });
       Thread.sleep(1000);
       fail("Should have been interrupted.");
-    }
-  }
-
-  /**
-   * This verifies that a client timeout will be detected by a Nailgun NGInputStream reading from an
-   * empty heartbeat stream and that the generated InterruptedException will cause command execution
-   * to fail after timeout.
-   */
-  @Test
-  public void whenClientTimeoutDetectedThenBuildIsInterrupted() throws IOException {
-
-    // Sub process interruption not supported on Windows.
-    assumeTrue(Platform.detect() != Platform.WINDOWS);
-
-    long timeoutMillis = 100;
-    long intervalMillis = timeoutMillis * 2; // Interval > timeout to trigger disconnection.
-    ProjectWorkspace workspace =
-        TestDataHelper.createProjectWorkspaceForScenario(this, "exclusive_execution", tmp);
-    workspace.setUp();
-
-    // Build an NGContext connected to an NGInputStream reading from stream that will timeout.
-    try (TestContext context =
-        new TestContext(
-            ImmutableMap.copyOf(System.getenv()),
-            TestContext.createHeartBeatStream(intervalMillis),
-            timeoutMillis)) {
-      ProcessResult result = workspace.runBuckdCommand(context, "build", "//:sleep");
-      // TODO(buck_team): sometimes we incorrectly report interruption as build error; once it is
-      // fixed we need to only check for SIGNAL_INTERRUPT
-      assertTrue(
-          result.getExitCode() == ExitCode.SIGNAL_INTERRUPT
-              || result.getExitCode() == ExitCode.BUILD_ERROR);
-      assertThat(result.getStderr(), containsString("InterruptedException"));
     }
   }
 
@@ -179,7 +140,9 @@ public class DaemonIntegrationTest {
             createRunnableCommand(ExitCode.SUCCESS, "build", "//:sleep"), 0, TimeUnit.MILLISECONDS);
     Future<?> secondThread =
         executorService.schedule(
-            createRunnableCommand(ExitCode.SUCCESS, "targets"), 500L, TimeUnit.MILLISECONDS);
+            createRunnableCommand(ExitCode.SUCCESS, "targets", "//..."),
+            500L,
+            TimeUnit.MILLISECONDS);
     firstThread.get();
     secondThread.get();
   }
@@ -208,7 +171,7 @@ public class DaemonIntegrationTest {
             new Main(
                 new CapturingPrintStream(),
                 new CapturingPrintStream(),
-                new ByteArrayInputStream("".getBytes("UTF-8")),
+                new ByteArrayInputStream("".getBytes(StandardCharsets.UTF_8)),
                 Optional.of(new TestContext()));
         ExitCode exitCode =
             main.runMainWithExitCode(
@@ -232,137 +195,6 @@ public class DaemonIntegrationTest {
 
   private Callable<Object> createCallableCommand(ExitCode expectedExitCode, String... args) {
     return callable(createRunnableCommand(expectedExitCode, args));
-  }
-
-  /**
-   * This verifies that a client disconnection will be detected by a Nailgun NGInputStream reading
-   * from an empty heartbeat stream and that the generated InterruptedException will interrupt
-   * command execution causing it to fail.
-   */
-  @Test
-  public void whenClientTimeoutDetectedThenTestIsInterrupted() throws IOException {
-
-    // Sub process interruption not supported on Windows.
-    assumeTrue(Platform.detect() != Platform.WINDOWS);
-
-    long timeoutMillis = 100;
-    ProjectWorkspace workspace =
-        TestDataHelper.createProjectWorkspaceForScenario(this, "exclusive_execution", tmp);
-    workspace.setUp();
-
-    // Start with an input stream that sends heartbeats at a regular rate.
-    DelegatingInputStream inputStream =
-        new DelegatingInputStream(TestContext.createHeartBeatStream(timeoutMillis / 10));
-
-    // Build an NGContext connected to an NGInputStream reading from stream that will timeout.
-    try (TestContext context =
-        new TestContext(ImmutableMap.copyOf(System.getenv()), inputStream, timeoutMillis)) {
-      ProcessResult result =
-          workspace.runBuckdCommand(
-              context,
-              new CapturingPrintStream() {
-                @Override
-                public void println(String x) {
-                  if (x.contains("TESTING //:test")) {
-                    // When tests start running, make the heartbeat stream simulate a disconnection.
-                    inputStream.setDelegate(
-                        TestContext.createDisconnectionStream(2 * timeoutMillis));
-                  }
-                  super.println(x);
-                }
-              },
-              "test",
-              "//:test");
-      // TODO(buck_team): sometimes we incorrectly report interruption as build error; once it is
-      // fixed we need to only check for SIGNAL_INTERRUPT
-      assertTrue(
-          result.getExitCode() == ExitCode.SIGNAL_INTERRUPT
-              || result.getExitCode() == ExitCode.BUILD_ERROR);
-      assertThat(result.getStderr(), containsString("InterruptedException"));
-    }
-  }
-
-  /**
-   * This verifies that a client timeout will be detected by a Nailgun NGInputStream reading from an
-   * empty heartbeat stream and that the generated InterruptedException will cause command execution
-   * to fail after timeout.
-   */
-  @Test
-  public void whenClientDisconnectionDetectedThenBuildIsInterrupted() throws IOException {
-
-    // Sub process interruption not supported on Windows.
-    assumeTrue(Platform.detect() != Platform.WINDOWS);
-
-    long timeoutMillis = 2000; // Stream timeout > test timeout.
-    long disconnectMillis = 100; // Disconnect before test timeout.
-    ProjectWorkspace workspace =
-        TestDataHelper.createProjectWorkspaceForScenario(this, "exclusive_execution", tmp);
-    workspace.setUp();
-
-    // Build an NGContext connected to an NGInputStream reading from stream that will timeout.
-    try (TestContext context =
-        new TestContext(
-            ImmutableMap.copyOf(System.getenv()),
-            TestContext.createDisconnectionStream(disconnectMillis),
-            timeoutMillis)) {
-      ProcessResult result = workspace.runBuckdCommand(context, "build", "//:sleep");
-
-      // TODO(buck_team): sometimes we incorrectly report interruption as build error; once it is
-      // fixed we need to only check for SIGNAL_INTERRUPT
-      assertTrue(
-          result.getExitCode() == ExitCode.SIGNAL_INTERRUPT
-              || result.getExitCode() == ExitCode.BUILD_ERROR);
-      assertThat(result.getStderr(), containsString("InterruptedException"));
-    }
-  }
-
-  /**
-   * This verifies that a client disconnection will be detected by a Nailgun NGInputStream reading
-   * from an empty heartbeat stream and that the generated InterruptedException will interrupt
-   * command execution causing it to fail.
-   */
-  @Test
-  public void whenClientDisconnectionDetectedThenTestIsInterrupted() throws IOException {
-
-    // Sub process interruption not supported on Windows.
-    assumeTrue(Platform.detect() != Platform.WINDOWS);
-
-    long timeoutMillis = 2000; // Stream timeout > test timeout.
-    long disconnectMillis = 100; // Disconnect before test timeout.
-    ProjectWorkspace workspace =
-        TestDataHelper.createProjectWorkspaceForScenario(this, "exclusive_execution", tmp);
-    workspace.setUp();
-
-    // Start with an input stream that sends heartbeats at a regular rate.
-    DelegatingInputStream inputStream =
-        new DelegatingInputStream(TestContext.createHeartBeatStream(timeoutMillis / 10));
-
-    // Build an NGContext connected to an NGInputStream reading from stream that will timeout.
-    try (TestContext context =
-        new TestContext(ImmutableMap.copyOf(System.getenv()), inputStream, timeoutMillis)) {
-      ProcessResult result =
-          workspace.runBuckdCommand(
-              context,
-              new CapturingPrintStream() {
-                @Override
-                public void println(String x) {
-                  if (x.contains("TESTING //:test")) {
-                    // When tests start running, make the heartbeat stream simulate a disconnection.
-                    inputStream.setDelegate(
-                        TestContext.createDisconnectionStream(disconnectMillis));
-                  }
-                  super.println(x);
-                }
-              },
-              "test",
-              "//:test");
-      // TODO(buck_team): sometimes we incorrectly report interruption as build error; once it is
-      // fixed we need to only check for SIGNAL_INTERRUPT
-      assertTrue(
-          result.getExitCode() == ExitCode.SIGNAL_INTERRUPT
-              || result.getExitCode() == ExitCode.BUILD_ERROR);
-      assertThat(result.getStderr(), containsString("InterruptedException"));
-    }
   }
 
   @Test
@@ -497,11 +329,11 @@ public class DaemonIntegrationTest {
   @Test
   public void whenCrossCellSourceInvalidatedThenRebuildFails() throws IOException {
     ProjectWorkspace primary =
-        TestDataHelper.createProjectWorkspaceForScenario(
+        TestDataHelper.createProjectWorkspaceForScenarioWithoutDefaultCell(
             this, "crosscell_file_watching/primary", tmp.newFolder());
     primary.setUp();
     ProjectWorkspace secondary =
-        TestDataHelper.createProjectWorkspaceForScenario(
+        TestDataHelper.createProjectWorkspaceForScenarioWithoutDefaultCell(
             this, "crosscell_file_watching/secondary", tmp.newFolder());
     secondary.setUp();
     TestDataHelper.overrideBuckconfig(
@@ -536,11 +368,11 @@ public class DaemonIntegrationTest {
   @Test
   public void whenCrossCellBuckFileInvalidatedThenRebuildFails() throws IOException {
     ProjectWorkspace primary =
-        TestDataHelper.createProjectWorkspaceForScenario(
+        TestDataHelper.createProjectWorkspaceForScenarioWithoutDefaultCell(
             this, "crosscell_file_watching/primary", tmp.newFolder());
     primary.setUp();
     ProjectWorkspace secondary =
-        TestDataHelper.createProjectWorkspaceForScenario(
+        TestDataHelper.createProjectWorkspaceForScenarioWithoutDefaultCell(
             this, "crosscell_file_watching/secondary", tmp.newFolder());
     secondary.setUp();
     TestDataHelper.overrideBuckconfig(
@@ -591,12 +423,12 @@ public class DaemonIntegrationTest {
   @Test
   public void whenNativeTargetBuiltTwiceCacheHits() throws IOException {
     ProjectWorkspace workspace =
-        TestDataHelper.createProjectWorkspaceForScenario(
+        TestDataHelper.createProjectWorkspaceForScenarioWithoutDefaultCell(
             this, "crosscell_file_watching/primary", tmp);
     workspace.setUp();
 
     ProjectWorkspace secondary =
-        TestDataHelper.createProjectWorkspaceForScenario(
+        TestDataHelper.createProjectWorkspaceForScenarioWithoutDefaultCell(
             this, "crosscell_file_watching/secondary", tmp.newFolder());
     secondary.setUp();
     TestDataHelper.overrideBuckconfig(
@@ -621,12 +453,12 @@ public class DaemonIntegrationTest {
   @Test
   public void crossCellIncludeDefChangesInvalidateBuckTargets() throws Exception {
     ProjectWorkspace primary =
-        TestDataHelper.createProjectWorkspaceForScenario(
+        TestDataHelper.createProjectWorkspaceForScenarioWithoutDefaultCell(
             this, "crosscell_include_defs/primary", tmp.newFolder("primary"));
     primary.setUp();
 
     ProjectWorkspace secondary =
-        TestDataHelper.createProjectWorkspaceForScenario(
+        TestDataHelper.createProjectWorkspaceForScenarioWithoutDefaultCell(
             this, "crosscell_include_defs/secondary", tmp.newFolder("secondary"));
     secondary.setUp();
     TestDataHelper.overrideBuckconfig(

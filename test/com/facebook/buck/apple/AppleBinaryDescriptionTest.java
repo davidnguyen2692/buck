@@ -20,22 +20,22 @@ import static org.hamcrest.Matchers.is;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assume.assumeThat;
 
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.cxx.CxxBinary;
 import com.facebook.buck.cxx.CxxLink;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.DefaultSourcePathResolver;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TestBuildRuleResolver;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.macros.LocationMacro;
 import com.facebook.buck.rules.macros.StringWithMacrosUtils;
 import com.facebook.buck.shell.Genrule;
 import com.facebook.buck.shell.GenruleBuilder;
-import com.facebook.buck.testutil.TargetGraphFactory;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.collect.ImmutableList;
 import org.hamcrest.Matchers;
@@ -50,15 +50,15 @@ public class AppleBinaryDescriptionTest {
         BuildTargetFactory.newInstance(
             "//:rule#sandbox,"
                 + FakeAppleRuleDescriptions.DEFAULT_IPHONEOS_I386_PLATFORM.getFlavor());
-    BuildRuleResolver resolver =
-        new TestBuildRuleResolver(
+    ActionGraphBuilder graphBuilder =
+        new TestActionGraphBuilder(
             TargetGraphFactory.newInstance(new AppleBinaryBuilder(sandboxTarget).build()));
     SourcePathResolver pathResolver =
-        DefaultSourcePathResolver.from(new SourcePathRuleFinder(resolver));
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
     Genrule dep =
         GenruleBuilder.newGenruleBuilder(BuildTargetFactory.newInstance("//:dep"))
             .setOut("out")
-            .build(resolver);
+            .build(graphBuilder);
     AppleBinaryBuilder builder =
         new AppleBinaryBuilder(BuildTargetFactory.newInstance("//:rule"))
             .setLinkerFlags(
@@ -66,7 +66,7 @@ public class AppleBinaryDescriptionTest {
                     StringWithMacrosUtils.format(
                         "--linker-script=%s", LocationMacro.of(dep.getBuildTarget()))));
     assertThat(builder.build().getExtraDeps(), Matchers.hasItem(dep.getBuildTarget()));
-    BuildRule binary = ((CxxBinary) builder.build(resolver)).getLinkRule();
+    BuildRule binary = ((CxxBinary) builder.build(graphBuilder)).getLinkRule();
     assertThat(binary, Matchers.instanceOf(CxxLink.class));
     assertThat(
         Arg.stringify(((CxxLink) binary).getArgs(), pathResolver),

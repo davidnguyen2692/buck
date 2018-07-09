@@ -18,11 +18,11 @@ package com.facebook.buck.apple.project_generator;
 
 import static org.junit.Assert.assertEquals;
 
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TestBuildRuleResolver;
 import java.nio.file.Paths;
 import org.junit.Before;
 import org.junit.Test;
@@ -35,7 +35,7 @@ public class PathRelativizerTest {
     pathRelativizer =
         new PathRelativizer(
             Paths.get("output0/output1"),
-            DefaultSourcePathResolver.from(new SourcePathRuleFinder(new TestBuildRuleResolver()))
+            DefaultSourcePathResolver.from(new SourcePathRuleFinder(new TestActionGraphBuilder()))
                 ::getRelativePath);
   }
 

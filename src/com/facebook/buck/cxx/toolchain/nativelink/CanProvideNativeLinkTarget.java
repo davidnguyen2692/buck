@@ -16,8 +16,8 @@
 
 package com.facebook.buck.cxx.toolchain.nativelink;
 
+import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
-import com.facebook.buck.rules.BuildRuleResolver;
 import java.util.Optional;
 
 /**
@@ -25,5 +25,5 @@ import java.util.Optional;
  */
 public interface CanProvideNativeLinkTarget {
   Optional<NativeLinkTarget> getNativeLinkTarget(
-      CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver);
+      CxxPlatform cxxPlatform, ActionGraphBuilder graphBuilder);
 }

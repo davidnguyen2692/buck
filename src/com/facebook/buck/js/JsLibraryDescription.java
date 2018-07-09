@@ -16,33 +16,38 @@
 
 package com.facebook.buck.js;
 
+import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.description.arg.CommonDescriptionArg;
+import com.facebook.buck.core.description.arg.HasDepsQuery;
+import com.facebook.buck.core.description.arg.HasTests;
+import com.facebook.buck.core.description.arg.Hint;
+import com.facebook.buck.core.description.attr.ImplicitDepsInferringDescription;
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.Flavor;
+import com.facebook.buck.core.model.FlavorDomain;
+import com.facebook.buck.core.model.Flavored;
+import com.facebook.buck.core.model.UnflavoredBuildTarget;
+import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
+import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
+import com.facebook.buck.core.model.targetgraph.TargetGraph;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
+import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.Flavor;
-import com.facebook.buck.model.FlavorDomain;
-import com.facebook.buck.model.Flavored;
-import com.facebook.buck.model.UnflavoredBuildTarget;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleCreationContext;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.CellPathResolver;
-import com.facebook.buck.rules.CommonDescriptionArg;
-import com.facebook.buck.rules.DefaultSourcePathResolver;
-import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.HasDepsQuery;
-import com.facebook.buck.rules.HasTests;
-import com.facebook.buck.rules.Hint;
-import com.facebook.buck.rules.ImplicitDepsInferringDescription;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.rules.macros.BuildTargetMacro;
+import com.facebook.buck.rules.macros.MacroContainer;
+import com.facebook.buck.rules.macros.StringWithMacros;
+import com.facebook.buck.rules.query.Query;
 import com.facebook.buck.rules.query.QueryUtils;
 import com.facebook.buck.shell.WorkerTool;
-import com.facebook.buck.util.HumanReadableException;
-import com.facebook.buck.util.immutables.BuckStyleImmutable;
+import com.facebook.buck.util.RichStream;
 import com.facebook.buck.util.types.Either;
 import com.facebook.buck.util.types.Pair;
 import com.google.common.base.Preconditions;
@@ -61,12 +66,13 @@ import java.nio.file.Paths;
 import java.util.Optional;
 import java.util.concurrent.ExecutionException;
 import java.util.function.Function;
+import java.util.function.Predicate;
 import java.util.stream.Stream;
 import javax.annotation.Nullable;
 import org.immutables.value.Value;
 
 public class JsLibraryDescription
-    implements Description<JsLibraryDescriptionArg>,
+    implements DescriptionWithTargetGraph<JsLibraryDescriptionArg>,
         Flavored,
         ImplicitDepsInferringDescription<JsLibraryDescription.AbstractJsLibraryDescriptionArg> {
 
@@ -91,19 +97,13 @@ public class JsLibraryDescription
 
   @Override
   public BuildRule createBuildRule(
-      BuildRuleCreationContext context,
+      BuildRuleCreationContextWithTargetGraph context,
       BuildTarget buildTarget,
       BuildRuleParams params,
       JsLibraryDescriptionArg args) {
-    BuildRuleResolver resolver = context.getBuildRuleResolver();
+    ActionGraphBuilder graphBuilder = context.getActionGraphBuilder();
 
-    // this params object is used as base for the JsLibrary build rule, but also for all dynamically
-    // created JsFile rules.
-    // For the JsLibrary case, we want to propagate flavors to library dependencies
-    // For the JsFile case, we only want to depend on the worker, not on any libraries
-    params = JsUtil.withWorkerDependencyOnly(params, resolver, args.getWorker());
-
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
     SourcePathResolver sourcePathResolver = DefaultSourcePathResolver.from(ruleFinder);
     ImmutableBiMap<Either<SourcePath, Pair<SourcePath, String>>, Flavor> sourcesToFlavors;
     try {
@@ -118,41 +118,63 @@ public class JsLibraryDescription
 
     ProjectFilesystem projectFilesystem = context.getProjectFilesystem();
     CellPathResolver cellRoots = context.getCellPathResolver();
-    WorkerTool worker = resolver.getRuleWithType(args.getWorker(), WorkerTool.class);
+    BuildTarget workerTarget = args.getWorker();
+    WorkerTool worker = graphBuilder.getRuleWithType(workerTarget, WorkerTool.class);
+
+    // this params object is used as base for the JsLibrary build rule, but also for all dynamically
+    // created JsFile rules.
+    // For the JsLibrary case, we want to propagate flavors to library dependencies
+    // For the JsFile case, we only want to depend on the worker, not on any libraries
+    Predicate<BuildTarget> isWorker = workerTarget::equals;
+    Predicate<BuildTarget> extraDepsFilter =
+        args.getExtraJson()
+            .map(StringWithMacros::getMacros)
+            .map(RichStream::from)
+            .map(JsLibraryDescription::getMacroTargets)
+            .map(macroTargets -> isWorker.or(macroTargets::contains))
+            .orElse(isWorker);
+    ImmutableSortedSet<BuildRule> workerAndMacrosExtraDeps =
+        params
+            .getExtraDeps()
+            .get()
+            .stream()
+            .filter(x -> extraDepsFilter.test(x.getBuildTarget()))
+            .collect(ImmutableSortedSet.toImmutableSortedSet(Ordering.natural()));
+    BuildRuleParams baseParams =
+        params.withoutDeclaredDeps().withExtraDeps(workerAndMacrosExtraDeps);
+
     if (file.isPresent()) {
       return buildTarget.getFlavors().contains(JsFlavors.RELEASE)
           ? createReleaseFileRule(
-              buildTarget, projectFilesystem, params, resolver, cellRoots, args, worker)
+              buildTarget, projectFilesystem, baseParams, graphBuilder, cellRoots, args, worker)
           : createDevFileRule(
               buildTarget,
               projectFilesystem,
-              params,
+              baseParams,
               ruleFinder,
               sourcePathResolver,
-              resolver,
+              graphBuilder,
               cellRoots,
               args,
               file.get(),
               worker);
     } else if (buildTarget.getFlavors().contains(JsFlavors.LIBRARY_FILES)) {
-      return new LibraryFilesBuilder(resolver, buildTarget, params, sourcesToFlavors)
+      return new LibraryFilesBuilder(graphBuilder, buildTarget, baseParams, sourcesToFlavors)
           .setSources(args.getSrcs())
           .build(projectFilesystem, worker);
     } else {
-      Stream<BuildTarget> deps = args.getDeps().stream();
-      if (args.getDepsQuery().isPresent()) {
-        // We allow the `deps_query` to contain different kinds of build targets, but filter out
-        // all targets that don't refer to a JsLibrary rule.
-        // That prevents users from having to wrap every query into "kind(js_library, ...)".
-        Stream<BuildTarget> jsLibraryTargetsInQuery =
-            args.getDepsQuery()
-                .get()
-                .getResolvedQuery()
-                .stream()
-                .filter(target -> JsUtil.isJsLibraryTarget(target, context.getTargetGraph()));
-        deps = Stream.concat(deps, jsLibraryTargetsInQuery);
-      }
-      return new LibraryBuilder(context.getTargetGraph(), resolver, buildTarget, params)
+      // We allow the `deps_query` to contain different kinds of build targets, but filter out
+      // all targets that don't refer to a JsLibrary rule.
+      // That prevents users from having to wrap every query into "kind(js_library, ...)".
+      Stream<BuildTarget> queryDeps =
+          args.getDepsQuery()
+              .map(Query::getResolvedQuery)
+              .orElseGet(ImmutableSortedSet::of)
+              .stream()
+              .filter(target -> JsUtil.isJsLibraryTarget(target, context.getTargetGraph()));
+      Stream<BuildTarget> declaredDeps = args.getDeps().stream();
+      Stream<BuildTarget> deps = Stream.concat(declaredDeps, queryDeps);
+      return new LibraryBuilder(context.getTargetGraph(), graphBuilder, buildTarget, baseParams)
           .setLibraryDependencies(deps)
           .build(projectFilesystem, worker);
     }
@@ -198,21 +220,21 @@ public class JsLibraryDescription
 
   private static class LibraryFilesBuilder {
 
-    private final BuildRuleResolver resolver;
+    private final ActionGraphBuilder graphBuilder;
     private final BuildTarget baseTarget;
     private final ImmutableBiMap<Either<SourcePath, Pair<SourcePath, String>>, Flavor>
         sourcesToFlavors;
     private final BuildTarget fileBaseTarget;
     private final BuildRuleParams baseParams;
 
-    @Nullable private ImmutableList<JsFile> sourceFiles;
+    @Nullable private ImmutableList<JsFile> jsFileRules;
 
     public LibraryFilesBuilder(
-        BuildRuleResolver resolver,
+        ActionGraphBuilder graphBuilder,
         BuildTarget baseTarget,
         BuildRuleParams baseParams,
         ImmutableBiMap<Either<SourcePath, Pair<SourcePath, String>>, Flavor> sourcesToFlavors) {
-      this.resolver = resolver;
+      this.graphBuilder = graphBuilder;
       this.baseTarget = baseTarget;
       this.sourcesToFlavors = sourcesToFlavors;
 
@@ -228,35 +250,36 @@ public class JsLibraryDescription
 
     private LibraryFilesBuilder setSources(
         ImmutableSet<Either<SourcePath, Pair<SourcePath, String>>> sources) {
-      this.sourceFiles = ImmutableList.copyOf(sources.stream().map(this::requireJsFile).iterator());
+      this.jsFileRules = ImmutableList.copyOf(sources.stream().map(this::requireJsFile).iterator());
       return this;
     }
 
     private JsFile requireJsFile(Either<SourcePath, Pair<SourcePath, String>> file) {
       Flavor fileFlavor = sourcesToFlavors.get(file);
       BuildTarget target = fileBaseTarget.withAppendedFlavors(fileFlavor);
-      resolver.requireRule(target);
-      return resolver.getRuleWithType(target, JsFile.class);
+      graphBuilder.requireRule(target);
+      return graphBuilder.getRuleWithType(target, JsFile.class);
     }
 
     private JsLibrary.Files build(ProjectFilesystem projectFileSystem, WorkerTool worker) {
-      Preconditions.checkNotNull(sourceFiles, "No source files set");
+      Preconditions.checkNotNull(jsFileRules, "No source files set");
 
       return new JsLibrary.Files(
           baseTarget.withAppendedFlavors(JsFlavors.LIBRARY_FILES),
           projectFileSystem,
-          baseParams.copyAppendingExtraDeps(sourceFiles),
-          sourceFiles
+          baseParams.copyAppendingExtraDeps(jsFileRules),
+          jsFileRules
               .stream()
-              .map(BuildRule::getSourcePathToOutput)
+              .map(JsFile::getSourcePathToOutput)
               .collect(ImmutableSortedSet.toImmutableSortedSet(Ordering.natural())),
           worker);
     }
   }
 
   private static class LibraryBuilder {
+
     private final TargetGraph targetGraph;
-    private final BuildRuleResolver resolver;
+    private final ActionGraphBuilder graphBuilder;
     private final BuildTarget baseTarget;
     private final BuildRuleParams baseParams;
 
@@ -264,20 +287,20 @@ public class JsLibraryDescription
 
     private LibraryBuilder(
         TargetGraph targetGraph,
-        BuildRuleResolver resolver,
+        ActionGraphBuilder graphBuilder,
         BuildTarget baseTarget,
         BuildRuleParams baseParams) {
       this.targetGraph = targetGraph;
       this.baseTarget = baseTarget;
       this.baseParams = baseParams;
-      this.resolver = resolver;
+      this.graphBuilder = graphBuilder;
     }
 
     private LibraryBuilder setLibraryDependencies(Stream<BuildTarget> deps) {
       this.libraryDependencies =
           deps.map(hasFlavors() ? this::addFlavorsToLibraryTarget : Function.identity())
               // `requireRule()` needed for dependencies to flavored versions
-              .map(resolver::requireRule)
+              .map(graphBuilder::requireRule)
               .map(this::verifyIsJsLibraryRule)
               .collect(ImmutableList.toImmutableList());
       return this;
@@ -287,16 +310,16 @@ public class JsLibraryDescription
       Preconditions.checkNotNull(libraryDependencies, "No library dependencies set");
 
       BuildTarget filesTarget = baseTarget.withAppendedFlavors(JsFlavors.LIBRARY_FILES);
-      BuildRule filesRule = resolver.requireRule(filesTarget);
+      BuildRule filesRule = graphBuilder.requireRule(filesTarget);
       return new JsLibrary(
           baseTarget,
           projectFilesystem,
           baseParams.copyAppendingExtraDeps(
               Iterables.concat(ImmutableList.of(filesRule), libraryDependencies)),
-          resolver.getRuleWithType(filesTarget, JsLibrary.Files.class).getSourcePathToOutput(),
+          graphBuilder.getRuleWithType(filesTarget, JsLibrary.Files.class).getSourcePathToOutput(),
           libraryDependencies
               .stream()
-              .map(BuildRule::getSourcePathToOutput)
+              .map(JsLibrary::getSourcePathToOutput)
               .collect(ImmutableSortedSet.toImmutableSortedSet(Ordering.natural())),
           worker);
     }
@@ -315,9 +338,7 @@ public class JsLibraryDescription
         throw new HumanReadableException(
             "js_library target '%s' can only depend on other js_library targets, but one of its "
                 + "dependencies, '%s', is of type %s.",
-            baseTarget,
-            target,
-            Description.getBuildRuleType(targetGraph.get(target).getDescription()).getName());
+            baseTarget, target, targetGraph.get(target).getBuildRuleType().getName());
       }
 
       return (JsLibrary) rule;
@@ -328,18 +349,18 @@ public class JsLibraryDescription
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
-      BuildRuleResolver resolver,
+      ActionGraphBuilder graphBuilder,
       CellPathResolver cellRoots,
       JsLibraryDescriptionArg args,
       WorkerTool worker) {
     BuildTarget devTarget = withFileFlavorOnly(buildTarget);
-    BuildRule devFile = resolver.requireRule(devTarget);
+    BuildRule devFile = graphBuilder.requireRule(devTarget);
     return new JsFile.JsFileRelease(
         buildTarget,
         projectFilesystem,
         params.copyAppendingExtraDeps(devFile),
-        resolver.getRuleWithType(devTarget, JsFile.class).getSourcePathToOutput(),
-        JsUtil.getExtraJson(args, buildTarget, resolver, cellRoots),
+        graphBuilder.getRuleWithType(devTarget, JsFile.class).getSourcePathToOutput(),
+        JsUtil.getExtraJson(args, buildTarget, graphBuilder, cellRoots),
         args.getExtraArgs(),
         worker);
   }
@@ -350,7 +371,7 @@ public class JsLibraryDescription
       BuildRuleParams params,
       SourcePathRuleFinder ruleFinder,
       SourcePathResolver sourcePathResolver,
-      BuildRuleResolver resolver,
+      ActionGraphBuilder graphBuilder,
       CellPathResolver cellRoots,
       A args,
       Either<SourcePath, Pair<SourcePath, String>> source,
@@ -378,7 +399,7 @@ public class JsLibraryDescription
         sourcePath,
         subPath,
         virtualPath,
-        JsUtil.getExtraJson(args, buildTarget, resolver, cellRoots),
+        JsUtil.getExtraJson(args, buildTarget, graphBuilder, cellRoots),
         args.getExtraArgs(),
         worker);
   }
@@ -402,6 +423,14 @@ public class JsLibraryDescription
       builder.put(source, JsFlavors.fileFlavorForSourcePath(relativePath));
     }
     return builder.build();
+  }
+
+  private static ImmutableSet<BuildTarget> getMacroTargets(RichStream<MacroContainer> containers) {
+    return containers
+        .map(MacroContainer::getMacro)
+        .filter(BuildTargetMacro.class)
+        .map(BuildTargetMacro::getTarget)
+        .collect(ImmutableSet.toImmutableSet());
   }
 
   private static Path changePathPrefix(

@@ -17,13 +17,13 @@
 package com.facebook.buck.android;
 
 import com.facebook.buck.config.BuckConfig;
+import com.facebook.buck.core.description.DescriptionCreationContext;
+import com.facebook.buck.core.model.targetgraph.DescriptionProvider;
+import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.jvm.java.JavaBuckConfig;
 import com.facebook.buck.jvm.kotlin.KotlinBuckConfig;
 import com.facebook.buck.jvm.scala.ScalaBuckConfig;
-import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.DescriptionCreationContext;
-import com.facebook.buck.rules.DescriptionProvider;
 import com.facebook.buck.sandbox.SandboxExecutionStrategy;
 import com.facebook.buck.toolchain.ToolchainProvider;
 import com.facebook.buck.util.environment.Platform;
@@ -35,7 +35,8 @@ import org.pf4j.Extension;
 public class AndroidDescriptionsProvider implements DescriptionProvider {
 
   @Override
-  public Collection<Description<?>> getDescriptions(DescriptionCreationContext context) {
+  public Collection<DescriptionWithTargetGraph<?>> getDescriptions(
+      DescriptionCreationContext context) {
     SandboxExecutionStrategy sandboxExecutionStrategy = context.getSandboxExecutionStrategy();
     ToolchainProvider toolchainProvider = context.getToolchainProvider();
     BuckConfig config = context.getBuckConfig();
@@ -54,19 +55,40 @@ public class AndroidDescriptionsProvider implements DescriptionProvider {
     AndroidManifestFactory androidManifestFactory = new AndroidManifestFactory();
 
     return Arrays.asList(
-        new AndroidAarDescription(androidManifestFactory, cxxBuckConfig, javaConfig),
+        new AndroidAarDescription(androidManifestFactory, cxxBuckConfig, toolchainProvider),
         new AndroidManifestDescription(androidManifestFactory),
         new AndroidAppModularityDescription(),
         new AndroidBinaryDescription(
-            javaConfig, proGuardConfig, config, cxxBuckConfig, dxConfig, apkConfig),
-        new AndroidBuildConfigDescription(javaConfig),
+            javaConfig,
+            androidBuckConfig,
+            proGuardConfig,
+            config,
+            cxxBuckConfig,
+            dxConfig,
+            apkConfig,
+            toolchainProvider,
+            new AndroidBinaryGraphEnhancerFactory(),
+            new AndroidBinaryFactory(androidBuckConfig)),
+        new AndroidBuildConfigDescription(toolchainProvider),
+        new AndroidBundleDescription(
+            javaConfig,
+            androidBuckConfig,
+            proGuardConfig,
+            config,
+            cxxBuckConfig,
+            dxConfig,
+            apkConfig,
+            toolchainProvider,
+            new AndroidBinaryGraphEnhancerFactory(),
+            new AndroidBundleFactory(androidBuckConfig)),
         new AndroidInstrumentationApkDescription(
-            javaConfig, proGuardConfig, cxxBuckConfig, dxConfig, apkConfig),
+            javaConfig, proGuardConfig, cxxBuckConfig, dxConfig, apkConfig, toolchainProvider),
         new AndroidInstrumentationTestDescription(config),
-        new AndroidLibraryDescription(javaConfig, defaultAndroidCompilerFactory),
-        new AndroidPrebuiltAarDescription(javaConfig),
+        new AndroidLibraryDescription(javaConfig, defaultAndroidCompilerFactory, toolchainProvider),
+        new AndroidPrebuiltAarDescription(toolchainProvider),
         new AndroidResourceDescription(androidBuckConfig),
-        new RobolectricTestDescription(javaConfig, defaultAndroidCompilerFactory),
+        new RobolectricTestDescription(
+            toolchainProvider, javaConfig, defaultAndroidCompilerFactory),
         new PrebuiltNativeLibraryDescription(),
         new NdkLibraryDescription(),
         new GenAidlDescription(),

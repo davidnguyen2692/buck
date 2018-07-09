@@ -20,6 +20,13 @@ import static org.hamcrest.junit.MatcherAssert.assertThat;
 import static org.junit.Assert.assertEquals;
 
 import com.facebook.buck.android.toolchain.AndroidPlatformTarget;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.targetgraph.TargetGraph;
+import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
+import com.facebook.buck.core.model.targetgraph.TargetNode;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.jvm.core.JavaLibrary;
 import com.facebook.buck.jvm.java.ExtraClasspathProvider;
 import com.facebook.buck.jvm.java.JavaBuckConfig;
@@ -28,16 +35,9 @@ import com.facebook.buck.jvm.java.JavaLibraryDescription;
 import com.facebook.buck.jvm.java.JavaLibraryDescriptionArg;
 import com.facebook.buck.jvm.java.JavacOptions;
 import com.facebook.buck.jvm.java.testutil.AbiCompilationModeTest;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.FakeBuildRule;
-import com.facebook.buck.rules.TargetGraph;
-import com.facebook.buck.rules.TargetNode;
-import com.facebook.buck.rules.TestBuildRuleResolver;
 import com.facebook.buck.rules.query.Query;
-import com.facebook.buck.testutil.TargetGraphFactory;
 import com.facebook.buck.toolchain.impl.ToolchainProviderBuilder;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
@@ -86,20 +86,20 @@ public class AndroidLibraryDescriptionTest extends AbiCompilationModeTest {
         TargetGraphFactory.newInstance(
             transitiveExportedNode, exportedNode, exportingNode, androidLibNode);
 
-    BuildRuleResolver resolver =
-        new TestBuildRuleResolver(
+    ActionGraphBuilder graphBuilder =
+        new TestActionGraphBuilder(
             targetGraph, AndroidLibraryBuilder.createToolchainProviderForAndroidLibrary());
 
-    BuildRule androidLibRule = resolver.requireRule(androidLibNode.getBuildTarget());
-    BuildRule exportedRule = resolver.requireRule(exportedNode.getBuildTarget());
+    BuildRule androidLibRule = graphBuilder.requireRule(androidLibNode.getBuildTarget());
+    BuildRule exportedRule = graphBuilder.requireRule(exportedNode.getBuildTarget());
     BuildRule transitiveExportedRule =
-        resolver.requireRule(transitiveExportedNode.getBuildTarget());
+        graphBuilder.requireRule(transitiveExportedNode.getBuildTarget());
 
     // First order deps should become CalculateAbi rules if we're compiling against ABIs
     if (compileAgainstAbis.equals(TRUE)) {
-      exportedRule = resolver.getRule(((JavaLibrary) exportedRule).getAbiJar().get());
+      exportedRule = graphBuilder.getRule(((JavaLibrary) exportedRule).getAbiJar().get());
       transitiveExportedRule =
-          resolver.getRule(((JavaLibrary) transitiveExportedRule).getAbiJar().get());
+          graphBuilder.getRule(((JavaLibrary) transitiveExportedRule).getAbiJar().get());
     }
 
     assertThat(
@@ -132,17 +132,18 @@ public class AndroidLibraryDescriptionTest extends AbiCompilationModeTest {
     TargetNode<AndroidLibraryDescriptionArg, AndroidLibraryDescription> rule = ruleBuilder.build();
 
     TargetGraph targetGraph = TargetGraphFactory.newInstance(bottomNode, libNode, sublibNode, rule);
-    BuildRuleResolver resolver = new TestBuildRuleResolver(targetGraph);
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder(targetGraph);
 
-    FakeBuildRule bottomRule = resolver.addToIndex(new FakeBuildRule(bottomNode.getBuildTarget()));
+    FakeBuildRule bottomRule =
+        graphBuilder.addToIndex(new FakeBuildRule(bottomNode.getBuildTarget()));
     FakeBuildRule sublibRule =
-        resolver.addToIndex(
+        graphBuilder.addToIndex(
             new FakeBuildRule(sublibNode.getBuildTarget(), ImmutableSortedSet.of(bottomRule)));
     FakeBuildRule libRule =
-        resolver.addToIndex(
+        graphBuilder.addToIndex(
             new FakeBuildRule(libNode.getBuildTarget(), ImmutableSortedSet.of(sublibRule)));
 
-    BuildRule javaLibrary = ruleBuilder.build(resolver, targetGraph);
+    BuildRule javaLibrary = ruleBuilder.build(graphBuilder, targetGraph);
 
     assertThat(javaLibrary.getBuildDeps(), Matchers.hasItems(libRule, sublibRule));
     // The bottom rule should be filtered since it does not match the regex
@@ -177,20 +178,20 @@ public class AndroidLibraryDescriptionTest extends AbiCompilationModeTest {
         TargetGraphFactory.newInstance(
             transitiveExportedNode, exportedNode, exportingNode, androidLibNode);
 
-    BuildRuleResolver resolver =
-        new TestBuildRuleResolver(
+    ActionGraphBuilder graphBuilder =
+        new TestActionGraphBuilder(
             targetGraph, AndroidLibraryBuilder.createToolchainProviderForAndroidLibrary());
 
-    BuildRule androidLibRule = resolver.requireRule(androidLibNode.getBuildTarget());
-    BuildRule exportedRule = resolver.requireRule(exportedNode.getBuildTarget());
+    BuildRule androidLibRule = graphBuilder.requireRule(androidLibNode.getBuildTarget());
+    BuildRule exportedRule = graphBuilder.requireRule(exportedNode.getBuildTarget());
     BuildRule transitiveExportedRule =
-        resolver.requireRule(transitiveExportedNode.getBuildTarget());
+        graphBuilder.requireRule(transitiveExportedNode.getBuildTarget());
 
     // First order deps should become CalculateAbi rules if we're compiling against ABIs
     if (compileAgainstAbis.equals(TRUE)) {
-      exportedRule = resolver.getRule(((JavaLibrary) exportedRule).getAbiJar().get());
+      exportedRule = graphBuilder.getRule(((JavaLibrary) exportedRule).getAbiJar().get());
       transitiveExportedRule =
-          resolver.getRule(((JavaLibrary) transitiveExportedRule).getAbiJar().get());
+          graphBuilder.getRule(((JavaLibrary) transitiveExportedRule).getAbiJar().get());
     }
 
     assertThat(
@@ -249,14 +250,14 @@ public class AndroidLibraryDescriptionTest extends AbiCompilationModeTest {
 
     TargetGraph targetGraph = TargetGraphFactory.newInstance(resourceRule);
 
-    BuildRuleResolver resolver = new TestBuildRuleResolver(targetGraph);
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder(targetGraph);
 
-    resolver.addToIndex(new FakeBuildRule(resourceRule.getBuildTarget()));
+    graphBuilder.addToIndex(new FakeBuildRule(resourceRule.getBuildTarget()));
 
     AndroidLibrary androidLibrary =
         AndroidLibraryBuilder.createBuilder(BuildTargetFactory.newInstance("//:android_lib"))
             .addDep(resourceRule.getBuildTarget())
-            .build(resolver, targetGraph);
+            .build(graphBuilder, targetGraph);
 
     assertThat(androidLibrary.getCompileTimeClasspathSourcePaths(), Matchers.empty());
   }

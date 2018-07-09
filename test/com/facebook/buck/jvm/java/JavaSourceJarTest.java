@@ -24,21 +24,21 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertThat;
 
+import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
+import com.facebook.buck.core.sourcepath.DefaultBuildTargetSourcePath;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.jvm.core.JavaPackageFinder;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.BuildContext;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.DefaultBuildTargetSourcePath;
-import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.FakeBuildContext;
 import com.facebook.buck.rules.FakeBuildableContext;
 import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TestBuildRuleParams;
-import com.facebook.buck.rules.TestBuildRuleResolver;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.CopyStep;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
@@ -55,7 +55,7 @@ public class JavaSourceJarTest {
 
   @Test
   public void outputNameShouldIndicateThatTheOutputIsASrcJar() {
-    BuildRuleResolver resolver = new TestBuildRuleResolver();
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     BuildTarget buildTarget = BuildTargetFactory.newInstance("//example:target");
 
     JavaSourceJar rule =
@@ -65,13 +65,13 @@ public class JavaSourceJarTest {
             TestBuildRuleParams.create(),
             ImmutableSortedSet.of(),
             Optional.empty());
-    resolver.addToIndex(rule);
+    graphBuilder.addToIndex(rule);
 
     SourcePath output = rule.getSourcePathToOutput();
 
     assertNotNull(output);
     SourcePathResolver pathResolver =
-        DefaultSourcePathResolver.from(new SourcePathRuleFinder(resolver));
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
     assertThat(pathResolver.getRelativePath(output).toString(), endsWith(Javac.SRC_JAR));
   }
 
@@ -100,7 +100,7 @@ public class JavaSourceJarTest {
     BuildContext buildContext =
         FakeBuildContext.withSourcePathResolver(
                 DefaultSourcePathResolver.from(
-                    new SourcePathRuleFinder(new TestBuildRuleResolver())))
+                    new SourcePathRuleFinder(new TestActionGraphBuilder())))
             .withJavaPackageFinder(finderStub);
     ImmutableList<Step> steps = rule.getBuildSteps(buildContext, new FakeBuildableContext());
 

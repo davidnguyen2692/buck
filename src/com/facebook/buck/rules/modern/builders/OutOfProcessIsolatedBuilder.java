@@ -16,11 +16,13 @@
 
 package com.facebook.buck.rules.modern.builders;
 
+import com.facebook.buck.core.model.BuildId;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.DefaultBuckEventBus;
-import com.facebook.buck.model.BuildId;
 import com.facebook.buck.step.StepFailedException;
+import com.facebook.buck.util.Ansi;
 import com.facebook.buck.util.Console;
+import com.facebook.buck.util.Verbosity;
 import com.facebook.buck.util.timing.DefaultClock;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -35,8 +37,8 @@ public class OutOfProcessIsolatedBuilder {
    * Entry point for out of process rule execution. This should be run within the build root
    * directory (i.e. within the root cell's root).
    *
-   * <p>Expected usage: {@code this_binary <build_root> <rule_hash> } where build_root is the shared
-   * cell path ancestor and contains the rule_hash serialized data.
+   * <p>Expected usage: {@code this_binary <build_root> <root_cell> <rule_hash> } where build_root
+   * is the shared cell path ancestor and contains the rule_hash serialized data.
    */
   public static void main(String[] args)
       throws IOException, StepFailedException, InterruptedException {
@@ -46,17 +48,18 @@ public class OutOfProcessIsolatedBuilder {
           System.exit(1);
         });
     Preconditions.checkState(
-        args.length == 2,
-        "Expected two arguments, got %d: <%s>",
+        args.length == 3,
+        "Expected three arguments, got %d: <%s>",
         args.length,
         Joiner.on(",").join(args));
     Path buildDir = Paths.get(args[0]);
-    Path projectRoot = Paths.get("");
-    HashCode hash = HashCode.fromString(args[1]);
+    Path projectRoot = Paths.get(args[1]);
+    HashCode hash = HashCode.fromString(args[2]);
     new IsolatedBuildableBuilder(buildDir, projectRoot) {
       @Override
       protected Console createConsole() {
-        return Console.createNullConsole();
+        return new Console(
+            Verbosity.STANDARD_INFORMATION, System.out, System.err, Ansi.withoutTty());
       }
 
       @Override

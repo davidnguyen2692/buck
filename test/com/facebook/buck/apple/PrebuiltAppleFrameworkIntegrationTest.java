@@ -26,9 +26,9 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assume.assumeTrue;
 
 import com.facebook.buck.apple.toolchain.ApplePlatform;
+import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.testutil.ProcessResult;
@@ -249,5 +249,14 @@ public class PrebuiltAppleFrameworkIntegrationTest {
                   ".*\\s+cmd LC_LOAD_DYLIB.*\\s+name @rpath/BuckTest.framework/BuckTest\\b.*",
                   Pattern.DOTALL)));
     }
+  }
+
+  @Test
+  public void frameworkPathsPassedIntoSwiftc() throws Exception {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(
+            this, "prebuilt_apple_framework_static_swift", tmp);
+    workspace.setUp();
+    workspace.runBuckBuild("//:Foo#macosx-x86_64,static").assertSuccess();
   }
 }

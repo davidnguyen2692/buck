@@ -18,15 +18,15 @@ package com.facebook.buck.rules.coercer;
 
 import static org.junit.Assert.assertEquals;
 
+import com.facebook.buck.core.cell.TestCellPathResolver;
+import com.facebook.buck.core.cell.impl.DefaultCellPathResolver;
+import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.sourcepath.DefaultBuildTargetSourcePath;
+import com.facebook.buck.core.sourcepath.PathSourcePath;
+import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.io.file.MorePathsForTests;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.UnflavoredBuildTarget;
-import com.facebook.buck.rules.CellPathResolver;
-import com.facebook.buck.rules.DefaultBuildTargetSourcePath;
-import com.facebook.buck.rules.DefaultCellPathResolver;
-import com.facebook.buck.rules.PathSourcePath;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.TestCellPathResolver;
+import com.facebook.buck.model.ImmutableBuildTarget;
+import com.facebook.buck.model.ImmutableUnflavoredBuildTarget;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedSet;
@@ -78,8 +78,8 @@ public class SourcePathTypeCoercerTest {
 
     assertEquals(
         DefaultBuildTargetSourcePath.of(
-            BuildTarget.of(
-                UnflavoredBuildTarget.of(
+            ImmutableBuildTarget.of(
+                ImmutableUnflavoredBuildTarget.of(
                     projectFilesystem.getRootPath(), Optional.empty(), "//", "hello"),
                 ImmutableSortedSet.of())),
         sourcePath);
@@ -93,8 +93,8 @@ public class SourcePathTypeCoercerTest {
 
     assertEquals(
         DefaultBuildTargetSourcePath.of(
-            BuildTarget.of(
-                UnflavoredBuildTarget.of(
+            ImmutableBuildTarget.of(
+                ImmutableUnflavoredBuildTarget.of(
                     projectFilesystem.getRootPath(), Optional.empty(), "//", "hello"),
                 ImmutableSortedSet.of())),
         sourcePath);
@@ -116,8 +116,8 @@ public class SourcePathTypeCoercerTest {
     // `@hello` cell. Yeah. My head hurts a little too.
     assertEquals(
         DefaultBuildTargetSourcePath.of(
-            BuildTarget.of(
-                UnflavoredBuildTarget.of(helloRoot, Optional.of("hello"), "//", "hello"),
+            ImmutableBuildTarget.of(
+                ImmutableUnflavoredBuildTarget.of(helloRoot, Optional.of("hello"), "//", "hello"),
                 ImmutableSortedSet.of())),
         sourcePath);
   }

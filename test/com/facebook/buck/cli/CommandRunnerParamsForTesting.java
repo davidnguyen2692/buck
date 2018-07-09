@@ -21,24 +21,24 @@ import com.facebook.buck.artifact_cache.NoopArtifactCache;
 import com.facebook.buck.artifact_cache.SingletonArtifactCacheFactory;
 import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.config.FakeBuckConfig;
+import com.facebook.buck.core.build.engine.cache.manager.BuildInfoStoreManager;
+import com.facebook.buck.core.cell.Cell;
+import com.facebook.buck.core.cell.TestCellBuilder;
+import com.facebook.buck.core.model.actiongraph.computation.ActionGraphCache;
+import com.facebook.buck.core.rules.knowntypes.DefaultKnownBuildRuleTypesFactory;
+import com.facebook.buck.core.rules.knowntypes.KnownBuildRuleTypesProvider;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventBusForTests;
-import com.facebook.buck.event.listener.BroadcastEventListener;
 import com.facebook.buck.httpserver.WebServer;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.filesystem.impl.DefaultProjectFilesystemFactory;
 import com.facebook.buck.jvm.core.JavaPackageFinder;
 import com.facebook.buck.jvm.java.FakeJavaPackageFinder;
 import com.facebook.buck.module.TestBuckModuleManagerFactory;
-import com.facebook.buck.parser.Parser;
+import com.facebook.buck.parser.DefaultParser;
 import com.facebook.buck.parser.ParserConfig;
+import com.facebook.buck.parser.TargetSpecResolver;
 import com.facebook.buck.plugin.impl.BuckPluginManagerFactory;
-import com.facebook.buck.rules.ActionGraphCache;
-import com.facebook.buck.rules.BuildInfoStoreManager;
-import com.facebook.buck.rules.Cell;
-import com.facebook.buck.rules.DefaultKnownBuildRuleTypesFactory;
-import com.facebook.buck.rules.KnownBuildRuleTypesProvider;
-import com.facebook.buck.rules.TestCellBuilder;
 import com.facebook.buck.rules.coercer.ConstructorArgMarshaller;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
@@ -65,6 +65,7 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.util.concurrent.MoreExecutors;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.Optional;
 import javax.annotation.Nullable;
 import org.pf4j.PluginManager;
@@ -96,8 +97,7 @@ public class CommandRunnerParamsForTesting {
       Platform platform,
       ImmutableMap<String, String> environment,
       JavaPackageFinder javaPackageFinder,
-      Optional<WebServer> webServer)
-      throws IOException {
+      Optional<WebServer> webServer) {
     ProcessExecutor processExecutor = new DefaultProcessExecutor(new TestConsole());
     TypeCoercerFactory typeCoercerFactory = new DefaultTypeCoercerFactory();
     PluginManager pluginManager = BuckPluginManagerFactory.createPluginManager();
@@ -108,19 +108,19 @@ public class CommandRunnerParamsForTesting {
 
     return CommandRunnerParams.of(
         console,
-        new ByteArrayInputStream("".getBytes("UTF-8")),
+        new ByteArrayInputStream("".getBytes(StandardCharsets.UTF_8)),
         cell,
         new InstrumentedVersionedTargetGraphCache(
             new VersionedTargetGraphCache(), new NoOpCacheStatsTracker()),
         new SingletonArtifactCacheFactory(artifactCache),
         typeCoercerFactory,
-        new Parser(
-            new BroadcastEventListener(),
+        new DefaultParser(
             cell.getBuckConfig().getView(ParserConfig.class),
             typeCoercerFactory,
             new ConstructorArgMarshaller(typeCoercerFactory),
             knownBuildRuleTypesProvider,
-            new ExecutableFinder()),
+            new ExecutableFinder(),
+            new TargetSpecResolver()),
         eventBus,
         platform,
         environment,
@@ -135,8 +135,7 @@ public class CommandRunnerParamsForTesting {
         ImmutableMap.of(ExecutorPool.PROJECT, MoreExecutors.newDirectExecutorService()),
         new FakeExecutor(),
         BUILD_ENVIRONMENT_DESCRIPTION,
-        new ActionGraphCache(
-            config.getMaxActionGraphCacheEntries(), config.getMaxActionGraphNodeCacheEntries()),
+        new ActionGraphCache(config.getMaxActionGraphCacheEntries()),
         knownBuildRuleTypesProvider,
         new BuildInfoStoreManager(),
         Optional.empty(),
@@ -146,7 +145,8 @@ public class CommandRunnerParamsForTesting {
         processExecutor,
         new ExecutableFinder(),
         pluginManager,
-        TestBuckModuleManagerFactory.create(pluginManager));
+        TestBuckModuleManagerFactory.create(pluginManager),
+        Main.getForkJoinPoolSupplier(config));
   }
 
   public static Builder builder() {

@@ -26,7 +26,6 @@ import com.facebook.buck.util.cache.FileHashCacheVerificationResult;
 import com.facebook.buck.util.cache.HashCodeAndFileType;
 import com.facebook.buck.util.cache.JarHashCodeAndFileType;
 import com.facebook.buck.util.cache.ProjectFileHashCache;
-import com.facebook.buck.util.filesystem.PathFragments;
 import com.facebook.buck.util.hashing.PathHashing;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
@@ -99,13 +98,14 @@ public class DefaultFileHashCache implements ProjectFileHashCache {
         };
     switch (fileHashCacheMode) {
       case PARALLEL_COMPARISON:
-        fileHashCacheEngine = new ComboFileHashCache(hashLoader, sizeLoader);
+        fileHashCacheEngine = new ComboFileHashCache(hashLoader, sizeLoader, projectFilesystem);
         break;
       case LOADING_CACHE:
         fileHashCacheEngine = LoadingCacheFileHashCache.createWithStats(hashLoader, sizeLoader);
         break;
       case PREFIX_TREE:
-        fileHashCacheEngine = FileSystemMapFileHashCache.createWithStats(hashLoader, sizeLoader);
+        fileHashCacheEngine =
+            FileSystemMapFileHashCache.createWithStats(hashLoader, sizeLoader, projectFilesystem);
         break;
       case LIMITED_PREFIX_TREE:
         fileHashCacheEngine =
@@ -198,8 +198,7 @@ public class DefaultFileHashCache implements ProjectFileHashCache {
       return getDirHashCode(path);
     } else if (path.toString().endsWith(".jar")) {
       return JarHashCodeAndFileType.ofArchive(
-          getFileHashCode(path),
-          new DefaultJarContentHasher(projectFilesystem, PathFragments.pathToFragment(path)));
+          getFileHashCode(path), new DefaultJarContentHasher(projectFilesystem, path));
     }
 
     return HashCodeAndFileType.ofFile(getFileHashCode(path));
@@ -303,8 +302,7 @@ public class DefaultFileHashCache implements ProjectFileHashCache {
               hashCode,
               new DefaultJarContentHasher(
                   projectFilesystem,
-                  PathFragments.pathToFragment(
-                      projectFilesystem.getPathRelativeToProjectRoot(relativePath).get())));
+                  projectFilesystem.getPathRelativeToProjectRoot(relativePath).get()));
     } else {
       value = HashCodeAndFileType.ofFile(hashCode);
     }

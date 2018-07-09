@@ -19,32 +19,34 @@ package com.facebook.buck.file;
 import static com.facebook.buck.util.environment.Platform.WINDOWS;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.not;
 import static org.junit.Assume.assumeThat;
 
+import com.facebook.buck.core.build.buildable.context.BuildableContext;
+import com.facebook.buck.core.cell.TestCellPathResolver;
+import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
+import com.facebook.buck.core.sourcepath.BuildTargetSourcePath;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.file.downloader.Downloader;
 import com.facebook.buck.file.downloader.impl.ExplodingDownloader;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildableContext;
-import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.FakeBuildContext;
 import com.facebook.buck.rules.FakeBuildableContext;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TestBuildRuleParams;
-import com.facebook.buck.rules.TestBuildRuleResolver;
-import com.facebook.buck.rules.TestCellPathResolver;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.TestExecutionContext;
 import com.facebook.buck.testutil.TemporaryPaths;
-import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.collect.ImmutableList;
 import com.google.common.hash.HashCode;
@@ -54,8 +56,8 @@ import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
+import java.util.Optional;
 import javax.annotation.Nullable;
-import org.easymock.EasyMock;
 import org.hamcrest.BaseMatcher;
 import org.hamcrest.Description;
 import org.hamcrest.Matcher;
@@ -70,24 +72,36 @@ public class RemoteFileTest {
   public void ensureOutputIsAddedToBuildableContextSoItIsCached() {
     Downloader downloader = new ExplodingDownloader();
     BuildTarget target = BuildTargetFactory.newInstance("//cheese:cake");
-    BuildRuleResolver resolver = new TestBuildRuleResolver();
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     SourcePathResolver pathResolver =
-        DefaultSourcePathResolver.from(new SourcePathRuleFinder(resolver));
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
     RemoteFile remoteFile =
         new RemoteFileBuilder(downloader, target)
             .setUrl("http://www.facebook.com/")
             .setSha1(Hashing.sha1().hashLong(42))
-            .build(resolver);
+            .build(graphBuilder);
 
-    BuildableContext buildableContext = EasyMock.createNiceMock(BuildableContext.class);
+    BuildableContext buildableContext = new FakeBuildableContext();
     buildableContext.recordArtifact(
         pathResolver.getRelativePath(remoteFile.getSourcePathToOutput()));
-    EasyMock.replay(buildableContext);
-
     remoteFile.getBuildSteps(
         FakeBuildContext.withSourcePathResolver(pathResolver), buildableContext);
+  }
 
-    EasyMock.verify(buildableContext);
+  @Test
+  public void shouldReturnSha1AsPrecomputedHashForSourcePathToOutput() {
+    Downloader downloader = new ExplodingDownloader();
+    BuildTarget target = BuildTargetFactory.newInstance("//cheese:cake");
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
+    HashCode hash = Hashing.sha1().hashLong(42);
+    RemoteFile remoteFile =
+        new RemoteFileBuilder(downloader, target)
+            .setUrl("http://www.facebook.com/")
+            .setSha1(hash)
+            .build(graphBuilder);
+    assertThat(
+        ((BuildTargetSourcePath) remoteFile.getSourcePathToOutput()).getPrecomputedHash(),
+        equalTo(Optional.of(hash)));
   }
 
   @Test
@@ -580,10 +594,10 @@ public class RemoteFileTest {
             hashCode,
             "output.txt",
             type);
-    BuildRuleResolver resolver = new TestBuildRuleResolver();
-    resolver.addToIndex(remoteFile);
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
+    graphBuilder.addToIndex(remoteFile);
     SourcePathResolver pathResolver =
-        DefaultSourcePathResolver.from(new SourcePathRuleFinder(resolver));
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
 
     ImmutableList<Step> buildSteps =
         remoteFile.getBuildSteps(

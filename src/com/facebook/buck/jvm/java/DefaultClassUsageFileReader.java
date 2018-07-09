@@ -16,10 +16,10 @@
 
 package com.facebook.buck.jvm.java;
 
+import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.sourcepath.ArchiveMemberSourcePath;
+import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.rules.ArchiveMemberSourcePath;
-import com.facebook.buck.rules.CellPathResolver;
-import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.util.exceptions.BuckUncheckedExecutionException;
 import com.facebook.buck.util.json.ObjectMappers;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -115,7 +115,7 @@ class DefaultClassUsageFileReader {
    *
    * @param cellRootedPath a path beginning with '/cell_name/' followed by a relative path in that
    *     cell
-   * @param cellPathResolver the resolver capable of mapping cell_name to absolute root path
+   * @param cellPathResolver the CellPathResolver capable of mapping cell_name to absolute root path
    * @return an absolute path: 'path/to/cell/root/' + 'relative/path/in/cell'
    */
   private static Path getAbsolutePathForCellRootedPath(

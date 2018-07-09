@@ -16,40 +16,45 @@
 
 package com.facebook.buck.rules;
 
+import com.facebook.buck.core.cell.TestCellBuilder;
+import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
+import com.facebook.buck.core.model.targetgraph.ImmutableBuildRuleCreationContextWithTargetGraph;
+import com.facebook.buck.core.model.targetgraph.TargetGraph;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.toolchain.ToolchainProvider;
 import com.facebook.buck.toolchain.impl.ToolchainProviderBuilder;
 
 public class TestBuildRuleCreationContextFactory {
 
-  public static BuildRuleCreationContext create(
-      BuildRuleResolver buildRuleResolver, ProjectFilesystem projectFilesystem) {
-    return create(TargetGraph.EMPTY, buildRuleResolver, projectFilesystem);
+  public static BuildRuleCreationContextWithTargetGraph create(
+      ActionGraphBuilder graphBuilder, ProjectFilesystem projectFilesystem) {
+    return create(TargetGraph.EMPTY, graphBuilder, projectFilesystem);
   }
 
-  public static BuildRuleCreationContext create(
+  public static BuildRuleCreationContextWithTargetGraph create(
       TargetGraph targetGraph,
-      BuildRuleResolver buildRuleResolver,
+      ActionGraphBuilder graphBuilder,
       ProjectFilesystem projectFilesystem) {
     return create(
-        targetGraph, buildRuleResolver, projectFilesystem, new ToolchainProviderBuilder().build());
+        targetGraph, graphBuilder, projectFilesystem, new ToolchainProviderBuilder().build());
   }
 
-  public static BuildRuleCreationContext create(
-      BuildRuleResolver buildRuleResolver,
+  public static BuildRuleCreationContextWithTargetGraph create(
+      ActionGraphBuilder graphBuilder,
       ProjectFilesystem projectFilesystem,
       ToolchainProvider toolchainProvider) {
-    return create(TargetGraph.EMPTY, buildRuleResolver, projectFilesystem, toolchainProvider);
+    return create(TargetGraph.EMPTY, graphBuilder, projectFilesystem, toolchainProvider);
   }
 
-  public static BuildRuleCreationContext create(
+  public static BuildRuleCreationContextWithTargetGraph create(
       TargetGraph targetGraph,
-      BuildRuleResolver buildRuleResolver,
+      ActionGraphBuilder graphBuilder,
       ProjectFilesystem projectFilesystem,
       ToolchainProvider toolchainProvider) {
-    return ImmutableBuildRuleCreationContext.of(
+    return ImmutableBuildRuleCreationContextWithTargetGraph.of(
         targetGraph,
-        buildRuleResolver,
+        graphBuilder,
         projectFilesystem,
         TestCellBuilder.createCellRoots(projectFilesystem),
         toolchainProvider);

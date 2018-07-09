@@ -16,17 +16,18 @@
 
 package com.facebook.buck.android;
 
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.BuildRuleCreationContext;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.CommonDescriptionArg;
-import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.HasDeclaredDeps;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.util.immutables.BuckStyleImmutable;
+import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.description.arg.CommonDescriptionArg;
+import com.facebook.buck.core.description.arg.HasDeclaredDeps;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
+import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
+import com.google.common.collect.ImmutableSortedSet;
 import org.immutables.value.Value;
 
-public class GenAidlDescription implements Description<GenAidlDescriptionArg> {
+public class GenAidlDescription implements DescriptionWithTargetGraph<GenAidlDescriptionArg> {
 
   @Override
   public Class<GenAidlDescriptionArg> getConstructorArgType() {
@@ -35,7 +36,7 @@ public class GenAidlDescription implements Description<GenAidlDescriptionArg> {
 
   @Override
   public GenAidl createBuildRule(
-      BuildRuleCreationContext context,
+      BuildRuleCreationContextWithTargetGraph context,
       BuildTarget buildTarget,
       BuildRuleParams params,
       GenAidlDescriptionArg args) {
@@ -45,16 +46,24 @@ public class GenAidlDescription implements Description<GenAidlDescriptionArg> {
         context.getToolchainProvider(),
         params,
         args.getAidl(),
-        args.getImportPath());
+        args.getImportPath(),
+        args.getAidlSrcs());
   }
 
   @BuckStyleImmutable
   @Value.Immutable
-  interface AbstractGenAidlDescriptionArg extends CommonDescriptionArg, HasDeclaredDeps {
-    SourcePath getAidl();
+  abstract static class AbstractGenAidlDescriptionArg
+      implements CommonDescriptionArg, HasDeclaredDeps {
+    abstract SourcePath getAidl();
 
     // import_path is an anomaly: it is a path that is relative to the project root rather than
     // relative to the build file directory.
-    String getImportPath();
+    abstract String getImportPath();
+
+    // Imported *.aidl files.
+    @Value.Default
+    ImmutableSortedSet<SourcePath> getAidlSrcs() {
+      return ImmutableSortedSet.of();
+    }
   }
 }

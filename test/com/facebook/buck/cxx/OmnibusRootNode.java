@@ -15,14 +15,14 @@
  */
 package com.facebook.buck.cxx;
 
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkTarget;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkTargetMode;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableInput;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.args.StringArg;
 import com.google.common.collect.Iterables;
 import java.nio.file.Path;
@@ -40,21 +40,21 @@ class OmnibusRootNode extends OmnibusNode implements NativeLinkTarget, NativeLin
 
   @Override
   public NativeLinkTargetMode getNativeLinkTargetMode(CxxPlatform cxxPlatform) {
-    return NativeLinkTargetMode.library(getBuildTarget().toString());
+    return NativeLinkTargetMode.library(getBuildTarget().getShortName());
   }
 
   @Override
   public Iterable<? extends NativeLinkable> getNativeLinkTargetDeps(
-      CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver) {
+      CxxPlatform cxxPlatform, ActionGraphBuilder graphBuilder) {
     return Iterables.concat(
-        getNativeLinkableDepsForPlatform(cxxPlatform, ruleResolver),
-        getNativeLinkableExportedDepsForPlatform(cxxPlatform, ruleResolver));
+        getNativeLinkableDepsForPlatform(cxxPlatform, graphBuilder),
+        getNativeLinkableExportedDepsForPlatform(cxxPlatform, graphBuilder));
   }
 
   @Override
   public NativeLinkableInput getNativeLinkTargetInput(
       CxxPlatform cxxPlatform,
-      BuildRuleResolver ruleResolver,
+      ActionGraphBuilder graphBuilder,
       SourcePathResolver pathResolver,
       SourcePathRuleFinder ruleFinder) {
     return NativeLinkableInput.builder().addArgs(StringArg.of(getBuildTarget().toString())).build();

@@ -17,11 +17,12 @@ package com.facebook.buck.json;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 
+import com.facebook.buck.core.description.DescriptionCache;
+import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.file.MostFiles;
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.rules.BuckPyFunction;
-import com.facebook.buck.rules.Description;
+import com.facebook.buck.parser.function.BuckPyFunction;
 import com.facebook.buck.rules.coercer.CoercedTypeCache;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
 import com.facebook.buck.util.Escaper;
@@ -79,7 +80,7 @@ class BuckPythonProgram implements AutoCloseable {
   /** Create a new instance by layout the files in a temporary directory. */
   public static BuckPythonProgram newInstance(
       TypeCoercerFactory typeCoercerFactory,
-      ImmutableSet<Description<?>> descriptions,
+      ImmutableSet<DescriptionWithTargetGraph<?>> descriptions,
       boolean cleanupEnabled)
       throws IOException {
 
@@ -125,11 +126,12 @@ class BuckPythonProgram implements AutoCloseable {
     try (Writer out = Files.newBufferedWriter(generatedRoot.resolve("generated_rules.py"), UTF_8)) {
       out.write("from buck_parser.buck import *\n\n");
       BuckPyFunction function = new BuckPyFunction(typeCoercerFactory, CoercedTypeCache.INSTANCE);
-      for (Description<?> description : descriptions) {
+      for (DescriptionWithTargetGraph<?> description : descriptions) {
         try {
           out.write(
               function.toPythonFunction(
-                  Description.getBuildRuleType(description), description.getConstructorArgType()));
+                  DescriptionCache.getBuildRuleType(description),
+                  description.getConstructorArgType()));
           out.write('\n');
         } catch (RuntimeException e) {
           throw new BuckUncheckedExecutionException(

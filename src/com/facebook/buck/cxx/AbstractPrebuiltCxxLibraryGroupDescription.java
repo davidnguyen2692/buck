@@ -18,34 +18,34 @@ package com.facebook.buck.cxx;
 
 import com.facebook.buck.android.packageable.AndroidPackageable;
 import com.facebook.buck.android.packageable.AndroidPackageableCollector;
+import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.description.arg.CommonDescriptionArg;
+import com.facebook.buck.core.description.arg.HasDeclaredDeps;
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
+import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleResolver;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.impl.NoopBuildRuleWithDeclaredAndExtraDeps;
+import com.facebook.buck.core.sourcepath.PathSourcePath;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
+import com.facebook.buck.core.util.immutables.BuckStyleTuple;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableInput;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.macros.MacroException;
 import com.facebook.buck.model.macros.MacroFinder;
 import com.facebook.buck.model.macros.MacroMatchResult;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleCreationContext;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.CacheableBuildRule;
-import com.facebook.buck.rules.CommonDescriptionArg;
-import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.HasDeclaredDeps;
-import com.facebook.buck.rules.NoopBuildRuleWithDeclaredAndExtraDeps;
-import com.facebook.buck.rules.PathSourcePath;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
-import com.facebook.buck.util.HumanReadableException;
-import com.facebook.buck.util.immutables.BuckStyleImmutable;
-import com.facebook.buck.util.immutables.BuckStyleTuple;
 import com.facebook.buck.util.types.Pair;
 import com.facebook.buck.versions.VersionPropagator;
 import com.google.common.collect.FluentIterable;
@@ -62,7 +62,7 @@ import org.immutables.value.Value;
 @Value.Immutable
 @BuckStyleTuple
 abstract class AbstractPrebuiltCxxLibraryGroupDescription
-    implements Description<PrebuiltCxxLibraryGroupDescriptionArg>,
+    implements DescriptionWithTargetGraph<PrebuiltCxxLibraryGroupDescriptionArg>,
         VersionPropagator<PrebuiltCxxLibraryGroupDescriptionArg> {
 
   private static final String LIB_MACRO = "lib";
@@ -160,7 +160,7 @@ abstract class AbstractPrebuiltCxxLibraryGroupDescription
 
   @Override
   public BuildRule createBuildRule(
-      BuildRuleCreationContext context,
+      BuildRuleCreationContextWithTargetGraph context,
       BuildTarget buildTarget,
       BuildRuleParams params,
       PrebuiltCxxLibraryGroupDescriptionArg args) {
@@ -190,7 +190,7 @@ abstract class AbstractPrebuiltCxxLibraryGroupDescription
 
       @Override
       public CxxPreprocessorInput getCxxPreprocessorInput(
-          CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver) {
+          CxxPlatform cxxPlatform, ActionGraphBuilder graphBuilder) {
         CxxPreprocessorInput.Builder builder = CxxPreprocessorInput.builder();
         builder.putAllPreprocessorFlags(
             ImmutableListMultimap.copyOf(
@@ -209,8 +209,8 @@ abstract class AbstractPrebuiltCxxLibraryGroupDescription
 
       @Override
       public ImmutableMap<BuildTarget, CxxPreprocessorInput> getTransitiveCxxPreprocessorInput(
-          CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver) {
-        return transitiveCxxPreprocessorInputCache.getUnchecked(cxxPlatform, ruleResolver);
+          CxxPlatform cxxPlatform, ActionGraphBuilder graphBuilder) {
+        return transitiveCxxPreprocessorInputCache.getUnchecked(cxxPlatform, graphBuilder);
       }
 
       @Override
@@ -233,12 +233,12 @@ abstract class AbstractPrebuiltCxxLibraryGroupDescription
           Linker.LinkableDepType type,
           boolean forceLinkWhole,
           ImmutableSet<LanguageExtensions> languageExtensions,
-          BuildRuleResolver ruleResolver) {
+          ActionGraphBuilder graphBuilder) {
 
         if (!isPlatformSupported(cxxPlatform)) {
           return NativeLinkableInput.of();
         }
-        SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(ruleResolver);
+        SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
         NativeLinkableInput.Builder builder = NativeLinkableInput.builder();
         switch (type) {
           case STATIC:
@@ -246,7 +246,7 @@ abstract class AbstractPrebuiltCxxLibraryGroupDescription
                 getStaticLinkArgs(
                     getBuildTarget(),
                     CxxGenruleDescription.fixupSourcePaths(
-                        ruleResolver, ruleFinder, cxxPlatform, args.getStaticLibs()),
+                        graphBuilder, ruleFinder, cxxPlatform, args.getStaticLibs()),
                     args.getStaticLink()));
             break;
           case STATIC_PIC:
@@ -254,7 +254,7 @@ abstract class AbstractPrebuiltCxxLibraryGroupDescription
                 getStaticLinkArgs(
                     getBuildTarget(),
                     CxxGenruleDescription.fixupSourcePaths(
-                        ruleResolver, ruleFinder, cxxPlatform, args.getStaticPicLibs()),
+                        graphBuilder, ruleFinder, cxxPlatform, args.getStaticPicLibs()),
                     args.getStaticPicLink()));
             break;
           case SHARED:
@@ -262,7 +262,7 @@ abstract class AbstractPrebuiltCxxLibraryGroupDescription
                 getSharedLinkArgs(
                     getBuildTarget(),
                     CxxGenruleDescription.fixupSourcePaths(
-                        ruleResolver,
+                        graphBuilder,
                         ruleFinder,
                         cxxPlatform,
                         ImmutableMap.<String, SourcePath>builder()
@@ -276,7 +276,7 @@ abstract class AbstractPrebuiltCxxLibraryGroupDescription
       }
 
       @Override
-      public Linkage getPreferredLinkage(CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver) {
+      public Linkage getPreferredLinkage(CxxPlatform cxxPlatform, ActionGraphBuilder graphBuilder) {
 
         // If we both shared and static libs, we support any linkage.
         if (!args.getSharedLink().isEmpty()
@@ -300,8 +300,8 @@ abstract class AbstractPrebuiltCxxLibraryGroupDescription
 
       @Override
       public boolean supportsOmnibusLinking(
-          CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver) {
-        return getPreferredLinkage(cxxPlatform, ruleResolver) != Linkage.SHARED;
+          CxxPlatform cxxPlatform, ActionGraphBuilder graphBuilder) {
+        return getPreferredLinkage(cxxPlatform, graphBuilder) != Linkage.SHARED;
       }
 
       @Override
@@ -315,16 +315,16 @@ abstract class AbstractPrebuiltCxxLibraryGroupDescription
 
       @Override
       public Iterable<? extends NativeLinkable> getNativeLinkableExportedDepsForPlatform(
-          CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver) {
+          CxxPlatform cxxPlatform, ActionGraphBuilder graphBuilder) {
         if (!isPlatformSupported(cxxPlatform)) {
           return ImmutableList.of();
         }
-        return getNativeLinkableExportedDeps(ruleResolver);
+        return getNativeLinkableExportedDeps(graphBuilder);
       }
 
       @Override
       public ImmutableMap<String, SourcePath> getSharedLibraries(
-          CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver) {
+          CxxPlatform cxxPlatform, ActionGraphBuilder graphBuilder) {
         if (!isPlatformSupported(cxxPlatform)) {
           return ImmutableMap.of();
         }
@@ -341,9 +341,13 @@ abstract class AbstractPrebuiltCxxLibraryGroupDescription
     };
   }
 
+  @Override
+  public boolean producesCacheableSubgraph() {
+    return true;
+  }
+
   public abstract static class CustomPrebuiltCxxLibrary
-      extends NoopBuildRuleWithDeclaredAndExtraDeps
-      implements AbstractCxxLibrary, CacheableBuildRule {
+      extends NoopBuildRuleWithDeclaredAndExtraDeps implements AbstractCxxLibrary {
 
     public CustomPrebuiltCxxLibrary(
         BuildTarget buildTarget, ProjectFilesystem projectFilesystem, BuildRuleParams params) {

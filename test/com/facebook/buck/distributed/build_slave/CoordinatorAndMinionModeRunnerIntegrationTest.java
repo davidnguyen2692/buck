@@ -16,14 +16,16 @@
 
 package com.facebook.buck.distributed.build_slave;
 
+import com.facebook.buck.core.model.BuildId;
 import com.facebook.buck.distributed.DistBuildService;
+import com.facebook.buck.distributed.DistBuildUtil;
 import com.facebook.buck.distributed.build_slave.MinionModeRunnerIntegrationTest.FakeBuildExecutorImpl;
-import com.facebook.buck.distributed.testutil.CustomBuildRuleResolverFactory;
+import com.facebook.buck.distributed.testutil.CustomActiongGraphBuilderFactory;
 import com.facebook.buck.distributed.thrift.BuildSlaveRunId;
+import com.facebook.buck.distributed.thrift.MinionType;
 import com.facebook.buck.distributed.thrift.StampedeId;
 import com.facebook.buck.event.DefaultBuckEventBus;
 import com.facebook.buck.event.listener.NoOpCoordinatorBuildRuleEventsPublisher;
-import com.facebook.buck.model.BuildId;
 import com.facebook.buck.parser.exceptions.NoSuchBuildTargetException;
 import com.facebook.buck.util.BuckConstant;
 import com.facebook.buck.util.ExitCode;
@@ -44,11 +46,13 @@ import org.junit.rules.TemporaryFolder;
 public class CoordinatorAndMinionModeRunnerIntegrationTest {
 
   private static final StampedeId STAMPEDE_ID = ThriftCoordinatorServerIntegrationTest.STAMPEDE_ID;
+  private static final MinionType MINION_TYPE = MinionType.STANDARD_SPEC;
   private static final int CONNECTION_TIMEOUT_MILLIS = 1000;
   private static final int MAX_PARALLEL_WORK_UNITS = 10;
   private static final long POLL_LOOP_INTERVAL_MILLIS = 8;
   private static final DistBuildService MOCK_SERVICE =
       EasyMock.createNiceMock(DistBuildService.class);
+  private static final BuildSlaveRunId BUILD_SLAVE_RUN_ID = new BuildSlaveRunId().setId("sl7");
 
   private HeartbeatService heartbeatService;
 
@@ -68,7 +72,7 @@ public class CoordinatorAndMinionModeRunnerIntegrationTest {
     ThriftCoordinatorServer.EventListener eventListener =
         EasyMock.createNiceMock(ThriftCoordinatorServer.EventListener.class);
     SettableFuture<BuildTargetsQueue> queueFuture = SettableFuture.create();
-    queueFuture.set(BuildTargetsQueueTest.createDiamondDependencyQueue());
+    queueFuture.set(ReverseDepBuildTargetsQueueTest.createDiamondDependencyQueue());
 
     CoordinatorModeRunner coordinator =
         new CoordinatorModeRunner(
@@ -81,7 +85,9 @@ public class CoordinatorAndMinionModeRunnerIntegrationTest {
             Optional.of(new BuildId("10-20")),
             Optional.empty(),
             EasyMock.createNiceMock(MinionHealthTracker.class),
-            EasyMock.createNiceMock(MinionCountProvider.class));
+            EasyMock.createNiceMock(MinionCountProvider.class),
+            Optional.of(DistBuildUtil.generateMinionId(BUILD_SLAVE_RUN_ID)),
+            true /* releasingMinionsEarlyEnabled */);
     FakeBuildExecutorImpl localBuilder = new FakeBuildExecutorImpl();
     MinionModeRunner minion =
         new MinionModeRunner(
@@ -89,8 +95,9 @@ public class CoordinatorAndMinionModeRunnerIntegrationTest {
             OptionalInt.empty(),
             Futures.immediateFuture(localBuilder),
             STAMPEDE_ID,
-            new BuildSlaveRunId().setId("sl7"),
-            MAX_PARALLEL_WORK_UNITS,
+            MINION_TYPE,
+            BUILD_SLAVE_RUN_ID,
+            new SingleBuildCapacityTracker(MAX_PARALLEL_WORK_UNITS),
             EasyMock.createNiceMock(MinionModeRunner.BuildCompletionChecker.class),
             POLL_LOOP_INTERVAL_MILLIS,
             new NoOpMinionBuildProgressTracker(),
@@ -102,7 +109,7 @@ public class CoordinatorAndMinionModeRunnerIntegrationTest {
     Assert.assertEquals(ExitCode.SUCCESS, exitCode);
     Assert.assertEquals(4, localBuilder.getBuildTargets().size());
     Assert.assertEquals(
-        CustomBuildRuleResolverFactory.ROOT_TARGET, localBuilder.getBuildTargets().get(3));
+        CustomActiongGraphBuilderFactory.ROOT_TARGET, localBuilder.getBuildTargets().get(3));
 
     Path buildTracePath = logDirectoryPath.resolve(BuckConstant.DIST_BUILD_TRACE_FILE_NAME);
     Assert.assertTrue(buildTracePath.toFile().exists());

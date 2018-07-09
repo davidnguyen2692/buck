@@ -16,6 +16,8 @@
 
 package com.facebook.buck.cli;
 
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.distributed.BuildJobStateSerializer;
 import com.facebook.buck.distributed.DistBuildConfig;
 import com.facebook.buck.distributed.DistBuildMode;
@@ -24,8 +26,10 @@ import com.facebook.buck.distributed.DistBuildService;
 import com.facebook.buck.distributed.DistBuildState;
 import com.facebook.buck.distributed.FileContentsProvider;
 import com.facebook.buck.distributed.FileMaterializationStatsTracker;
+import com.facebook.buck.distributed.build_slave.BuildSlaveService;
 import com.facebook.buck.distributed.build_slave.BuildSlaveTimingStatsTracker;
 import com.facebook.buck.distributed.build_slave.BuildSlaveTimingStatsTracker.SlaveEvents;
+import com.facebook.buck.distributed.build_slave.CapacityService;
 import com.facebook.buck.distributed.build_slave.CoordinatorBuildRuleEventsPublisher;
 import com.facebook.buck.distributed.build_slave.DistBuildSlaveExecutor;
 import com.facebook.buck.distributed.build_slave.HealthCheckStatsTracker;
@@ -40,7 +44,6 @@ import com.facebook.buck.event.listener.DistBuildSlaveEventBusListener;
 import com.facebook.buck.event.listener.NoOpCoordinatorBuildRuleEventsPublisher;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.keys.DefaultRuleKeyCache;
 import com.facebook.buck.rules.keys.EventPostingRuleKeyCacheScope;
 import com.facebook.buck.rules.keys.RuleKeyCacheScope;
@@ -48,13 +51,15 @@ import com.facebook.buck.rules.keys.TrackedRuleKeyCache;
 import com.facebook.buck.step.ExecutorPool;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.ExitCode;
-import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.cache.InstrumentingCacheStatsTracker;
 import com.facebook.buck.util.concurrent.ConcurrencyLimit;
+import com.facebook.buck.util.environment.DefaultExecutionEnvironment;
+import com.facebook.buck.util.environment.ExecutionEnvironment;
 import com.facebook.buck.util.timing.DefaultClock;
 import com.facebook.buck.util.types.Pair;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.util.concurrent.ListeningExecutorService;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -79,15 +84,13 @@ public class DistBuildRunCommand extends AbstractDistBuildCommand {
   private String buildStateFile;
 
   @Option(
-    name = "--coordinator-port",
-    usage = "Port of the remote build coordinator. (only used in MINION mode)."
-  )
+      name = "--coordinator-port",
+      usage = "Port of the remote build coordinator. (only used in MINION mode).")
   private int coordinatorPort = -1;
 
   @Option(
-    name = "--coordinator-address",
-    usage = "Address of the remote build coordinator. (only used in MINION mode)."
-  )
+      name = "--coordinator-address",
+      usage = "Address of the remote build coordinator. (only used in MINION mode).")
   private String coordinatorAddress = "localhost";
 
   @Nullable
@@ -96,9 +99,8 @@ public class DistBuildRunCommand extends AbstractDistBuildCommand {
 
   @Nullable
   @Option(
-    name = "--global-cache-dir",
-    usage = "Full path to an existing directory that will contain a global cache across builds."
-  )
+      name = "--global-cache-dir",
+      usage = "Full path to an existing directory that will contain a global cache across builds.")
   private Path globalCacheDir;
 
   private static final String RUN_ID_ARG_NAME = "--buildslave-run-id";
@@ -132,6 +134,25 @@ public class DistBuildRunCommand extends AbstractDistBuildCommand {
     return "runs a distributed build in the current machine (experimental)";
   }
 
+  private static String getFullJobName(
+      ImmutableMap<String, String> environment,
+      String jobNameEnvironmentVariable,
+      String taskIdEnvironmentVariable) {
+    StringBuilder jobNameBuilder = new StringBuilder();
+
+    ExecutionEnvironment executionEnvironment =
+        new DefaultExecutionEnvironment(environment, System.getProperties());
+
+    executionEnvironment
+        .getenv(jobNameEnvironmentVariable)
+        .ifPresent(val -> jobNameBuilder.append(val));
+    executionEnvironment
+        .getenv(taskIdEnvironmentVariable)
+        .ifPresent(val -> jobNameBuilder.append("/" + val));
+
+    return jobNameBuilder.toString();
+  }
+
   @Override
   public ExitCode runWithoutHelp(CommandRunnerParams params)
       throws IOException, InterruptedException {
@@ -145,6 +166,7 @@ public class DistBuildRunCommand extends AbstractDistBuildCommand {
     timeStatsTracker.startTimer(SlaveEvents.TOTAL_RUNTIME);
     timeStatsTracker.startTimer(SlaveEvents.DIST_BUILD_PREPARATION_TIME);
     Console console = params.getConsole();
+
     try (DistBuildService service = DistBuildFactory.newDistBuildService(params)) {
       if (slaveEventListener != null) {
         slaveEventListener.setDistBuildService(service);
@@ -182,6 +204,22 @@ public class DistBuildRunCommand extends AbstractDistBuildCommand {
                 params.getProjectFilesystemFactory());
         timeStatsTracker.stopTimer(SlaveEvents.DIST_BUILD_STATE_LOADING_TIME);
 
+        DistBuildConfig distBuildConfig = new DistBuildConfig(state.getRootCell().getBuckConfig());
+
+        if (slaveEventListener != null) {
+          if (distBuildConfig.getJobNameEnvironmentVariable().isPresent()
+              && distBuildConfig.getTaskIdEnvironmentVariable().isPresent()) {
+            slaveEventListener.setJobName(
+                getFullJobName(
+                    params.getEnvironment(),
+                    distBuildConfig.getJobNameEnvironmentVariable().get(),
+                    distBuildConfig.getTaskIdEnvironmentVariable().get()));
+          }
+
+          slaveEventListener.setBuildLabel(distBuildConfig.getBuildLabel());
+          slaveEventListener.setMinionType(distBuildConfig.getMinionType().name());
+        }
+
         ConcurrencyLimit concurrencyLimit =
             getConcurrencyLimit(state.getRootCell().getBuckConfig());
 
@@ -202,67 +240,75 @@ public class DistBuildRunCommand extends AbstractDistBuildCommand {
           FileContentsProvider multiSourceFileContentsProvider =
               DistBuildFactory.createMultiSourceContentsProvider(
                   service,
-                  new DistBuildConfig(state.getRootCell().getBuckConfig()),
+                  distBuildConfig,
                   fileMaterializationStatsTracker,
                   params.getScheduledExecutor(),
                   Preconditions.checkNotNull(params.getExecutors().get(ExecutorPool.CPU)),
                   params.getProjectFilesystemFactory(),
                   getGlobalCacheDirOptional());
 
-          DistBuildSlaveExecutor distBuildExecutor =
-              DistBuildFactory.createDistBuildExecutor(
-                  state,
-                  params,
-                  pool.getWeightedListeningExecutorService(),
-                  service,
-                  Preconditions.checkNotNull(distBuildMode),
-                  coordinatorPort,
-                  coordinatorAddress,
-                  stampedeId,
-                  getBuildSlaveRunId(),
-                  multiSourceFileContentsProvider,
-                  healthCheckStatsTracker,
-                  timeStatsTracker,
-                  getCoordinatorBuildRuleEventsPublisher(),
-                  getMinionBuildProgressTracker(),
-                  ruleKeyCacheScope);
+          try (BuildSlaveService buildSlaveService =
+              DistBuildFactory.newBuildSlaveService(params)) {
+            CapacityService capacityService =
+                DistBuildFactory.newCapacityService(buildSlaveService, getBuildSlaveRunId());
+            DistBuildSlaveExecutor distBuildExecutor =
+                DistBuildFactory.createDistBuildExecutor(
+                    state,
+                    params,
+                    pool.getWeightedListeningExecutorService(),
+                    service,
+                    Preconditions.checkNotNull(distBuildMode),
+                    coordinatorPort,
+                    coordinatorAddress,
+                    stampedeId,
+                    capacityService,
+                    getBuildSlaveRunId(),
+                    multiSourceFileContentsProvider,
+                    healthCheckStatsTracker,
+                    timeStatsTracker,
+                    getCoordinatorBuildRuleEventsPublisher(),
+                    getMinionBuildProgressTracker(),
+                    ruleKeyCacheScope);
 
-          distBuildExecutor.onBuildSlavePreparationCompleted(
-              () -> timeStatsTracker.stopTimer(SlaveEvents.DIST_BUILD_PREPARATION_TIME));
+            distBuildExecutor.onBuildSlavePreparationCompleted(
+                () -> timeStatsTracker.stopTimer(SlaveEvents.DIST_BUILD_PREPARATION_TIME));
 
-          LOG.info("Starting to process build with DistBuildExecutor.");
+            LOG.info("Starting to process build with DistBuildExecutor.");
 
-          // All preparation work is done, so start building.
-          ExitCode returnCode;
-          try {
-            returnCode = distBuildExecutor.buildAndReturnExitCode();
-          } catch (Throwable ex) {
-            LOG.error(ex, "buildAndReturnExitCode() failed");
-            throw ex;
+            // All preparation work is done, so start building.
+            ExitCode returnCode;
+            try {
+              returnCode = distBuildExecutor.buildAndReturnExitCode();
+            } catch (Throwable ex) {
+              LOG.error(ex, "buildAndReturnExitCode() failed");
+              throw ex;
+            }
+            LOG.info(
+                "%s returned with exit code: [%d].",
+                distBuildExecutor.getClass().getName(), returnCode.getCode());
+            multiSourceFileContentsProvider.close();
+            LOG.info("Successfully shut down the source file provider.");
+            timeStatsTracker.stopTimer(SlaveEvents.TOTAL_RUNTIME);
+
+            if (slaveEventListener != null) {
+              slaveEventListener.sendFinalServerUpdates(returnCode.getCode());
+              slaveEventListener.publishServerSideBuildSlaveFinishedStatsEvent(
+                  params.getBuckEventBus());
+              LOG.info("Sent the final slave status and events.");
+            }
+
+            if (returnCode == ExitCode.SUCCESS) {
+              console.printSuccess(
+                  String.format(
+                      "Successfully ran distributed build [%s] in [%d millis].",
+                      buildName, timeStatsTracker.getElapsedTimeMs(SlaveEvents.TOTAL_RUNTIME)));
+            } else {
+              console.printErrorText(
+                  "Failed distributed build [%s] in [%d millis].",
+                  buildName, timeStatsTracker.getElapsedTimeMs(SlaveEvents.TOTAL_RUNTIME));
+            }
+            return returnCode;
           }
-          LOG.info(
-              "%s returned with exit code: [%d].",
-              distBuildExecutor.getClass().getName(), returnCode.getCode());
-          multiSourceFileContentsProvider.close();
-          LOG.info("Successfully shut down the source file provider.");
-          timeStatsTracker.stopTimer(SlaveEvents.TOTAL_RUNTIME);
-
-          if (slaveEventListener != null) {
-            slaveEventListener.sendFinalServerUpdates(returnCode.getCode());
-            LOG.info("Sent the final slave status and events.");
-          }
-
-          if (returnCode == ExitCode.SUCCESS) {
-            console.printSuccess(
-                String.format(
-                    "Successfully ran distributed build [%s] in [%d millis].",
-                    buildName, timeStatsTracker.getElapsedTimeMs(SlaveEvents.TOTAL_RUNTIME)));
-          } else {
-            console.printErrorText(
-                "Failed distributed build [%s] in [%d millis].",
-                buildName, timeStatsTracker.getElapsedTimeMs(SlaveEvents.TOTAL_RUNTIME));
-          }
-          return returnCode;
         }
       } catch (HumanReadableException e) {
         logBuildFailureEvent(e.getHumanReadableErrorMessage(), slaveEventListener);

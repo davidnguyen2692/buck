@@ -40,15 +40,16 @@ import static org.junit.Assert.assertEquals;
 
 import com.facebook.buck.command.Build;
 import com.facebook.buck.command.LocalBuildExecutorInvoker;
+import com.facebook.buck.core.build.distributed.synchronization.RemoteBuildRuleCompletionWaiter;
+import com.facebook.buck.core.build.distributed.synchronization.impl.RemoteBuildRuleSynchronizer;
+import com.facebook.buck.core.build.event.BuildEvent;
 import com.facebook.buck.distributed.ClientStatsTracker;
 import com.facebook.buck.distributed.DistBuildService;
+import com.facebook.buck.distributed.DistLocalBuildMode;
 import com.facebook.buck.distributed.ExitCode;
 import com.facebook.buck.distributed.thrift.BuildStatus;
 import com.facebook.buck.distributed.thrift.StampedeId;
 import com.facebook.buck.event.BuckEventBus;
-import com.facebook.buck.rules.BuildEvent;
-import com.facebook.buck.rules.RemoteBuildRuleCompletionWaiter;
-import com.facebook.buck.rules.RemoteBuildRuleSynchronizer;
 import java.io.IOException;
 import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
@@ -79,8 +80,6 @@ public class StampedeBuildClientTest {
   private static final int NON_SUCCESS_EXIT_CODE = 50;
   private static final int NON_SUCCESS_EXIT_CODE_TWO = 51;
   private static final int SUCCESS_CODE = 0;
-  private static final boolean ONE_STAGE = true;
-  private static final boolean TWO_STAGE = false;
   private static final boolean NO_FALLBACK = false;
   private static final boolean FALLBACK_ENABLED = true;
   private static final String SUCCESS_STATUS_MSG =
@@ -195,7 +194,7 @@ public class StampedeBuildClientTest {
             waitForSynchronizedBuildCalledLatch,
             guardedLocalBuildExecutorInvoker,
             guardedDistBuildControllerInvoker,
-            new ClientStatsTracker(""),
+            new ClientStatsTracker("", ""),
             waitGracefullyForDistributedBuildThreadToFinish,
             distributedBuildThreadKillTimeoutSeconds,
             stampedeId);
@@ -219,7 +218,8 @@ public class StampedeBuildClientTest {
 
     // Run the build client in another thread
     Future<Integer> buildClientFuture =
-        buildClientExecutor.submit(() -> buildClient.build(ONE_STAGE, FALLBACK_ENABLED));
+        buildClientExecutor.submit(
+            () -> buildClient.build(DistLocalBuildMode.WAIT_FOR_REMOTE, FALLBACK_ENABLED));
 
     // Simulate most build rules finished event being received.
     distBuildControllerInvokerLatch.countDown(); // distributed build fails
@@ -248,7 +248,8 @@ public class StampedeBuildClientTest {
 
     // Run the build client in another thread
     Future<Integer> buildClientFuture =
-        buildClientExecutor.submit(() -> buildClient.build(ONE_STAGE, FALLBACK_ENABLED));
+        buildClientExecutor.submit(
+            () -> buildClient.build(DistLocalBuildMode.WAIT_FOR_REMOTE, FALLBACK_ENABLED));
 
     // Simulate most build rules finished event being received.
     distBuildControllerInvokerLatch.countDown(); // distributed build succeeds
@@ -289,7 +290,8 @@ public class StampedeBuildClientTest {
 
     // Run the build client in another thread
     Future<Integer> buildClientFuture =
-        buildClientExecutor.submit(() -> buildClient.build(TWO_STAGE, FALLBACK_ENABLED));
+        buildClientExecutor.submit(
+            () -> buildClient.build(DistLocalBuildMode.NO_WAIT_FOR_REMOTE, FALLBACK_ENABLED));
 
     // Simulate most build rules finished event being received.
     remoteBuildRuleSynchronizer.signalMostBuildRulesFinished(true);
@@ -337,7 +339,8 @@ public class StampedeBuildClientTest {
 
     // Run the build client in another thread
     Future<Integer> buildClientFuture =
-        buildClientExecutor.submit(() -> buildClient.build(TWO_STAGE, NO_FALLBACK));
+        buildClientExecutor.submit(
+            () -> buildClient.build(DistLocalBuildMode.NO_WAIT_FOR_REMOTE, NO_FALLBACK));
 
     // Simulate most build rules finished event being received.
     remoteBuildRuleSynchronizer.signalMostBuildRulesFinished(true);
@@ -384,7 +387,8 @@ public class StampedeBuildClientTest {
 
     // Run the build client in another thread
     Future<Integer> buildClientFuture =
-        buildClientExecutor.submit(() -> buildClient.build(TWO_STAGE, NO_FALLBACK));
+        buildClientExecutor.submit(
+            () -> buildClient.build(DistLocalBuildMode.NO_WAIT_FOR_REMOTE, NO_FALLBACK));
 
     // Simulate most build rules finished event being received.
     remoteBuildRuleSynchronizer.signalMostBuildRulesFinished(true);
@@ -423,7 +427,8 @@ public class StampedeBuildClientTest {
 
     // Run the build client in another thread
     Future<Integer> buildClientFuture =
-        buildClientExecutor.submit(() -> buildClient.build(TWO_STAGE, NO_FALLBACK));
+        buildClientExecutor.submit(
+            () -> buildClient.build(DistLocalBuildMode.NO_WAIT_FOR_REMOTE, NO_FALLBACK));
 
     // Simulate most build rules finished event being received.
     remoteBuildRuleSynchronizer.signalMostBuildRulesFinished(true);
@@ -461,10 +466,33 @@ public class StampedeBuildClientTest {
 
     // Run the build client in another thread
     Future<Integer> buildClientFuture =
-        buildClientExecutor.submit(() -> buildClient.build(TWO_STAGE, NO_FALLBACK));
+        buildClientExecutor.submit(
+            () -> buildClient.build(DistLocalBuildMode.WAIT_FOR_REMOTE, NO_FALLBACK));
 
     assertLocalAndDistributedExitCodes(
         buildClientFuture, SUCCESS_CODE, LOCAL_BUILD_FINISHED_FIRST_EXIT_CODE);
+    verifyAllMocks();
+  }
+
+  @Test
+  public void fireAndForgetBuildSchedulesRemoteAndExits()
+      throws InterruptedException, IOException, ExecutionException {
+    // Summary:
+    // One phase: No fallback. Local build schedules remote build and exits.
+    createStampedBuildClient(INITIALIZED_STAMPEDE_ID);
+
+    distBuildControllerInvokerLatch.countDown();
+    expect(mockDistBuildControllerInvoker.runDistBuildAndReturnExitCode()).andReturn(SUCCESS_CODE);
+
+    EasyMock.expectLastCall();
+    replayAllMocks();
+
+    // Run the build client in another thread
+    Future<Integer> buildClientFuture =
+        buildClientExecutor.submit(
+            () -> buildClient.build(DistLocalBuildMode.FIRE_AND_FORGET, FALLBACK_ENABLED));
+
+    assertLocalAndDistributedExitCodes(buildClientFuture, SUCCESS_CODE, SUCCESS_CODE);
     verifyAllMocks();
   }
 
@@ -490,7 +518,8 @@ public class StampedeBuildClientTest {
 
     // Run the build client in another thread
     Future<Integer> buildClientFuture =
-        buildClientExecutor.submit(() -> buildClient.build(TWO_STAGE, NO_FALLBACK));
+        buildClientExecutor.submit(
+            () -> buildClient.build(DistLocalBuildMode.WAIT_FOR_REMOTE, NO_FALLBACK));
 
     assertLocalAndDistributedExitCodes(
         buildClientFuture, NON_SUCCESS_EXIT_CODE, REMOTE_FAILURE_CODE);
@@ -516,7 +545,8 @@ public class StampedeBuildClientTest {
 
     // Run the build client in another thread
     Future<Integer> buildClientFuture =
-        buildClientExecutor.submit(() -> buildClient.build(TWO_STAGE, FALLBACK_ENABLED));
+        buildClientExecutor.submit(
+            () -> buildClient.build(DistLocalBuildMode.NO_WAIT_FOR_REMOTE, FALLBACK_ENABLED));
 
     // Only let local build runner finish once we are sure distributed build thread is dead,
     // and waitUntilFinished(..) called on local racing build runner
@@ -547,7 +577,8 @@ public class StampedeBuildClientTest {
 
     // Run the build client in another thread
     Future<Integer> buildClientFuture =
-        buildClientExecutor.submit(() -> buildClient.build(TWO_STAGE, NO_FALLBACK));
+        buildClientExecutor.submit(
+            () -> buildClient.build(DistLocalBuildMode.NO_WAIT_FOR_REMOTE, NO_FALLBACK));
 
     // Simulate most build rules finished being failed.
     remoteBuildRuleSynchronizer.signalCompletionOfRemoteBuild(false);
@@ -576,7 +607,8 @@ public class StampedeBuildClientTest {
 
     // Run the build client in another thread
     Future<Integer> buildClientFuture =
-        buildClientExecutor.submit(() -> buildClient.build(TWO_STAGE, FALLBACK_ENABLED));
+        buildClientExecutor.submit(
+            () -> buildClient.build(DistLocalBuildMode.NO_WAIT_FOR_REMOTE, FALLBACK_ENABLED));
 
     // Simulate most build rules finished being failed.
     remoteBuildRuleSynchronizer.signalCompletionOfRemoteBuild(false);

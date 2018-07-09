@@ -16,15 +16,15 @@
 
 package com.facebook.buck.shell;
 
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.step.StepExecutionResults;
 import com.facebook.buck.test.TestResultSummary;
 import com.facebook.buck.test.result.type.ResultType;
-import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.Verbosity;
 import com.facebook.buck.util.environment.Platform;
 import com.facebook.buck.util.json.ObjectMappers;

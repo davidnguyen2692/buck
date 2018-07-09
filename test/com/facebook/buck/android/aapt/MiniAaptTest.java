@@ -26,13 +26,13 @@ import static org.junit.Assert.fail;
 import com.facebook.buck.android.aapt.MiniAapt.ResourceParseException;
 import com.facebook.buck.android.aapt.RDotTxtEntry.IdType;
 import com.facebook.buck.android.aapt.RDotTxtEntry.RType;
+import com.facebook.buck.core.model.BuildId;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.event.DefaultBuckEventBus;
-import com.facebook.buck.model.BuildId;
-import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TestBuildRuleResolver;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.util.timing.FakeClock;
 import com.google.common.collect.ImmutableList;
@@ -66,7 +66,7 @@ public class MiniAaptTest {
 
   private final FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
   private final SourcePathResolver resolver =
-      DefaultSourcePathResolver.from(new SourcePathRuleFinder(new TestBuildRuleResolver()));
+      DefaultSourcePathResolver.from(new SourcePathRuleFinder(new TestActionGraphBuilder()));
 
   @Rule public ExpectedException thrown = ExpectedException.none();
 

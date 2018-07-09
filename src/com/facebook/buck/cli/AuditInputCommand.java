@@ -17,19 +17,19 @@
 package com.facebook.buck.cli;
 
 import com.facebook.buck.config.BuckConfig;
+import com.facebook.buck.core.cell.Cell;
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.targetgraph.TargetGraph;
+import com.facebook.buck.core.model.targetgraph.TargetNode;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.graph.AbstractBottomUpTraversal;
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.parser.BuildTargetParser;
 import com.facebook.buck.parser.BuildTargetPatternParser;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
-import com.facebook.buck.rules.Cell;
-import com.facebook.buck.rules.TargetGraph;
-import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.util.CommandLineException;
 import com.facebook.buck.util.ExitCode;
-import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreExceptions;
 import com.facebook.buck.util.json.ObjectMappers;
 import com.google.common.annotations.VisibleForTesting;

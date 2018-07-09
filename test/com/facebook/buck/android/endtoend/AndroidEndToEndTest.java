@@ -18,6 +18,7 @@ package com.facebook.buck.android.endtoend;
 
 import com.facebook.buck.android.AssumeAndroidPlatform;
 import com.facebook.buck.testutil.ProcessResult;
+import com.facebook.buck.testutil.endtoend.ConfigSetBuilder;
 import com.facebook.buck.testutil.endtoend.EndToEndEnvironment;
 import com.facebook.buck.testutil.endtoend.EndToEndRunner;
 import com.facebook.buck.testutil.endtoend.EndToEndTestDescriptor;
@@ -33,17 +34,17 @@ import org.junit.runner.RunWith;
  * <pre>
  *                                           android_binary
  *                                                  +
- *       +------------+-------------+---------------+----------------------------+
- *       v            v             v                                            v
- * export_file     manifest     keystore                                  android_library
+ *                    +-------------+---------------+----------------------------+
+ *                    v             v                                            v
+ *                 manifest     keystore                                  android_library
  *                    +                                                          +
  *                    |                    +------------------+----------------------------------------+-----------------+
  *                    v                    v                  v                  v                     v                 v
  *                 genrule          android_resource   android_library      prebuilt_jar     android_build_config   cxx_library
  *                    +                                       +                  +                                       +
- *    +---------------+                                       |                  |                                       |
- *    v               v                                       v                  v                                       v
- * genrule      python_binary                      android_prebuilt_aar       genrule                               cxx_library
+ *    +---------------+                  +--------------------+                  |                                       |
+ *    v               v                  v                    v                  v                                       v
+ * genrule      python_binary       export_file     android_prebuilt_aar       genrule                               cxx_library
  *                                                                               +
  *                                                                               |
  *                                                                               v
@@ -62,16 +63,22 @@ public class AndroidEndToEndTest {
 
   @Environment
   public static EndToEndEnvironment baseEnvironment() {
+    ConfigSetBuilder configSetBuilder = new ConfigSetBuilder();
     return new EndToEndEnvironment()
         .addTemplates("mobile")
         .withCommand("build")
-        .withTargets(mainTarget);
+        .withTargets(mainTarget)
+        .addLocalConfigSet(configSetBuilder.build())
+        .addLocalConfigSet(configSetBuilder.addSourceABIConfigSet().build())
+        .addLocalConfigSet(configSetBuilder.addShlibConfigSet().build())
+        .addLocalConfigSet(configSetBuilder.addSourceABIConfigSet().addShlibConfigSet().build());
   }
 
   /** Determines that buck successfully outputs proper programs */
   @Test
-  public void shouldBuild(
-      EndToEndTestDescriptor test, EndToEndWorkspace workspace, ProcessResult result) {
+  public void shouldBuild(EndToEndTestDescriptor test, EndToEndWorkspace workspace)
+      throws Exception {
+    ProcessResult result = workspace.runBuckCommand(test);
     result.assertSuccess("Did not successfully build");
   }
 }

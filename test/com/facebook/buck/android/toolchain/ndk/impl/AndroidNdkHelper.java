@@ -23,20 +23,21 @@ import com.facebook.buck.android.relinker.Symbols;
 import com.facebook.buck.android.toolchain.ndk.AndroidNdk;
 import com.facebook.buck.android.toolchain.ndk.NdkCxxPlatform;
 import com.facebook.buck.android.toolchain.ndk.NdkCxxPlatformCompiler;
+import com.facebook.buck.android.toolchain.ndk.NdkCxxRuntimeType;
 import com.facebook.buck.config.FakeBuckConfig;
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.keys.config.TestRuleKeyConfigurationFactory;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.testutil.integration.ZipInspector;
 import com.facebook.buck.toolchain.ToolchainCreationContext;
 import com.facebook.buck.toolchain.impl.ToolchainProviderBuilder;
 import com.facebook.buck.util.DefaultProcessExecutor;
-import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.collect.ImmutableCollection;
@@ -105,8 +106,8 @@ public class AndroidNdkHelper {
                     .setGccVersion(gccVersion)
                     .build(),
                 NdkCxxPlatforms.DEFAULT_CXX_RUNTIME,
-                NdkCxxPlatforms.DEFAULT_TARGET_APP_PLATFORM,
-                NdkCxxPlatforms.DEFAULT_CPU_ABIS,
+                NdkCxxRuntimeType.DYNAMIC,
+                getDefaultCpuAbis(ndkVersion),
                 Platform.detect())
             .values();
     assertFalse(platforms.isEmpty());
@@ -215,5 +216,9 @@ public class AndroidNdkHelper {
       this.symbols = symbols;
       this.dtNeeded = dtNeeded;
     }
+  }
+
+  public static ImmutableSet<String> getDefaultCpuAbis(String ndkVersion) {
+    return NdkCxxPlatforms.getDefaultCpuAbis(ndkVersion);
   }
 }

@@ -16,17 +16,17 @@
 
 package com.facebook.buck.cxx;
 
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.Flavor;
+import com.facebook.buck.core.model.InternalFlavor;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.impl.DependencyAggregation;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.Flavor;
-import com.facebook.buck.model.InternalFlavor;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.DependencyAggregation;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
 import java.nio.file.Path;
@@ -57,7 +57,7 @@ public class CxxPrefixHeader extends PreInclude {
       CxxPlatform cxxPlatform,
       CxxSource.Type sourceType,
       ImmutableList<String> sourceFlags,
-      BuildRuleResolver ruleResolver,
+      ActionGraphBuilder graphBuilder,
       SourcePathRuleFinder ruleFinder,
       SourcePathResolver pathResolver) {
 
@@ -83,6 +83,6 @@ public class CxxPrefixHeader extends PreInclude {
         getBuildTarget().getUnflavoredBuildTarget(),
         ImmutableSortedSet.of(
             cxxPlatform.getFlavor(), InternalFlavor.of(Flavor.replaceInvalidCharacters(pchFullID))),
-        ruleResolver);
+        graphBuilder);
   }
 }

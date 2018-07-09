@@ -2,10 +2,16 @@ load("//tools/build_rules:java_rules.bzl", "java_immutables_library")
 
 java_immutables_library(
     name = "builders",
-    srcs = glob(["**/*.java"]),
+    srcs = glob(
+        ["**/*.java"],
+        exclude = ["grpc/server/**"],
+    ),
     visibility = ["PUBLIC"],
     deps = [
         "//src/com/facebook/buck/android:utils_api",
+        "//src/com/facebook/buck/core/cell/impl:impl",
+        "//src/com/facebook/buck/core/rules/build/strategy:strategy",
+        "//src/com/facebook/buck/core/sourcepath/resolver/impl:impl",
         "//src/com/facebook/buck/event:event",
         "//src/com/facebook/buck/event:interfaces",
         "//src/com/facebook/buck/io:io",
@@ -18,14 +24,14 @@ java_immutables_library(
         "//src/com/facebook/buck/log:api",
         "//src/com/facebook/buck/model:model",
         "//src/com/facebook/buck/plugin/impl:impl",
-        "//src/com/facebook/buck/rules:rules",
-        "//src/com/facebook/buck/rules:types",
+        "//src/com/facebook/buck/core/rules:rules",
         "//src/com/facebook/buck/rules/keys:keys",
         "//src/com/facebook/buck/rules/modern:modern",
         "//src/com/facebook/buck/rules/modern/config:config",
         "//src/com/facebook/buck/slb:slb",
         "//src/com/facebook/buck/step:step",
         "//src/com/facebook/buck/util:exceptions",
+        "//src/com/facebook/buck/util/concurrent:concurrent",
         "//src/com/facebook/buck/util:io",
         "//src/com/facebook/buck/util:util",
         "//src/com/facebook/buck/util/config:config",
@@ -35,8 +41,18 @@ java_immutables_library(
         "//src/com/facebook/buck/util/hashing:hashing",
         "//src/com/facebook/buck/util/timing:timing",
         "//src/com/facebook/buck/worker:worker_process",
+        "//third-party/java/googleapis:googleapis",
+        # Nothing in here explicitly uses netty, but grpc picks it up dynamically when trying to
+        # connect to a remote server.
+        "//third-party/java/grpc:grpc-netty",
         "//third-party/java/guava:guava",
         "//third-party/java/infer-annotations:infer-annotations",
         "//third-party/java/jsr:jsr305",
     ],
+)
+
+export_file(
+    name = "trampoline",
+    src = "trampoline.sh",
+    visibility = ["PUBLIC"],
 )

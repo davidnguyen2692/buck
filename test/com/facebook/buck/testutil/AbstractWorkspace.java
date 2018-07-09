@@ -19,7 +19,7 @@ package com.facebook.buck.testutil;
 import static java.nio.charset.StandardCharsets.UTF_8;
 
 import com.facebook.buck.io.file.MostFiles;
-import com.facebook.buck.model.BuckVersion;
+import com.facebook.buck.rules.keys.config.impl.BuckVersion;
 import com.facebook.buck.util.BuckConstant;
 import com.facebook.buck.util.environment.Platform;
 import com.fasterxml.jackson.annotation.JsonValue;
@@ -47,12 +47,14 @@ import java.nio.file.SimpleFileVisitor;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.nio.file.attribute.PosixFilePermission;
 import java.nio.file.spi.FileSystemProvider;
 import java.util.ArrayDeque;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Queue;
+import java.util.Set;
 
 /**
  * {@link AbstractWorkspace} is a directory that contains a Buck project, complete with build files.
@@ -134,15 +136,19 @@ public abstract class AbstractWorkspace {
   }
 
   private void saveBuckConfigLocal() throws IOException {
+    writeContentsToPath(convertToBuckConfig(localConfigs), ".buckconfig.local");
+  }
+
+  protected static String convertToBuckConfig(Map<String, Map<String, String>> configs) {
     StringBuilder contents = new StringBuilder();
-    for (Map.Entry<String, Map<String, String>> section : localConfigs.entrySet()) {
+    for (Map.Entry<String, Map<String, String>> section : configs.entrySet()) {
       contents.append("[").append(section.getKey()).append("]\n\n");
       for (Map.Entry<String, String> option : section.getValue().entrySet()) {
         contents.append(option.getKey()).append(" = ").append(option.getValue()).append("\n");
       }
       contents.append("\n");
     }
-    writeContentsToPath(contents.toString(), ".buckconfig.local");
+    return contents.toString();
   }
 
   /**
@@ -291,14 +297,24 @@ public abstract class AbstractWorkspace {
       return;
     }
     Path outputPath = templatePath.relativize(optionalOutputPath.get());
+    Path targetPath = destPath.resolve(outputPath.toString());
 
     try (InputStream inStream = provider.newInputStream(contentPath);
-        FileOutputStream outStream =
-            new FileOutputStream(destPath.resolve(outputPath.toString()).toString())) {
+        FileOutputStream outStream = new FileOutputStream(targetPath.toString())) {
       byte[] buffer = new byte[inStream.available()];
       inStream.read(buffer);
       outStream.write(buffer);
     }
+    if (Platform.detect() == Platform.WINDOWS) {
+      return;
+    }
+    // require that certain files are executable.
+    // the jar process removes any granularity around this, so we give everything the permission
+    Set<PosixFilePermission> targetPermissions = Files.getPosixFilePermissions(targetPath);
+    targetPermissions.add(PosixFilePermission.OWNER_EXECUTE);
+    targetPermissions.add(PosixFilePermission.GROUP_EXECUTE);
+    targetPermissions.add(PosixFilePermission.OTHERS_EXECUTE);
+    Files.setPosixFilePermissions(targetPath, targetPermissions);
   }
 
   private void preAddTemplateActions(Path templatePath) throws IOException {

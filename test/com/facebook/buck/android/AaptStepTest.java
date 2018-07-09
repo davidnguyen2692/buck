@@ -73,6 +73,7 @@ public class AaptStepTest {
         /* pathToOutputApk */ basePath.resolve("build").resolve("out.apk"),
         /* pathToRDotDText */ basePath.resolve("r"),
         pathToGeneratedProguardConfig,
+        ImmutableList.of(),
         isCrunchFiles,
         includesVectorDrawables,
         manifestEntries);
@@ -85,10 +86,7 @@ public class AaptStepTest {
    * calling replay().
    */
   private ExecutionContext createTestExecutionContext(Verbosity verbosity) {
-    ExecutionContext executionContext =
-        TestExecutionContext.newBuilder().setConsole(new TestConsole(verbosity)).build();
-
-    return executionContext;
+    return TestExecutionContext.newBuilder().setConsole(new TestConsole(verbosity)).build();
   }
 
   @Test

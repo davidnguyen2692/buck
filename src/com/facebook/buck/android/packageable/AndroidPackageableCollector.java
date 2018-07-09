@@ -19,15 +19,15 @@ package com.facebook.buck.android.packageable;
 import com.facebook.buck.android.apkmodule.APKModule;
 import com.facebook.buck.android.apkmodule.APKModuleGraph;
 import com.facebook.buck.android.packageable.AndroidPackageableCollection.ResourceDetails;
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.targetgraph.TargetGraph;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleResolver;
+import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
 import com.facebook.buck.jvm.core.HasJavaClassHashes;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.coercer.BuildConfigFields;
-import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreSuppliers;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.FluentIterable;
@@ -72,7 +72,7 @@ public class AndroidPackageableCollector {
         collectionRoot,
         ImmutableSet.of(),
         ImmutableSet.of(),
-        new APKModuleGraph(TargetGraph.EMPTY, collectionRoot, Optional.empty()));
+        new APKModuleGraph(Optional.empty(), Optional.empty(), TargetGraph.EMPTY, collectionRoot));
   }
 
   /**

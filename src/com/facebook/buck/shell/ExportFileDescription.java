@@ -17,28 +17,28 @@
 package com.facebook.buck.shell;
 
 import com.facebook.buck.config.BuckConfig;
+import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.description.arg.CommonDescriptionArg;
+import com.facebook.buck.core.description.attr.ImplicitInputsInferringDescription;
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.UnflavoredBuildTarget;
+import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
+import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.sourcepath.PathSourcePath;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
+import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.UnflavoredBuildTarget;
-import com.facebook.buck.rules.BuildRuleCreationContext;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.CommonDescriptionArg;
-import com.facebook.buck.rules.DefaultSourcePathResolver;
-import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.ImplicitInputsInferringDescription;
-import com.facebook.buck.rules.PathSourcePath;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.util.HumanReadableException;
-import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.google.common.collect.ImmutableList;
 import java.nio.file.Path;
 import java.util.Optional;
 import org.immutables.value.Value;
 
 public class ExportFileDescription
-    implements Description<ExportFileDescriptionArg>,
+    implements DescriptionWithTargetGraph<ExportFileDescriptionArg>,
         ImplicitInputsInferringDescription<ExportFileDescriptionArg> {
 
   @Override
@@ -54,7 +54,7 @@ public class ExportFileDescription
 
   @Override
   public ExportFile createBuildRule(
-      BuildRuleCreationContext context,
+      BuildRuleCreationContextWithTargetGraph context,
       BuildTarget buildTarget,
       BuildRuleParams params,
       ExportFileDescriptionArg args) {
@@ -72,7 +72,7 @@ public class ExportFileDescription
     }
 
     SourcePath src;
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(context.getBuildRuleResolver());
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(context.getActionGraphBuilder());
     SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
     ProjectFilesystem projectFilesystem = context.getProjectFilesystem();
     if (args.getSrc().isPresent()) {
@@ -109,6 +109,11 @@ public class ExportFileDescription
       inputs.add(buildTarget.getBasePath().resolve(buildTarget.getShortName()));
     }
     return inputs.build();
+  }
+
+  @Override
+  public boolean producesCacheableSubgraph() {
+    return true;
   }
 
   /** Controls how `export_file` exports it's wrapped source. */

@@ -18,13 +18,13 @@ package com.facebook.buck.cxx;
 
 import static org.junit.Assert.assertThat;
 
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
+import com.facebook.buck.core.sourcepath.PathSourcePath;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.rules.DefaultSourcePathResolver;
-import com.facebook.buck.rules.PathSourcePath;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TestBuildRuleResolver;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import java.nio.file.Path;
 import java.util.Optional;
@@ -37,7 +37,7 @@ public class HeaderPathNormalizerTest {
   @Test
   public void unmanagedHeader() {
     SourcePathResolver pathResolver =
-        DefaultSourcePathResolver.from(new SourcePathRuleFinder(new TestBuildRuleResolver()));
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(new TestActionGraphBuilder()));
     Path header = filesystem.getPath("foo/bar.h");
     HeaderPathNormalizer normalizer = new HeaderPathNormalizer.Builder(pathResolver).build();
     assertThat(
@@ -48,7 +48,7 @@ public class HeaderPathNormalizerTest {
   @Test
   public void managedHeader() {
     SourcePathResolver pathResolver =
-        DefaultSourcePathResolver.from(new SourcePathRuleFinder(new TestBuildRuleResolver()));
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(new TestActionGraphBuilder()));
     Path header = filesystem.getPath("foo/bar.h");
     SourcePath headerPath = PathSourcePath.of(filesystem, header);
     HeaderPathNormalizer normalizer =
@@ -64,7 +64,7 @@ public class HeaderPathNormalizerTest {
   @Test
   public void managedHeaderWithRelativePath() {
     SourcePathResolver pathResolver =
-        DefaultSourcePathResolver.from(new SourcePathRuleFinder(new TestBuildRuleResolver()));
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(new TestActionGraphBuilder()));
     Path header = filesystem.getPath("foo/bar.h");
     SourcePath headerPath = PathSourcePath.of(filesystem, header);
     HeaderPathNormalizer normalizer =
@@ -83,7 +83,7 @@ public class HeaderPathNormalizerTest {
   @Test
   public void managedHeaderDir() {
     SourcePathResolver pathResolver =
-        DefaultSourcePathResolver.from(new SourcePathRuleFinder(new TestBuildRuleResolver()));
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(new TestActionGraphBuilder()));
     Path header = filesystem.getPath("foo/bar.h");
     SourcePath headerDirPath = PathSourcePath.of(filesystem, header.getParent());
     HeaderPathNormalizer normalizer =
@@ -105,7 +105,7 @@ public class HeaderPathNormalizerTest {
   @Test
   public void managedPrefixHeaderDir() {
     SourcePathResolver pathResolver =
-        DefaultSourcePathResolver.from(new SourcePathRuleFinder(new TestBuildRuleResolver()));
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(new TestActionGraphBuilder()));
     Path header = filesystem.getPath("foo/bar.pch");
     SourcePath headerPath = PathSourcePath.of(filesystem, header);
     HeaderPathNormalizer normalizer =

@@ -21,6 +21,7 @@ import static org.hamcrest.CoreMatchers.not;
 import static org.hamcrest.Matchers.hasItems;
 import static org.hamcrest.Matchers.is;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 
@@ -30,9 +31,21 @@ import com.facebook.buck.android.toolchain.ndk.NdkCxxPlatform;
 import com.facebook.buck.android.toolchain.ndk.NdkCxxPlatformCompiler;
 import com.facebook.buck.android.toolchain.ndk.NdkCxxPlatformTargetConfiguration;
 import com.facebook.buck.android.toolchain.ndk.NdkCxxRuntime;
+import com.facebook.buck.android.toolchain.ndk.NdkCxxRuntimeType;
 import com.facebook.buck.android.toolchain.ndk.TargetCpuType;
 import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.config.FakeBuckConfig;
+import com.facebook.buck.core.cell.TestCellPathResolver;
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.InternalFlavor;
+import com.facebook.buck.core.rulekey.RuleKey;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.cxx.CxxLinkOptions;
 import com.facebook.buck.cxx.CxxLinkableEnhancer;
 import com.facebook.buck.cxx.CxxPreprocessAndCompile;
@@ -49,19 +62,9 @@ import com.facebook.buck.io.AlwaysFoundExecutableFinder;
 import com.facebook.buck.io.file.MostFiles;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.parser.exceptions.NoSuchBuildTargetException;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.rules.RuleKey;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TestBuildRuleResolver;
-import com.facebook.buck.rules.TestCellPathResolver;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.keys.DefaultRuleKeyFactory;
 import com.facebook.buck.rules.keys.TestDefaultRuleKeyFactory;
@@ -91,10 +94,12 @@ import org.hamcrest.Matchers;
 import org.junit.Assume;
 import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.ExpectedException;
 
 public class NdkCxxPlatformTest {
 
   @Rule public TemporaryPaths tmp = new TemporaryPaths();
+  @Rule public ExpectedException thrown = ExpectedException.none();
 
   enum Operation {
     COMPILE,
@@ -104,8 +109,8 @@ public class NdkCxxPlatformTest {
   // Create and return some rule keys from a dummy source for the given platforms.
   private ImmutableMap<TargetCpuType, RuleKey> constructCompileRuleKeys(
       Operation operation, ImmutableMap<TargetCpuType, NdkCxxPlatform> cxxPlatforms) {
-    BuildRuleResolver resolver = new TestBuildRuleResolver();
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
     SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
     String source = "source.cpp";
     DefaultRuleKeyFactory ruleKeyFactory =
@@ -123,7 +128,7 @@ public class NdkCxxPlatformTest {
           CxxSourceRuleFactory.builder()
               .setBaseBuildTarget(target)
               .setProjectFilesystem(new FakeProjectFilesystem())
-              .setResolver(resolver)
+              .setActionGraphBuilder(graphBuilder)
               .setPathResolver(pathResolver)
               .setRuleFinder(ruleFinder)
               .setCxxBuckConfig(CxxPlatformUtils.DEFAULT_CONFIG)
@@ -158,8 +163,8 @@ public class NdkCxxPlatformTest {
   // Create and return some rule keys from a dummy source for the given platforms.
   private ImmutableMap<TargetCpuType, RuleKey> constructLinkRuleKeys(
       ImmutableMap<TargetCpuType, NdkCxxPlatform> cxxPlatforms) throws NoSuchBuildTargetException {
-    BuildRuleResolver resolver = new TestBuildRuleResolver();
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
     SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
     DefaultRuleKeyFactory ruleKeyFactory =
         new TestDefaultRuleKeyFactory(
@@ -178,7 +183,7 @@ public class NdkCxxPlatformTest {
               CxxPlatformUtils.DEFAULT_CONFIG,
               entry.getValue().getCxxPlatform(),
               filesystem,
-              resolver,
+              graphBuilder,
               pathResolver,
               ruleFinder,
               target,
@@ -216,6 +221,100 @@ public class NdkCxxPlatformTest {
   }
 
   @Test
+  public void testClangVersion10() {
+    assertEquals("3.5", NdkCxxPlatforms.getDefaultClangVersionForNdk("10.1.2977051"));
+  }
+
+  @Test
+  public void testClangVersion14() {
+    assertEquals("3.8", NdkCxxPlatforms.getDefaultClangVersionForNdk("14.1.2977051"));
+  }
+
+  @Test
+  public void testClangVersion16() {
+    assertEquals("5.0", NdkCxxPlatforms.getDefaultClangVersionForNdk("16.1.2977051"));
+  }
+
+  @Test
+  public void testClangVersion17() {
+    assertEquals("6.0.2", NdkCxxPlatforms.getDefaultClangVersionForNdk("17.1.2977051"));
+  }
+
+  public void testDefaultCpuAbisForNdk16() {
+    assertEquals(
+        ImmutableSet.of("arm", "armv7", "x86"), NdkCxxPlatforms.getDefaultCpuAbis("16.1.123"));
+  }
+
+  @Test
+  public void testDefaultCpuAbisForNdk17() {
+    assertEquals(ImmutableSet.of("armv7", "x86"), NdkCxxPlatforms.getDefaultCpuAbis("17.1.123"));
+  }
+
+  @Test
+  public void testGetUseUnifiedHeadersIsFalseWhenConfigNotSetWithOldNDK() {
+    AndroidBuckConfig androidBuckConfig =
+        new AndroidBuckConfig(FakeBuckConfig.builder().build(), Platform.detect());
+    assertFalse(NdkCxxPlatforms.getUseUnifiedHeaders(androidBuckConfig, "15"));
+  }
+
+  @Test
+  public void testGetUseUnifiedHeadersIsFalseWhenConfigNotSetWithNewNDK() {
+    AndroidBuckConfig androidBuckConfig =
+        new AndroidBuckConfig(FakeBuckConfig.builder().build(), Platform.detect());
+    assertTrue(NdkCxxPlatforms.getUseUnifiedHeaders(androidBuckConfig, "16"));
+  }
+
+  @Test
+  public void testGetUseUnifiedHeadersIsFalseWhenSetToFalseWithOldNDK() {
+    AndroidBuckConfig androidBuckConfig =
+        new AndroidBuckConfig(
+            FakeBuckConfig.builder().setSections("[ndk]", "use_unified_headers = false").build(),
+            Platform.detect());
+    assertFalse(NdkCxxPlatforms.getUseUnifiedHeaders(androidBuckConfig, "15"));
+  }
+
+  @Test
+  public void testGetUseUnifiedHeadersThrowsWhenSetToFalseWithNewNDK() {
+    AndroidBuckConfig androidBuckConfig =
+        new AndroidBuckConfig(
+            FakeBuckConfig.builder().setSections("[ndk]", "use_unified_headers = false").build(),
+            Platform.detect());
+
+    thrown.expect(HumanReadableException.class);
+    thrown.expectMessage(
+        "Non-unified headers were removed in Android NDK 16.\n"
+            + "Current configuration has Unified Headers disabled, but detected Android NDK version is 17.\n"
+            + "Configuration needs to be changed in order to build with the current Android NDK");
+
+    NdkCxxPlatforms.getUseUnifiedHeaders(androidBuckConfig, "17");
+  }
+
+  @Test
+  public void testGetUseUnifiedHeadersThrowsWhenSetToTrueWithOldNDK() {
+    AndroidBuckConfig androidBuckConfig =
+        new AndroidBuckConfig(
+            FakeBuckConfig.builder().setSections("[ndk]", "use_unified_headers = true").build(),
+            Platform.detect());
+
+    thrown.expect(HumanReadableException.class);
+    thrown.expectMessage(
+        "Unified Headers can be only used with Android NDK 14 and newer.\n"
+            + "Current configuration has Unified Headers enabled, but detected Android NDK has version is 13.\n"
+            + "Either change the configuration or upgrade to a newer Android NDK");
+
+    NdkCxxPlatforms.getUseUnifiedHeaders(androidBuckConfig, "13");
+  }
+
+  @Test
+  public void testGetUseUnifiedHeadersIsTrueWhenSetToTrueWithNewNDK() {
+    AndroidBuckConfig androidBuckConfig =
+        new AndroidBuckConfig(
+            FakeBuckConfig.builder().setSections("[ndk]", "use_unified_headers = true").build(),
+            Platform.detect());
+    assertTrue(NdkCxxPlatforms.getUseUnifiedHeaders(androidBuckConfig, "15"));
+  }
+
+  @Test
   public void testNdkFlags() throws IOException {
     ProjectFilesystem filesystem = TestProjectFilesystems.createProjectFilesystem(tmp.getRoot());
     Path ndkRoot = tmp.newFolder("android-ndk-r10b");
@@ -227,7 +326,7 @@ public class NdkCxxPlatformTest {
                 .setVersion("gcc-version")
                 .setGccVersion("clang-version")
                 .build(),
-            "target-app-platform");
+            "android-16");
     MostFiles.writeLinesToFile(ImmutableList.of("r9c"), ndkRoot.resolve("RELEASE.TXT"));
     NdkCxxPlatform platform =
         NdkCxxPlatforms.build(
@@ -239,6 +338,7 @@ public class NdkCxxPlatformTest {
             ndkRoot,
             targetConfiguration,
             NdkCxxRuntime.GNUSTL,
+            NdkCxxRuntimeType.DYNAMIC,
             new AlwaysFoundExecutableFinder(),
             false /* strictToolchainPaths */);
     assertThat(platform.getCxxPlatform().getCflags(), hasItems("-std=gnu11", "-O2"));
@@ -260,7 +360,7 @@ public class NdkCxxPlatformTest {
                 .setVersion("gcc-version")
                 .setGccVersion("clang-version")
                 .build(),
-            "target-app-platform");
+            "android-12");
     MostFiles.writeLinesToFile(ImmutableList.of("r9c"), ndkRoot.resolve("RELEASE.TXT"));
     BuckConfig buckConfig =
         FakeBuckConfig.builder()
@@ -287,6 +387,7 @@ public class NdkCxxPlatformTest {
             ndkRoot,
             targetConfiguration,
             NdkCxxRuntime.GNUSTL,
+            NdkCxxRuntimeType.DYNAMIC,
             new AlwaysFoundExecutableFinder(),
             false /* strictToolchainPaths */);
 
@@ -359,7 +460,7 @@ public class NdkCxxPlatformTest {
                 .setVersion("gcc-version")
                 .setGccVersion("clang-version")
                 .build(),
-            "target-app-platform");
+            "android-16");
     MostFiles.writeLinesToFile(ImmutableList.of("r9c"), ndkRoot.resolve("RELEASE.TXT"));
     BuckConfig buckConfig =
         FakeBuckConfig.builder()
@@ -387,6 +488,7 @@ public class NdkCxxPlatformTest {
             ndkRoot,
             targetConfiguration,
             NdkCxxRuntime.GNUSTL,
+            NdkCxxRuntimeType.DYNAMIC,
             new AlwaysFoundExecutableFinder(),
             false /* strictToolchainPaths */);
 
@@ -469,7 +571,7 @@ public class NdkCxxPlatformTest {
                       .setGccVersion("clang-version")
                       .build(),
                   NdkCxxRuntime.GNUSTL,
-                  "target-app-platform",
+                  NdkCxxRuntimeType.DYNAMIC,
                   ImmutableSet.of("x86"),
                   platform,
                   new AlwaysFoundExecutableFinder(),
@@ -522,7 +624,7 @@ public class NdkCxxPlatformTest {
                 .setGccVersion("clang-version")
                 .build(),
             NdkCxxRuntime.GNUSTL,
-            "target-app-platform",
+            NdkCxxRuntimeType.DYNAMIC,
             ImmutableSet.of("x86"),
             Platform.LINUX,
             new AlwaysFoundExecutableFinder(),

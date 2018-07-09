@@ -22,11 +22,13 @@ import static com.facebook.buck.jvm.java.JavaCompilationConstants.DEFAULT_JAVA_C
 import com.facebook.buck.android.toolchain.DxToolchain;
 import com.facebook.buck.android.toolchain.ndk.impl.TestNdkCxxPlatformsProviderFactory;
 import com.facebook.buck.config.FakeBuckConfig;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.targetgraph.AbstractNodeBuilder;
+import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
+import com.facebook.buck.jvm.java.JavaCompilationConstants;
+import com.facebook.buck.jvm.java.toolchain.JavaToolchain;
 import com.facebook.buck.jvm.java.toolchain.JavacOptionsProvider;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.AbstractNodeBuilder;
-import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.toolchain.ToolchainProvider;
 import com.facebook.buck.toolchain.impl.ToolchainProviderBuilder;
@@ -34,8 +36,10 @@ import com.google.common.util.concurrent.MoreExecutors;
 
 public class AndroidInstrumentationApkBuilder
     extends AbstractNodeBuilder<
-        AndroidInstrumentationApkDescriptionArg.Builder, AndroidInstrumentationApkDescriptionArg,
-        AndroidInstrumentationApkDescription, AndroidInstrumentationApk> {
+        AndroidInstrumentationApkDescriptionArg.Builder,
+        AndroidInstrumentationApkDescriptionArg,
+        AndroidInstrumentationApkDescription,
+        AndroidInstrumentationApk> {
 
   private AndroidInstrumentationApkBuilder(BuildTarget target) {
     super(
@@ -44,7 +48,8 @@ public class AndroidInstrumentationApkBuilder
             new ProGuardConfig(FakeBuckConfig.builder().build()),
             new CxxBuckConfig(new FakeBuckConfig.Builder().build()),
             new DxConfig(FakeBuckConfig.builder().build()),
-            new ApkConfig(FakeBuckConfig.builder().build())),
+            new ApkConfig(FakeBuckConfig.builder().build()),
+            createToolchainProviderForAndroidInstrumentationApk()),
         target,
         new FakeProjectFilesystem(),
         createToolchainProviderForAndroidInstrumentationApk(),
@@ -58,6 +63,7 @@ public class AndroidInstrumentationApkBuilder
             DxToolchain.DEFAULT_NAME, DxToolchain.of(MoreExecutors.newDirectExecutorService()))
         .withToolchain(
             JavacOptionsProvider.DEFAULT_NAME, JavacOptionsProvider.of(ANDROID_JAVAC_OPTIONS))
+        .withToolchain(JavaToolchain.DEFAULT_NAME, JavaCompilationConstants.DEFAULT_JAVA_TOOLCHAIN)
         .build();
   }
 

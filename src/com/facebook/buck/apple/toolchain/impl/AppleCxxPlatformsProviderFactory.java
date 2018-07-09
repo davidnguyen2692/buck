@@ -24,15 +24,14 @@ import com.facebook.buck.apple.toolchain.AppleSdkPaths;
 import com.facebook.buck.apple.toolchain.AppleToolchain;
 import com.facebook.buck.apple.toolchain.AppleToolchainProvider;
 import com.facebook.buck.config.BuckConfig;
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.Flavor;
+import com.facebook.buck.core.model.FlavorDomain;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.Flavor;
-import com.facebook.buck.model.FlavorDomain;
-import com.facebook.buck.swift.SwiftBuckConfig;
 import com.facebook.buck.toolchain.ToolchainCreationContext;
 import com.facebook.buck.toolchain.ToolchainFactory;
 import com.facebook.buck.toolchain.ToolchainInstantiationException;
 import com.facebook.buck.toolchain.ToolchainProvider;
-import com.facebook.buck.util.HumanReadableException;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import java.util.HashMap;
@@ -75,14 +74,11 @@ public class AppleCxxPlatformsProviderFactory
       ProjectFilesystem filesystem,
       Optional<ImmutableMap<AppleSdk, AppleSdkPaths>> appleSdkPaths,
       Optional<ImmutableMap<String, AppleToolchain>> appleToolchains) {
-    SwiftBuckConfig swiftBuckConfig = new SwiftBuckConfig(config);
     ImmutableList<AppleCxxPlatform> appleCxxPlatforms =
         AppleCxxPlatforms.buildAppleCxxPlatforms(
-            appleSdkPaths, appleToolchains, filesystem, config, swiftBuckConfig);
+            appleSdkPaths, appleToolchains, filesystem, config);
     checkApplePlatforms(appleCxxPlatforms);
-    FlavorDomain<AppleCxxPlatform> platformFlavorsToAppleCxxPlatforms =
-        FlavorDomain.from("Apple C++ Platform", appleCxxPlatforms);
-    return platformFlavorsToAppleCxxPlatforms;
+    return FlavorDomain.from("Apple C++ Platform", appleCxxPlatforms);
   }
 
   private static void checkApplePlatforms(ImmutableList<AppleCxxPlatform> appleCxxPlatforms) {

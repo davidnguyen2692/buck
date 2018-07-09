@@ -1,8 +1,18 @@
-diff --git i/src/main/java/com/google/devtools/build/lib/BUILD w/src/main/java/com/google/devtools/build/lib/BUILD
-index 5dcca6bb65..56a2b01420 100644
---- i/src/main/java/com/google/devtools/build/lib/BUILD
-+++ w/src/main/java/com/google/devtools/build/lib/BUILD
-@@ -276,15 +276,46 @@ java_library(
+From d397d4f09a2d190e517d87aa41d0fd3e4ae8d8ef Mon Sep 17 00:00:00 2001
+From: Taras Tsugrii <ttsugrii@fb.com>
+Date: Sat, 12 May 2018 20:21:17 -0700
+Subject: [PATCH] [Buck] Patch Skylark build file for Buck.
+
+---
+ .../java/com/google/devtools/build/lib/BUILD  |   49 +-
+ .../build/lib/packages/Attribute.java         | 2362 +----------------
+ 2 files changed, 45 insertions(+), 2366 deletions(-)
+
+diff --git a/src/main/java/com/google/devtools/build/lib/BUILD b/src/main/java/com/google/devtools/build/lib/BUILD
+index 5d7b548914..ab152ec3b5 100644
+--- a/src/main/java/com/google/devtools/build/lib/BUILD
++++ b/src/main/java/com/google/devtools/build/lib/BUILD
+@@ -315,16 +315,55 @@ java_library(
  #
  # IMPORTANT:  NOT A PUBLIC INTERFACE. TARGETS SHOULDN'T DEPEND ON THIS.
  #
@@ -15,13 +25,18 @@ index 5dcca6bb65..56a2b01420 100644
 +        "skylarkinterface/*.java",
 +    ]) + [
 +        "packages/Attribute.java",
++        "packages/BazelLibrary.java",
++        "packages/BuiltinProvider.java",
++        "packages/Globber.java",
 +        "packages/Info.java",
 +        "packages/NativeProvider.java",
 +        "packages/Provider.java",
++        "packages/ProviderFromFunction.java",
 +        "packages/SkylarkExportable.java",
 +        "packages/SkylarkInfo.java",
 +        "packages/SkylarkProvider.java",
 +        "packages/SkylarkProviderIdentifier.java",
++        "packages/StructProvider.java",
 +    ],
      visibility = ["//visibility:public"],
 -    exports = [
@@ -31,7 +46,8 @@ index 5dcca6bb65..56a2b01420 100644
 +    deps = [
 +        "//src/main/java/com/google/devtools/build/lib/cmdline",
          "//src/main/java/com/google/devtools/build/lib/vfs",
--        "//src/main/java/com/google/devtools/build/lib/vfs/inmemoryfs",
+         "//src/main/java/com/google/devtools/build/lib/vfs:pathfragment",
+         "//src/main/java/com/google/devtools/build/lib/vfs/inmemoryfs",
 +        "//src/main/java/com/google/devtools/common/options",
 +        "//third_party:asm",
 +        "//third_party:asm-commons",
@@ -52,14 +68,16 @@ index 5dcca6bb65..56a2b01420 100644
 +        "//src/main/java/com/google/devtools/build/lib/profiler",
 +        "//src/main/java/com/google/devtools/build/lib/collect/nestedset",
 +        "//src/main/java/com/google/devtools/build/lib/skyframe/serialization/autocodec:autocodec-annotation",
++        "//src/main/java/com/google/devtools/build/lib/skylarkbuildapi",
++        "//third_party/protobuf/3.4.0:protobuf_java"
      ],
  )
  
-diff --git i/src/main/java/com/google/devtools/build/lib/packages/Attribute.java w/src/main/java/com/google/devtools/build/lib/packages/Attribute.java
-index 5623847960..c087cb1ceb 100644
---- i/src/main/java/com/google/devtools/build/lib/packages/Attribute.java
-+++ w/src/main/java/com/google/devtools/build/lib/packages/Attribute.java
-@@ -14,51 +14,6 @@
+diff --git a/src/main/java/com/google/devtools/build/lib/packages/Attribute.java b/src/main/java/com/google/devtools/build/lib/packages/Attribute.java
+index 91a26c2f1e..c7afa8a21d 100644
+--- a/src/main/java/com/google/devtools/build/lib/packages/Attribute.java
++++ b/src/main/java/com/google/devtools/build/lib/packages/Attribute.java
+@@ -14,55 +14,7 @@
  
  package com.google.devtools.build.lib.packages;
  
@@ -80,12 +98,15 @@ index 5623847960..c087cb1ceb 100644
 -import com.google.devtools.build.lib.analysis.TransitiveInfoProvider;
 -import com.google.devtools.build.lib.analysis.config.transitions.ConfigurationTransition;
 -import com.google.devtools.build.lib.analysis.config.transitions.NoTransition;
+-import com.google.devtools.build.lib.analysis.config.transitions.PatchTransition;
 -import com.google.devtools.build.lib.analysis.config.transitions.SplitTransition;
 -import com.google.devtools.build.lib.cmdline.Label;
 -import com.google.devtools.build.lib.events.EventHandler;
 -import com.google.devtools.build.lib.events.Location;
 -import com.google.devtools.build.lib.packages.RuleClass.Builder.RuleClassNamePredicate;
--import com.google.devtools.build.lib.skyframe.serialization.autocodec.AutoCodec;
+ import com.google.devtools.build.lib.skyframe.serialization.autocodec.AutoCodec;
+-import com.google.devtools.build.lib.skyframe.serialization.autocodec.AutoCodec.VisibleForSerialization;
+-import com.google.devtools.build.lib.skylarkbuildapi.SplitTransitionProviderApi;
 -import com.google.devtools.build.lib.syntax.ClassObject;
 -import com.google.devtools.build.lib.syntax.EvalException;
 -import com.google.devtools.build.lib.syntax.EvalUtils;
@@ -105,16 +126,17 @@ index 5623847960..c087cb1ceb 100644
 -import java.util.LinkedHashMap;
 -import java.util.List;
 -import java.util.Map;
+-import java.util.Objects;
 -import java.util.Set;
 -import java.util.concurrent.atomic.AtomicReference;
 -import javax.annotation.Nullable;
  import javax.annotation.concurrent.Immutable;
  
  /**
-@@ -69,2127 +24,8 @@ import javax.annotation.concurrent.Immutable;
-  * attributes in common).
+@@ -73,2240 +25,8 @@ import javax.annotation.concurrent.Immutable;
   */
  @Immutable
+ @AutoCodec
 -public final class Attribute implements Comparable<Attribute> {
 +public final class Attribute {
  
@@ -122,10 +144,9 @@ index 5623847960..c087cb1ceb 100644
 -
 -  public static final RuleClassNamePredicate NO_RULE = RuleClassNamePredicate.only();
 -
--  /**
--   * Wraps the information necessary to construct an Aspect.
--   */
--  private abstract static class RuleAspect<C extends AspectClass> {
+-  /** Wraps the information necessary to construct an Aspect. */
+-  @VisibleForSerialization
+-  abstract static class RuleAspect<C extends AspectClass> {
 -    protected final C aspectClass;
 -    protected final Function<Rule, AspectParameters> parametersExtractor;
 -
@@ -162,7 +183,8 @@ index 5623847960..c087cb1ceb 100644
 -    }
 -  }
 -
--  private static class SkylarkRuleAspect extends RuleAspect<SkylarkAspectClass> {
+-  @AutoCodec
+-  static class SkylarkRuleAspect extends RuleAspect<SkylarkAspectClass> {
 -    private final SkylarkDefinedAspect aspect;
 -
 -    public SkylarkRuleAspect(SkylarkDefinedAspect aspect) {
@@ -197,7 +219,8 @@ index 5623847960..c087cb1ceb 100644
 -    }
 -  }
 -
--  private enum PropertyFlag {
+-  @VisibleForSerialization
+-  enum PropertyFlag {
 -    MANDATORY,
 -    EXECUTABLE,
 -    UNDOCUMENTED,
@@ -305,6 +328,7 @@ index 5623847960..c087cb1ceb 100644
 -    String checkValid(Rule from, Rule to);
 -  }
 -
+-  @AutoCodec
 -  public static final ValidityPredicate ANY_EDGE =
 -      new ValidityPredicate() {
 -        @Override
@@ -319,7 +343,7 @@ index 5623847960..c087cb1ceb 100644
 -   * based on attributes of that rule. For instance, a split transition on a rule's deps may differ
 -   * depending on the 'platform' attribute of the rule.
 -   */
--  public interface SplitTransitionProvider {
+-  public interface SplitTransitionProvider extends SplitTransitionProviderApi {
 -    /**
 -     * Returns the {@link SplitTransition} given the attribute mapper of the originating rule.
 -     */
@@ -330,10 +354,12 @@ index 5623847960..c087cb1ceb 100644
 -   * Implementation of {@link SplitTransitionProvider} that returns a single {@link SplitTransition}
 -   * regardless of the originating rule.
 -   */
--  private static class BasicSplitTransitionProvider implements SplitTransitionProvider {
--
+-  @AutoCodec.VisibleForSerialization
+-  @AutoCodec
+-  static class BasicSplitTransitionProvider implements SplitTransitionProvider {
 -    private final SplitTransition splitTransition;
 -
+-    @AutoCodec.VisibleForSerialization
 -    BasicSplitTransitionProvider(SplitTransition splitTransition) {
 -      this.splitTransition = splitTransition;
 -    }
@@ -344,9 +370,8 @@ index 5623847960..c087cb1ceb 100644
 -    }
 -  }
 -
--  /**
--   * A predicate class to check if the value of the attribute comes from a predefined set.
--   */
+-  /** A predicate class to check if the value of the attribute comes from a predefined set. */
+-  @AutoCodec
 -  public static class AllowedValueSet implements PredicateWithMessage<Object> {
 -
 -    private final Set<Object> allowedValues;
@@ -359,6 +384,12 @@ index 5623847960..c087cb1ceb 100644
 -      Preconditions.checkNotNull(values);
 -      Preconditions.checkArgument(!Iterables.isEmpty(values));
 -      allowedValues = ImmutableSet.copyOf(values);
+-    }
+-
+-    @AutoCodec.Instantiator
+-    @VisibleForSerialization
+-    AllowedValueSet(Set<Object> allowedValues) {
+-      this.allowedValues = allowedValues;
 -    }
 -
 -    @Override
@@ -397,6 +428,108 @@ index 5623847960..c087cb1ceb 100644
 -   */
 -  public static <TYPE> Attribute.Builder<TYPE> attr(String name, Type<TYPE> type) {
 -    return new Builder<>(name, type);
+-  }
+-
+-  /** A factory to generate {@link Attribute} instances. */
+-  @AutoCodec
+-  public static class ImmutableAttributeFactory {
+-    private final Type<?> type;
+-    private final ConfigurationTransition configTransition;
+-    private final RuleClassNamePredicate allowedRuleClassesForLabels;
+-    private final RuleClassNamePredicate allowedRuleClassesForLabelsWarning;
+-    private final SplitTransitionProvider splitTransitionProvider;
+-    private final FileTypeSet allowedFileTypesForLabels;
+-    private final ValidityPredicate validityPredicate;
+-    private final Object value;
+-    private final AttributeValueSource valueSource;
+-    private final boolean valueSet;
+-    private final Predicate<AttributeMap> condition;
+-    private final ImmutableSet<PropertyFlag> propertyFlags;
+-    private final PredicateWithMessage<Object> allowedValues;
+-    private final RequiredProviders requiredProviders;
+-    private final ImmutableList<RuleAspect<?>> aspects;
+-
+-    @AutoCodec.VisibleForSerialization
+-    ImmutableAttributeFactory(
+-        Type<?> type,
+-        ImmutableSet<PropertyFlag> propertyFlags,
+-        Object value,
+-        ConfigurationTransition configTransition,
+-        RuleClassNamePredicate allowedRuleClassesForLabels,
+-        RuleClassNamePredicate allowedRuleClassesForLabelsWarning,
+-        SplitTransitionProvider splitTransitionProvider,
+-        FileTypeSet allowedFileTypesForLabels,
+-        ValidityPredicate validityPredicate,
+-        AttributeValueSource valueSource,
+-        boolean valueSet,
+-        Predicate<AttributeMap> condition,
+-        PredicateWithMessage<Object> allowedValues,
+-        RequiredProviders requiredProviders,
+-        ImmutableList<RuleAspect<?>> aspects) {
+-      this.type = type;
+-      this.configTransition = configTransition;
+-      this.allowedRuleClassesForLabels = allowedRuleClassesForLabels;
+-      this.allowedRuleClassesForLabelsWarning = allowedRuleClassesForLabelsWarning;
+-      this.splitTransitionProvider = splitTransitionProvider;
+-      this.allowedFileTypesForLabels = allowedFileTypesForLabels;
+-      this.validityPredicate = validityPredicate;
+-      this.value = value;
+-      this.valueSource = valueSource;
+-      this.valueSet = valueSet;
+-      this.condition = condition;
+-      this.propertyFlags = propertyFlags;
+-      this.allowedValues = allowedValues;
+-      this.requiredProviders = requiredProviders;
+-      this.aspects = aspects;
+-    }
+-
+-    public AttributeValueSource getValueSource() {
+-      return valueSource;
+-    }
+-
+-    public boolean isValueSet() {
+-      return valueSet;
+-    }
+-
+-    public Attribute build(String name) {
+-      Preconditions.checkState(!name.isEmpty(), "name has not been set");
+-      if (valueSource == AttributeValueSource.LATE_BOUND) {
+-        Preconditions.checkState(isLateBound(name));
+-      }
+-      // TODO(bazel-team): Set the default to be no file type, then remove this check, and also
+-      // remove all allowedFileTypes() calls without parameters.
+-
+-      // do not modify this.allowedFileTypesForLabels, instead create a copy.
+-      FileTypeSet allowedFileTypesForLabels = this.allowedFileTypesForLabels;
+-      if (type.getLabelClass() == LabelClass.DEPENDENCY) {
+-        if (isPrivateAttribute(name) && allowedFileTypesForLabels == null) {
+-          allowedFileTypesForLabels = FileTypeSet.ANY_FILE;
+-        }
+-        Preconditions.checkNotNull(
+-            allowedFileTypesForLabels, "allowedFileTypesForLabels not set for %s", name);
+-      } else if (type.getLabelClass() == LabelClass.OUTPUT) {
+-        // TODO(bazel-team): Set the default to no file type and make explicit calls instead.
+-        if (allowedFileTypesForLabels == null) {
+-          allowedFileTypesForLabels = FileTypeSet.ANY_FILE;
+-        }
+-      }
+-
+-      return new Attribute(
+-          name,
+-          type,
+-          propertyFlags,
+-          value,
+-          configTransition,
+-          splitTransitionProvider,
+-          allowedRuleClassesForLabels,
+-          allowedRuleClassesForLabelsWarning,
+-          allowedFileTypesForLabels,
+-          validityPredicate,
+-          condition,
+-          allowedValues,
+-          requiredProviders,
+-          aspects);
+-    }
 -  }
 -
 -  /**
@@ -536,22 +669,15 @@ index 5623847960..c087cb1ceb 100644
 -    }
 -
 -    /**
--     * Defines the configuration transition for this attribute. Defaults to
--     * {@code NONE}.
--     */
--    public Builder<TYPE> cfg(SplitTransition configTransition) {
--      return cfg(new BasicSplitTransitionProvider(Preconditions.checkNotNull(configTransition)));
--    }
--
--    /**
--     * Defines the configuration transition for this attribute. Defaults to
--     * {@code NONE}.
+-     * Defines the configuration transition for this attribute (e.g. a {@link PatchTransition} or
+-     * {@link SplitTransition}). Defaults to {@code NONE}.
 -     */
 -    public Builder<TYPE> cfg(ConfigurationTransition configTransition) {
+-      Preconditions.checkNotNull(configTransition);
 -      Preconditions.checkState(this.configTransition == NoTransition.INSTANCE,
 -          "the configuration transition is already set");
 -      if (configTransition instanceof SplitTransition) {
--        return cfg((SplitTransition) configTransition);
+-        return cfg(new BasicSplitTransitionProvider((SplitTransition) configTransition));
 -      } else {
 -        this.configTransition = configTransition;
 -        return this;
@@ -1000,8 +1126,11 @@ index 5623847960..c087cb1ceb 100644
 -     * dependencies through this attribute.
 -     */
 -    public Builder<TYPE> aspect(NativeAspectClass aspect) {
--      return this.aspect(aspect, input -> AspectParameters.EMPTY);
+-      return this.aspect(aspect, EMPTY_FUNCTION);
 -    }
+-
+-    @AutoCodec @AutoCodec.VisibleForSerialization
+-    static final Function<Rule, AspectParameters> EMPTY_FUNCTION = input -> AspectParameters.EMPTY;
 -
 -    public Builder<TYPE> aspect(SkylarkDefinedAspect skylarkAspect, Location location)
 -        throws EvalException {
@@ -1064,44 +1193,8 @@ index 5623847960..c087cb1ceb 100644
 -      return setPropertyFlag(PropertyFlag.NONCONFIGURABLE, "nonconfigurable");
 -    }
 -
--    /**
--     * Creates the attribute. Uses name, type, optionality, configuration type
--     * and the default value configured by the builder.
--     */
--    public Attribute build() {
--      return build(this.name);
--    }
--
--    /**
--     * Creates the attribute. Uses type, optionality, configuration type
--     * and the default value configured by the builder. Use the name
--     * passed as an argument. This function is used by Skylark where the
--     * name is provided only when we build. We don't want to modify the
--     * builder, as it is shared in a multithreaded environment.
--     */
--    public Attribute build(String name) {
--      Preconditions.checkState(!name.isEmpty(), "name has not been set");
--      if (valueSource == AttributeValueSource.LATE_BOUND) {
--        Preconditions.checkState(isLateBound(name));
--      }
--      // TODO(bazel-team): Set the default to be no file type, then remove this check, and also
--      // remove all allowedFileTypes() calls without parameters.
--
--      // do not modify this.allowedFileTypesForLabels, instead create a copy.
--      FileTypeSet allowedFileTypesForLabels = this.allowedFileTypesForLabels;
--      if (type.getLabelClass() == LabelClass.DEPENDENCY) {
--        if (isPrivateAttribute(name) && allowedFileTypesForLabels == null) {
--          allowedFileTypesForLabels = FileTypeSet.ANY_FILE;
--        }
--        Preconditions.checkNotNull(
--            allowedFileTypesForLabels, "allowedFileTypesForLabels not set for %s", name);
--      } else if (type.getLabelClass() == LabelClass.OUTPUT) {
--        // TODO(bazel-team): Set the default to no file type and make explicit calls instead.
--        if (allowedFileTypesForLabels == null) {
--          allowedFileTypesForLabels = FileTypeSet.ANY_FILE;
--        }
--      }
--
+-    /** Returns an {@link ImmutableAttributeFactory} that can be invoked to create attributes. */
+-    public ImmutableAttributeFactory buildPartial() {
 -      Preconditions.checkState(
 -          !allowedRuleClassesForLabels.consideredOverlapping(allowedRuleClassesForLabelsWarning),
 -          "allowedRuleClasses %s and allowedRuleClassesWithWarning %s "
@@ -1109,21 +1202,40 @@ index 5623847960..c087cb1ceb 100644
 -          allowedRuleClassesForLabels,
 -          allowedRuleClassesForLabelsWarning);
 -
--      return new Attribute(
--          name,
+-      return new ImmutableAttributeFactory(
 -          type,
 -          Sets.immutableEnumSet(propertyFlags),
 -          valueSet ? value : type.getDefaultValue(),
 -          configTransition,
--          splitTransitionProvider,
 -          allowedRuleClassesForLabels,
 -          allowedRuleClassesForLabelsWarning,
+-          splitTransitionProvider,
 -          allowedFileTypesForLabels,
 -          validityPredicate,
+-          valueSource,
+-          valueSet,
 -          condition,
 -          allowedValues,
 -          requiredProvidersBuilder.build(),
 -          ImmutableList.copyOf(aspects.values()));
+-    }
+-
+-    /**
+-     * Creates the attribute. Uses name, type, optionality, configuration type and the default value
+-     * configured by the builder.
+-     */
+-    public Attribute build() {
+-      return build(this.name);
+-    }
+-
+-    /**
+-     * Creates the attribute. Uses type, optionality, configuration type and the default value
+-     * configured by the builder. Use the name passed as an argument. This function is used by
+-     * Skylark where the name is provided only when we build. We don't want to modify the builder,
+-     * as it is shared in a multithreaded environment.
+-     */
+-    public Attribute build(String name) {
+-      return buildPartial().build(name);
 -    }
 -  }
 -
@@ -1354,6 +1466,7 @@ index 5623847960..c087cb1ceb 100644
 -   * calling {@link #computePossibleValues}, which returns a {@link SkylarkComputedDefault} that
 -   * contains a lookup table.
 -   */
+-  @AutoCodec
 -  public static final class SkylarkComputedDefaultTemplate {
 -    private final Type<?> type;
 -    private final SkylarkCallbackFunction callback;
@@ -1463,7 +1576,7 @@ index 5623847960..c087cb1ceb 100644
 -    private Object invokeCallback(EventHandler eventHandler, Map<String, Object> attrValues)
 -        throws EvalException, InterruptedException {
 -      ClassObject attrs =
--          NativeProvider.STRUCT.create(
+-          StructProvider.STRUCT.create(
 -              attrValues, "No such regular (non computed) attribute '%s'.");
 -      Object result = callback.call(eventHandler, attrs);
 -      try {
@@ -1551,10 +1664,10 @@ index 5623847960..c087cb1ceb 100644
 -    }
 -  }
 -
--  private static class SimpleLateBoundDefault<FragmentT, ValueT>
+-  @AutoCodec.VisibleForSerialization
+-  static class SimpleLateBoundDefault<FragmentT, ValueT>
 -      extends LateBoundDefault<FragmentT, ValueT> {
--
--    private final Resolver<FragmentT, ValueT> resolver;
+-    @AutoCodec.VisibleForSerialization protected final Resolver<FragmentT, ValueT> resolver;
 -
 -    private SimpleLateBoundDefault(boolean useHostConfiguration,
 -        Class<FragmentT> fragmentClass,
@@ -1697,9 +1810,11 @@ index 5623847960..c087cb1ceb 100644
 -  }
 -
 -  /** A {@link LateBoundDefault} for a {@link Label}. */
+-  @AutoCodec
 -  public static class LabelLateBoundDefault<FragmentT>
 -      extends SimpleLateBoundDefault<FragmentT, Label> {
--    private LabelLateBoundDefault(
+-    @AutoCodec.VisibleForSerialization
+-    LabelLateBoundDefault(
 -        boolean useHostConfiguration,
 -        Class<FragmentT> fragmentClass,
 -        Label defaultValue,
@@ -1782,9 +1897,11 @@ index 5623847960..c087cb1ceb 100644
 -  }
 -
 -  /** A {@link LateBoundDefault} for a {@link List} of {@link Label} objects. */
+-  @AutoCodec
 -  public static class LabelListLateBoundDefault<FragmentT>
 -      extends SimpleLateBoundDefault<FragmentT, List<Label>> {
--    private LabelListLateBoundDefault(
+-    @AutoCodec.VisibleForSerialization
+-    LabelListLateBoundDefault(
 -        boolean useHostConfiguration,
 -        Class<FragmentT> fragmentClass,
 -        Resolver<FragmentT, List<Label>> resolver) {
@@ -1874,6 +1991,8 @@ index 5623847960..c087cb1ceb 100644
 -
 -  private final ImmutableList<RuleAspect<?>> aspects;
 -
+-  private final int hashCode;
+-
 -  /**
 -   * Constructs a rule attribute with the specified name, type and default value.
 -   *
@@ -1886,7 +2005,8 @@ index 5623847960..c087cb1ceb 100644
 -   * @param configTransition the configuration transition for this attribute (which must be of type
 -   *     LABEL, LABEL_LIST, NODEP_LABEL or NODEP_LABEL_LIST).
 -   */
--  private Attribute(
+-  @VisibleForSerialization
+-  Attribute(
 -      String name,
 -      Type<?> type,
 -      Set<PropertyFlag> propertyFlags,
@@ -1932,6 +2052,21 @@ index 5623847960..c087cb1ceb 100644
 -    this.allowedValues = allowedValues;
 -    this.requiredProviders = requiredProviders;
 -    this.aspects = aspects;
+-    this.hashCode = Objects.hash(
+-        name,
+-        type,
+-        propertyFlags,
+-        defaultValue,
+-        configTransition,
+-        splitTransitionProvider,
+-        allowedRuleClassesForLabels,
+-        allowedRuleClassesForLabelsWarning,
+-        allowedFileTypesForLabels,
+-        validityPredicate,
+-        condition,
+-        allowedValues,
+-        requiredProviders,
+-        aspects);
 -  }
 -
 -  /**
@@ -2240,7 +2375,7 @@ index 5623847960..c087cb1ceb 100644
  
    /**
     * Returns if an attribute with the given name is an implicit dependency according to the
-@@ -2199,14 +35,6 @@ public final class Attribute implements Comparable<Attribute> {
+@@ -2316,14 +36,6 @@ public final class Attribute implements Comparable<Attribute> {
      return name.startsWith("$");
    }
  
@@ -2255,7 +2390,7 @@ index 5623847960..c087cb1ceb 100644
    /**
     * Returns if an attribute with the given name is late-bound according to the naming policy
     * that designates late-bound attributes.
-@@ -2231,44 +59,4 @@ public final class Attribute implements Comparable<Attribute> {
+@@ -2348,76 +60,4 @@ public final class Attribute implements Comparable<Attribute> {
      }
      return nativeAttrName;
    }
@@ -2268,6 +2403,38 @@ index 5623847960..c087cb1ceb 100644
 -  @Override
 -  public int compareTo(Attribute other) {
 -    return name.compareTo(other.name);
+-  }
+-
+-  @Override
+-  public boolean equals(Object o) {
+-    if (this == o) {
+-      return true;
+-    }
+-    if (o == null || getClass() != o.getClass()) {
+-      return false;
+-    }
+-    Attribute attribute = (Attribute) o;
+-    return Objects.equals(hashCode, attribute.hashCode)
+-        && Objects.equals(name, attribute.name)
+-        && Objects.equals(type, attribute.type)
+-        && Objects.equals(propertyFlags, attribute.propertyFlags)
+-        && Objects.equals(defaultValue, attribute.defaultValue)
+-        && Objects.equals(configTransition, attribute.configTransition)
+-        && Objects.equals(splitTransitionProvider, attribute.splitTransitionProvider)
+-        && Objects.equals(allowedRuleClassesForLabels, attribute.allowedRuleClassesForLabels)
+-        && Objects.equals(
+-            allowedRuleClassesForLabelsWarning, attribute.allowedRuleClassesForLabelsWarning)
+-        && Objects.equals(allowedFileTypesForLabels, attribute.allowedFileTypesForLabels)
+-        && Objects.equals(validityPredicate, attribute.validityPredicate)
+-        && Objects.equals(condition, attribute.condition)
+-        && Objects.equals(allowedValues, attribute.allowedValues)
+-        && Objects.equals(requiredProviders, attribute.requiredProviders)
+-        && Objects.equals(aspects, attribute.aspects);
+-  }
+-
+-  @Override
+-  public int hashCode() {
+-    return hashCode;
 -  }
 -
 -  /**
@@ -2300,23 +2467,6 @@ index 5623847960..c087cb1ceb 100644
 -    return cloneBuilder(this.type);
 -  }
  }
-diff --git i/src/main/java/com/google/devtools/build/lib/syntax/BaseFunction.java w/src/main/java/com/google/devtools/build/lib/syntax/BaseFunction.java
-index e445e46cf8..21e3931b1f 100644
---- i/src/main/java/com/google/devtools/build/lib/syntax/BaseFunction.java
-+++ w/src/main/java/com/google/devtools/build/lib/syntax/BaseFunction.java
-@@ -431,11 +431,13 @@ public abstract class BaseFunction implements SkylarkValue {
-       @Nullable FuncallExpression ast,
-       Environment env)
-       throws EvalException, InterruptedException {
--    Preconditions.checkState(isConfigured(), "Function %s was not configured", getName());
--
-     // ast is null when called from Java (as there's no Skylark call site).
-     Location loc = ast == null ? Location.BUILTIN : ast.getLocation();
- 
-+    if (!isConfigured()) {
-+      throw new EvalException(loc, String.format("Function %s was not configured", getName()));
-+    }
-+
-     Object[] arguments = processArguments(args, kwargs, loc, env);
-     canonicalizeArguments(arguments, loc);
- 
+-- 
+2.18.0
+

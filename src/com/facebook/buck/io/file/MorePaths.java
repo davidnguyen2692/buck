@@ -16,15 +16,16 @@
 
 package com.facebook.buck.io.file;
 
+import com.facebook.buck.cli.bootstrapper.filesystem.BuckUnixPath;
+import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.RichStream;
 import com.facebook.buck.util.environment.Platform;
 import com.facebook.buck.util.types.Pair;
 import com.google.common.base.Preconditions;
-import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Streams;
 import com.google.common.io.ByteSource;
 import java.io.IOException;
 import java.io.InputStream;
@@ -39,7 +40,8 @@ import javax.annotation.Nullable;
 
 /**
  * Common functions that are done with a {@link Path}. If a function is going to take a {@link
- * ProjectFilesystem}, then it should be in {@link MoreProjectFilesystems} instead.
+ * ProjectFilesystem}, then it should be in {@link com.facebook.buck.io.MoreProjectFilesystems}
+ * instead.
  */
 public class MorePaths {
 
@@ -168,7 +170,7 @@ public class MorePaths {
    */
   public static ImmutableSet<Path> filterForSubpaths(Iterable<Path> paths, Path root) {
     Path normalizedRoot = root.toAbsolutePath().normalize();
-    return FluentIterable.from(paths)
+    return Streams.stream(paths)
         .filter(
             input -> {
               if (input.isAbsolute()) {
@@ -177,7 +179,7 @@ public class MorePaths {
                 return true;
               }
             })
-        .transform(
+        .map(
             input -> {
               if (input.isAbsolute()) {
                 return relativize(normalizedRoot, input);
@@ -185,7 +187,7 @@ public class MorePaths {
                 return input;
               }
             })
-        .toSet();
+        .collect(ImmutableSet.toImmutableSet());
   }
 
   /** Expands "~/foo" into "/home/zuck/foo". Returns regular paths unmodified. */
@@ -296,6 +298,11 @@ public class MorePaths {
    * value.
    */
   public static Path dropInternalCaches(Path p) {
+    // This optimization does nothing for BuckUnixPath, and in fact wastes time.
+    // Just bail without pessimizing in that case.
+    if (p instanceof BuckUnixPath) {
+      return p;
+    }
     return p.getFileSystem().getPath(p.toString());
   }
 

@@ -22,19 +22,19 @@ import com.facebook.buck.artifact_cache.CacheCountersSummary;
 import com.facebook.buck.artifact_cache.CacheResult;
 import com.facebook.buck.artifact_cache.CacheResultType;
 import com.facebook.buck.artifact_cache.config.ArtifactCacheMode;
+import com.facebook.buck.core.build.engine.BuildRuleStatus;
+import com.facebook.buck.core.build.engine.BuildRuleSuccessType;
+import com.facebook.buck.core.build.event.BuildRuleEvent;
+import com.facebook.buck.core.build.stats.BuildRuleDurationTracker;
+import com.facebook.buck.core.model.BuildId;
+import com.facebook.buck.core.rulekey.BuildRuleKeys;
+import com.facebook.buck.core.rulekey.RuleKey;
+import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.event.ParsingEvent;
 import com.facebook.buck.event.WatchmanStatusEvent;
 import com.facebook.buck.log.PerfTimesStats;
 import com.facebook.buck.log.views.JsonViews;
-import com.facebook.buck.model.BuildId;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleDurationTracker;
-import com.facebook.buck.rules.BuildRuleEvent;
-import com.facebook.buck.rules.BuildRuleKeys;
-import com.facebook.buck.rules.BuildRuleStatus;
-import com.facebook.buck.rules.BuildRuleSuccessType;
 import com.facebook.buck.rules.FakeBuildRule;
-import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.testutil.JsonMatcher;
 import com.facebook.buck.util.json.ObjectMappers;
 import com.facebook.buck.util.timing.Clock;
@@ -137,6 +137,10 @@ public class MachineReadableLogJsonViewTest {
             Optional.of(BuildRuleSuccessType.BUILT_LOCALLY),
             false,
             Optional.of(HashCode.fromString("abcd42")),
+            Optional.empty(),
+            Optional.empty(),
+            Optional.empty(),
+            Optional.empty(),
             Optional.empty(),
             Optional.empty(),
             Optional.empty(),

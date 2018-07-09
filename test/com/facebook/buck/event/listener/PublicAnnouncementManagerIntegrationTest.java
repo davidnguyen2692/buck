@@ -87,7 +87,7 @@ public class PublicAnnouncementManagerIntegrationTest {
                 throws IOException {
               httpServletResponse.setStatus(200);
               request.setHandled(true);
-              if (request.getUri().getPath().equals("/status.php")) {
+              if (request.getHttpURI().getPath().equals("/status.php")) {
                 return;
               }
 
@@ -137,7 +137,6 @@ public class PublicAnnouncementManagerIntegrationTest {
               clock,
               /* verbosity */ TestResultSummaryVerbosity.of(false, false),
               executionEnvironment,
-              Optional.empty(),
               Locale.US,
               logPath,
               TimeZone.getTimeZone("UTC"),
@@ -162,7 +161,7 @@ public class PublicAnnouncementManagerIntegrationTest {
           "**-------------------------------**\n"
               + "**- Sticky Public Announcements -**\n"
               + "**-------------------------------**\n"
-              + "** This is the error message. This is the solution message.");
+              + "** This is the error message. Remediation: This is the solution message.");
     }
   }
 }

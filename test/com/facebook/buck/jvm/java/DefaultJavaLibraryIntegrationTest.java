@@ -32,16 +32,16 @@ import static org.junit.Assume.assumeTrue;
 import com.facebook.buck.artifact_cache.ArtifactCache;
 import com.facebook.buck.artifact_cache.DirArtifactCacheTestUtil;
 import com.facebook.buck.artifact_cache.TestArtifactCaches;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.json.HasJsonField;
 import com.facebook.buck.jvm.core.HasJavaAbi;
 import com.facebook.buck.jvm.java.testutil.AbiCompilationModeTest;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.testutil.JsonMatcher;
 import com.facebook.buck.testutil.ProcessResult;
 import com.facebook.buck.testutil.TemporaryPaths;
@@ -666,7 +666,7 @@ public class DefaultJavaLibraryIntegrationTest extends AbiCompilationModeTest {
 
     // Edit the file not used by the local target and assert we get a dep file hit
     workspace.replaceFileContents(
-        crossCellRoot.resolve("util/MoreUtil.java").toString(), "//public_method", "");
+        crossCellRoot.resolve("util/MoreUtil.java").toString(), "// public_method", "");
     workspace.runBuckBuild(bizTarget.getFullyQualifiedName()).assertSuccess();
 
     BuckBuildLog depFileHitLog = workspace.getBuildLog();
@@ -675,7 +675,7 @@ public class DefaultJavaLibraryIntegrationTest extends AbiCompilationModeTest {
 
     // Now edit the file not used by the local target and assert we don't get a false cache hit
     workspace.replaceFileContents(
-        crossCellRoot.resolve("util/Util.java").toString(), "//public_method", "");
+        crossCellRoot.resolve("util/Util.java").toString(), "// public_method", "");
     workspace.runBuckBuild(bizTarget.getFullyQualifiedName()).assertSuccess();
 
     BuckBuildLog depFileMissLog = workspace.getBuildLog();
@@ -1027,6 +1027,54 @@ public class DefaultJavaLibraryIntegrationTest extends AbiCompilationModeTest {
             // exception!
             "    When running <javac>.",
             "    When building rule //:main."));
+  }
+
+  @Test
+  public void testExportedProvidedDepsPropagated() throws IOException {
+    setUpProjectWorkspaceForScenario("exported_provided_deps");
+
+    ProcessResult buildResult =
+        workspace.runBuckCommand("build", "//:lib_with_implicit_dep_on_provided_lib");
+    buildResult.assertSuccess();
+
+    workspace.verify();
+  }
+
+  @Test
+  public void testExportedProvidedDepsPropagatedThroughExportedDeps() throws IOException {
+    setUpProjectWorkspaceForScenario("exported_provided_deps");
+
+    ProcessResult buildResult =
+        workspace.runBuckCommand(
+            "build", "//:lib_with_implicit_dep_on_provided_lib_through_exported_deps");
+    buildResult.assertSuccess();
+
+    workspace.verify();
+  }
+
+  @Test
+  public void testExportedProvidedDepsPropagatedThroughProvidedDeps() throws IOException {
+    setUpProjectWorkspaceForScenario("exported_provided_deps");
+
+    ProcessResult buildResult =
+        workspace.runBuckCommand(
+            "build", "//:lib_with_implicit_dep_on_provided_lib_through_provided_deps");
+    buildResult.assertSuccess();
+
+    workspace.verify();
+  }
+
+  @Test
+  public void testExportedProvidedDepsPropagatedThroughExportedDepsOfAnotherLibrary()
+      throws IOException {
+    setUpProjectWorkspaceForScenario("exported_provided_deps");
+
+    ProcessResult buildResult =
+        workspace.runBuckCommand(
+            "build", "//:lib_with_implicit_dep_on_provided_lib_through_exported_library_deps");
+    buildResult.assertSuccess();
+
+    workspace.verify();
   }
 
   /** Asserts that the specified file exists and returns its contents. */

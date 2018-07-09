@@ -24,19 +24,19 @@ import static org.junit.Assert.assertThat;
 import com.facebook.buck.android.toolchain.AndroidPlatformTarget;
 import com.facebook.buck.android.toolchain.DxToolchain;
 import com.facebook.buck.android.toolchain.ndk.impl.TestNdkCxxPlatformsProviderFactory;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.targetgraph.TargetGraph;
+import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
+import com.facebook.buck.core.model.targetgraph.TargetNode;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.jvm.java.JavaLibraryBuilder;
 import com.facebook.buck.jvm.java.KeystoreBuilder;
 import com.facebook.buck.jvm.java.toolchain.JavaOptionsProvider;
 import com.facebook.buck.jvm.java.toolchain.JavacOptionsProvider;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.rules.TargetGraph;
-import com.facebook.buck.rules.TargetNode;
-import com.facebook.buck.rules.TestBuildRuleResolver;
-import com.facebook.buck.testutil.TargetGraphFactory;
 import com.facebook.buck.toolchain.ToolchainProvider;
 import com.facebook.buck.toolchain.impl.ToolchainProviderBuilder;
 import com.google.common.collect.ImmutableSet;
@@ -82,13 +82,13 @@ public class AndroidInstrumentationApkDescriptionTest {
     TargetGraph targetGraph =
         TargetGraphFactory.newInstance(
             transitiveDepNode, dep, keystore, androidBinary, androidInstrumentationApk);
-    BuildRuleResolver ruleResolver =
-        new TestBuildRuleResolver(
+    ActionGraphBuilder graphBuilder =
+        new TestActionGraphBuilder(
             targetGraph, createToolchainProviderForAndroidInstrumentationApk());
-    BuildRule transitiveDep = ruleResolver.requireRule(transitiveDepNode.getBuildTarget());
-    ruleResolver.requireRule(target);
+    BuildRule transitiveDep = graphBuilder.requireRule(transitiveDepNode.getBuildTarget());
+    graphBuilder.requireRule(target);
     BuildRule nonPredexedRule =
-        ruleResolver.requireRule(
+        graphBuilder.requireRule(
             target.withFlavors(AndroidBinaryGraphEnhancer.NON_PREDEXED_DEX_BUILDABLE_FLAVOR));
     assertThat(nonPredexedRule.getBuildDeps(), Matchers.hasItem(transitiveDep));
   }

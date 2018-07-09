@@ -18,15 +18,15 @@ package com.facebook.buck.jvm.java;
 
 import static org.hamcrest.junit.MatcherAssert.assertThat;
 
+import com.facebook.buck.core.model.targetgraph.TargetGraph;
+import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
+import com.facebook.buck.core.model.targetgraph.TargetNode;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.jvm.core.JavaLibrary;
 import com.facebook.buck.jvm.java.testutil.AbiCompilationModeTest;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.TargetGraph;
-import com.facebook.buck.rules.TargetNode;
-import com.facebook.buck.rules.TestBuildRuleResolver;
-import com.facebook.buck.testutil.TargetGraphFactory;
 import java.nio.file.Paths;
 import java.util.SortedSet;
 import org.hamcrest.Matchers;
@@ -63,14 +63,14 @@ public class JavaTestDescriptionTest extends AbiCompilationModeTest {
     TargetGraph targetGraph =
         TargetGraphFactory.newInstance(exportedNode, exportingNode, javaTestNode);
 
-    BuildRuleResolver resolver = new TestBuildRuleResolver(targetGraph);
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder(targetGraph);
 
-    JavaTest javaTest = (JavaTest) resolver.requireRule(javaTestNode.getBuildTarget());
-    BuildRule exportedRule = resolver.requireRule(exportedNode.getBuildTarget());
+    JavaTest javaTest = (JavaTest) graphBuilder.requireRule(javaTestNode.getBuildTarget());
+    BuildRule exportedRule = graphBuilder.requireRule(exportedNode.getBuildTarget());
 
     // First order deps should become CalculateAbi rules if we're compiling against ABIs
     if (compileAgainstAbis.equals(TRUE)) {
-      exportedRule = resolver.getRule(((JavaLibrary) exportedRule).getAbiJar().get());
+      exportedRule = graphBuilder.getRule(((JavaLibrary) exportedRule).getAbiJar().get());
     }
 
     SortedSet<BuildRule> deps = javaTest.getCompiledTestsLibrary().getBuildDeps();
@@ -98,14 +98,14 @@ public class JavaTestDescriptionTest extends AbiCompilationModeTest {
     TargetGraph targetGraph =
         TargetGraphFactory.newInstance(exportedNode, exportingNode, javaTestNode);
 
-    BuildRuleResolver resolver = new TestBuildRuleResolver(targetGraph);
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder(targetGraph);
 
-    JavaTest javaTest = (JavaTest) resolver.requireRule(javaTestNode.getBuildTarget());
-    BuildRule exportedRule = resolver.requireRule(exportedNode.getBuildTarget());
+    JavaTest javaTest = (JavaTest) graphBuilder.requireRule(javaTestNode.getBuildTarget());
+    BuildRule exportedRule = graphBuilder.requireRule(exportedNode.getBuildTarget());
 
     // First order deps should become CalculateAbi rules if we're compiling against ABIs
     if (compileAgainstAbis.equals(TRUE)) {
-      exportedRule = resolver.getRule(((JavaLibrary) exportedRule).getAbiJar().get());
+      exportedRule = graphBuilder.getRule(((JavaLibrary) exportedRule).getAbiJar().get());
     }
 
     SortedSet<BuildRule> deps = javaTest.getCompiledTestsLibrary().getBuildDeps();

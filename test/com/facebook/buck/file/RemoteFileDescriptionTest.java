@@ -19,25 +19,25 @@ package com.facebook.buck.file;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.junit.Assert.assertEquals;
 
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.common.BuildableSupport;
+import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
+import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.file.downloader.Downloader;
 import com.facebook.buck.file.downloader.impl.ExplodingDownloader;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildableSupport;
-import com.facebook.buck.rules.DefaultSourcePathResolver;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TestBuildRuleCreationContextFactory;
-import com.facebook.buck.rules.TestBuildRuleResolver;
-import com.facebook.buck.rules.Tool;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.toolchain.ToolchainProvider;
 import com.facebook.buck.toolchain.impl.ToolchainProviderBuilder;
-import com.facebook.buck.util.HumanReadableException;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
 import java.net.URI;
@@ -56,7 +56,7 @@ public class RemoteFileDescriptionTest {
   private Downloader downloader;
   private RemoteFileDescription description;
   private ProjectFilesystem filesystem;
-  private BuildRuleResolver ruleResolver;
+  private ActionGraphBuilder graphBuilder;
 
   @Before
   public void setUp() {
@@ -65,7 +65,7 @@ public class RemoteFileDescriptionTest {
         new ToolchainProviderBuilder().withToolchain(Downloader.DEFAULT_NAME, downloader).build();
     description = new RemoteFileDescription(toolchainProvider);
     filesystem = new FakeProjectFilesystem();
-    ruleResolver = new TestBuildRuleResolver();
+    graphBuilder = new TestActionGraphBuilder();
   }
 
   @Test
@@ -83,11 +83,11 @@ public class RemoteFileDescriptionTest {
     exception.expectMessage(Matchers.containsString(target.getFullyQualifiedName()));
 
     description.createBuildRule(
-        TestBuildRuleCreationContextFactory.create(ruleResolver, filesystem),
+        TestBuildRuleCreationContextFactory.create(graphBuilder, filesystem),
         target,
         RemoteFileBuilder.createBuilder(downloader, target)
             .from(arg)
-            .createBuildRuleParams(ruleResolver),
+            .createBuildRuleParams(graphBuilder),
         arg);
   }
 
@@ -106,17 +106,17 @@ public class RemoteFileDescriptionTest {
 
     BuildRule buildRule =
         description.createBuildRule(
-            TestBuildRuleCreationContextFactory.create(ruleResolver, filesystem),
+            TestBuildRuleCreationContextFactory.create(graphBuilder, filesystem),
             target,
             RemoteFileBuilder.createBuilder(downloader, target)
                 .from(arg)
-                .createBuildRuleParams(ruleResolver),
+                .createBuildRuleParams(graphBuilder),
             arg);
-    ruleResolver.addToIndex(buildRule);
+    graphBuilder.addToIndex(buildRule);
 
     assertThat(buildRule, CoreMatchers.instanceOf(RemoteFileBinary.class));
     SourcePathResolver pathResolver =
-        DefaultSourcePathResolver.from(new SourcePathRuleFinder(ruleResolver));
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
     Tool executableCommand = ((RemoteFileBinary) buildRule).getExecutableCommand();
     assertThat(
         BuildableSupport.deriveInputs(executableCommand).collect(ImmutableList.toImmutableList()),

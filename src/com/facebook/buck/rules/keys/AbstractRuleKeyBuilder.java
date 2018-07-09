@@ -16,14 +16,14 @@
 
 package com.facebook.buck.rules.keys;
 
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.rulekey.AddsToRuleKey;
+import com.facebook.buck.core.rulekey.RuleKeyObjectSink;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.sourcepath.NonHashableSourcePathContainer;
+import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.rules.AddsToRuleKey;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.NonHashableSourcePathContainer;
-import com.facebook.buck.rules.RuleKeyObjectSink;
-import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.keys.hasher.RuleKeyHasher;
-import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.Scope;
 import com.facebook.buck.util.exceptions.BuckUncheckedExecutionException;
 import com.facebook.buck.util.types.Either;
@@ -33,6 +33,7 @@ import java.nio.file.Path;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.SortedMap;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -79,6 +80,14 @@ public abstract class AbstractRuleKeyBuilder<RULE_KEY> implements RuleKeyObjectS
     if (val instanceof Optional) {
       Object o = ((Optional<?>) val).orElse(null);
       try (Scope ignored = scopedHasher.wrapperScope(RuleKeyHasher.Wrapper.OPTIONAL)) {
+        return setReflectively(o);
+      }
+    }
+
+    if (val instanceof OptionalInt) {
+      OptionalInt optionalInt = (OptionalInt) val;
+      @Nullable Object o = optionalInt.isPresent() ? optionalInt.getAsInt() : null;
+      try (Scope ignored = scopedHasher.wrapperScope(RuleKeyHasher.Wrapper.OPTIONAL_INT)) {
         return setReflectively(o);
       }
     }

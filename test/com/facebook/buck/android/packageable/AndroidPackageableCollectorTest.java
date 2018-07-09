@@ -38,6 +38,19 @@ import com.facebook.buck.android.toolchain.DxToolchain;
 import com.facebook.buck.android.toolchain.ndk.AndroidNdk;
 import com.facebook.buck.android.toolchain.ndk.NdkCxxPlatformsProvider;
 import com.facebook.buck.android.toolchain.ndk.impl.TestNdkCxxPlatformsProviderFactory;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.targetgraph.TargetGraph;
+import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
+import com.facebook.buck.core.model.targetgraph.TargetNode;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
+import com.facebook.buck.core.sourcepath.DefaultBuildTargetSourcePath;
+import com.facebook.buck.core.sourcepath.PathSourcePath;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.java.JavaLibraryBuilder;
@@ -45,23 +58,10 @@ import com.facebook.buck.jvm.java.KeystoreBuilder;
 import com.facebook.buck.jvm.java.PrebuiltJarBuilder;
 import com.facebook.buck.jvm.java.toolchain.JavaOptionsProvider;
 import com.facebook.buck.jvm.java.toolchain.JavacOptionsProvider;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.DefaultBuildTargetSourcePath;
-import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.rules.PathSourcePath;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TargetGraph;
-import com.facebook.buck.rules.TargetNode;
-import com.facebook.buck.rules.TestBuildRuleResolver;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
-import com.facebook.buck.testutil.TargetGraphFactory;
 import com.facebook.buck.toolchain.ToolchainProvider;
 import com.facebook.buck.toolchain.impl.ToolchainProviderBuilder;
 import com.google.common.collect.ImmutableList;
@@ -171,7 +171,7 @@ public class AndroidPackageableCollectorTest {
                 NdkCxxPlatformsProvider.of(NdkLibraryBuilder.NDK_PLATFORMS))
             .withToolchain(
                 AndroidNdk.DEFAULT_NAME,
-                AndroidNdk.of("12b", Paths.get("/android/ndk"), new ExecutableFinder()))
+                AndroidNdk.of("12b", Paths.get("/android/ndk"), false, new ExecutableFinder()))
             .withToolchain(
                 AndroidPlatformTarget.DEFAULT_NAME, TestAndroidPlatformTargetFactory.create())
             .withToolchain(TestNdkCxxPlatformsProviderFactory.createDefaultNdkPlatformsProvider())
@@ -183,14 +183,14 @@ public class AndroidPackageableCollectorTest {
             .withToolchain(
                 JavacOptionsProvider.DEFAULT_NAME, JavacOptionsProvider.of(DEFAULT_JAVAC_OPTIONS))
             .build();
-    BuildRuleResolver ruleResolver = new TestBuildRuleResolver(targetGraph, toolchainProvider);
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder(targetGraph, toolchainProvider);
     SourcePathResolver pathResolver =
-        DefaultSourcePathResolver.from(new SourcePathRuleFinder(ruleResolver));
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
 
-    AndroidBinary binaryRule = (AndroidBinary) ruleResolver.requireRule(binaryTarget);
-    NdkLibrary ndkLibraryRule = (NdkLibrary) ruleResolver.requireRule(ndkLibrary.getBuildTarget());
+    AndroidBinary binaryRule = (AndroidBinary) graphBuilder.requireRule(binaryTarget);
+    NdkLibrary ndkLibraryRule = (NdkLibrary) graphBuilder.requireRule(ndkLibrary.getBuildTarget());
     NativeLibraryBuildRule prebuildNativeLibraryRule =
-        (NativeLibraryBuildRule) ruleResolver.requireRule(prebuiltNativeLibraryTarget);
+        (NativeLibraryBuildRule) graphBuilder.requireRule(prebuiltNativeLibraryTarget);
 
     // Verify that the correct transitive dependencies are found.
     AndroidPackageableCollection packageableCollection =
@@ -200,8 +200,8 @@ public class AndroidPackageableCollectorTest {
         "Because guava was passed to no_dx, it should not be in the classpathEntriesToDex list",
         pathResolver,
         ImmutableSet.of(
-            ruleResolver.getRule(jsr305Target).getSourcePathToOutput(),
-            ruleResolver.getRule(libraryRuleTarget).getSourcePathToOutput()),
+            graphBuilder.getRule(jsr305Target).getSourcePathToOutput(),
+            graphBuilder.getRule(libraryRuleTarget).getSourcePathToOutput()),
         packageableCollection.getClasspathEntriesToDex());
     assertResolvedEquals(
         "Because guava was passed to no_dx, it should not be treated as a third-party JAR whose "
@@ -213,7 +213,7 @@ public class AndroidPackageableCollectorTest {
             + "the resource in fb4a. Because the resource was loaded on startup, this introduced a "
             + "substantial regression in the startup time for the fb4a app.",
         pathResolver,
-        ImmutableSet.of(ruleResolver.getRule(jsr305Target).getSourcePathToOutput()),
+        ImmutableSet.of(graphBuilder.getRule(jsr305Target).getSourcePathToOutput()),
         packageableCollection.getPathsToThirdPartyJars());
     assertResolvedEquals(
         "Because assets directory was passed an AndroidResourceRule it should be added to the "
@@ -265,10 +265,10 @@ public class AndroidPackageableCollectorTest {
    */
   @Test
   public void testGetAndroidResourceDeps() throws Exception {
-    BuildRuleResolver ruleResolver = new TestBuildRuleResolver();
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(ruleResolver);
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
     BuildRule c =
-        ruleResolver.addToIndex(
+        graphBuilder.addToIndex(
             AndroidResourceRuleBuilder.newBuilder()
                 .setRuleFinder(ruleFinder)
                 .setBuildTarget(BuildTargetFactory.newInstance("//:c"))
@@ -277,7 +277,7 @@ public class AndroidPackageableCollectorTest {
                 .build());
 
     BuildRule b =
-        ruleResolver.addToIndex(
+        graphBuilder.addToIndex(
             AndroidResourceRuleBuilder.newBuilder()
                 .setRuleFinder(ruleFinder)
                 .setBuildTarget(BuildTargetFactory.newInstance("//:b"))
@@ -287,7 +287,7 @@ public class AndroidPackageableCollectorTest {
                 .build());
 
     BuildRule d =
-        ruleResolver.addToIndex(
+        graphBuilder.addToIndex(
             AndroidResourceRuleBuilder.newBuilder()
                 .setRuleFinder(ruleFinder)
                 .setBuildTarget(BuildTargetFactory.newInstance("//:d"))
@@ -297,7 +297,7 @@ public class AndroidPackageableCollectorTest {
                 .build());
 
     AndroidResource a =
-        ruleResolver.addToIndex(
+        graphBuilder.addToIndex(
             AndroidResourceRuleBuilder.newBuilder()
                 .setRuleFinder(ruleFinder)
                 .setBuildTarget(BuildTargetFactory.newInstance("//:a"))
@@ -307,7 +307,7 @@ public class AndroidPackageableCollectorTest {
                 .build());
 
     AndroidPackageableCollector collector = new AndroidPackageableCollector(a.getBuildTarget());
-    collector.addPackageables(ImmutableList.of(a), ruleResolver);
+    collector.addPackageables(ImmutableList.of(a), graphBuilder);
 
     // Note that a topological sort for a DAG is not guaranteed to be unique, but we order nodes
     // within the same depth of the search.
@@ -329,7 +329,7 @@ public class AndroidPackageableCollectorTest {
     KeystoreBuilder.createBuilder(keystoreTarget)
         .setStore(FakeSourcePath.of("keystore/debug.keystore"))
         .setProperties(FakeSourcePath.of("keystore/debug.keystore.properties"))
-        .build(ruleResolver);
+        .build(graphBuilder);
 
     ImmutableSortedSet<BuildTarget> declaredDepsTargets =
         ImmutableSortedSet.of(a.getBuildTarget(), c.getBuildTarget());
@@ -338,7 +338,7 @@ public class AndroidPackageableCollectorTest {
             .setManifest(FakeSourcePath.of("AndroidManfiest.xml"))
             .setKeystore(keystoreTarget)
             .setOriginalDeps(declaredDepsTargets)
-            .build(ruleResolver);
+            .build(graphBuilder);
 
     assertEquals(
         "Android resources should be topologically sorted.",
@@ -351,11 +351,11 @@ public class AndroidPackageableCollectorTest {
 
   @Test
   public void testGetAndroidResourceDepsWithDuplicateResourcePaths() throws Exception {
-    BuildRuleResolver ruleResolver = new TestBuildRuleResolver();
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(ruleResolver);
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
     PathSourcePath resPath = FakeSourcePath.of("res");
     AndroidResource res1 =
-        ruleResolver.addToIndex(
+        graphBuilder.addToIndex(
             AndroidResourceRuleBuilder.newBuilder()
                 .setRuleFinder(ruleFinder)
                 .setBuildTarget(BuildTargetFactory.newInstance("//:res1"))
@@ -364,7 +364,7 @@ public class AndroidPackageableCollectorTest {
                 .build());
 
     AndroidResource res2 =
-        ruleResolver.addToIndex(
+        graphBuilder.addToIndex(
             AndroidResourceRuleBuilder.newBuilder()
                 .setRuleFinder(ruleFinder)
                 .setBuildTarget(BuildTargetFactory.newInstance("//:res2"))
@@ -374,7 +374,7 @@ public class AndroidPackageableCollectorTest {
 
     PathSourcePath resBPath = FakeSourcePath.of("res_b");
     BuildRule b =
-        ruleResolver.addToIndex(
+        graphBuilder.addToIndex(
             AndroidResourceRuleBuilder.newBuilder()
                 .setRuleFinder(ruleFinder)
                 .setBuildTarget(BuildTargetFactory.newInstance("//:b"))
@@ -384,7 +384,7 @@ public class AndroidPackageableCollectorTest {
 
     PathSourcePath resAPath = FakeSourcePath.of("res_a");
     AndroidResource a =
-        ruleResolver.addToIndex(
+        graphBuilder.addToIndex(
             AndroidResourceRuleBuilder.newBuilder()
                 .setRuleFinder(ruleFinder)
                 .setBuildTarget(BuildTargetFactory.newInstance("//:a"))
@@ -394,7 +394,7 @@ public class AndroidPackageableCollectorTest {
                 .build());
 
     AndroidPackageableCollector collector = new AndroidPackageableCollector(a.getBuildTarget());
-    collector.addPackageables(ImmutableList.of(a), ruleResolver);
+    collector.addPackageables(ImmutableList.of(a), graphBuilder);
 
     AndroidPackageableCollection androidPackageableCollection = collector.build();
     AndroidPackageableCollection.ResourceDetails resourceDetails =
@@ -409,30 +409,30 @@ public class AndroidPackageableCollectorTest {
    */
   @Test
   public void testGraphForAndroidBinaryExcludesKeystoreDeps() throws Exception {
-    BuildRuleResolver ruleResolver = new TestBuildRuleResolver();
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     SourcePathResolver pathResolver =
-        DefaultSourcePathResolver.from(new SourcePathRuleFinder(ruleResolver));
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
 
     BuildTarget androidLibraryKeystoreTarget =
         BuildTargetFactory.newInstance("//java/com/keystore/base:base");
     BuildRule androidLibraryKeystore =
         AndroidLibraryBuilder.createBuilder(androidLibraryKeystoreTarget)
             .addSrc(Paths.get("java/com/facebook/keystore/Base.java"))
-            .build(ruleResolver);
+            .build(graphBuilder);
 
     BuildTarget keystoreTarget = BuildTargetFactory.newInstance("//keystore:debug");
     KeystoreBuilder.createBuilder(keystoreTarget)
         .setStore(FakeSourcePath.of("keystore/debug.keystore"))
         .setProperties(FakeSourcePath.of("keystore/debug.keystore.properties"))
         .addDep(androidLibraryKeystore.getBuildTarget())
-        .build(ruleResolver);
+        .build(graphBuilder);
 
     BuildTarget androidLibraryTarget =
         BuildTargetFactory.newInstance("//java/com/facebook/base:base");
     BuildRule androidLibrary =
         AndroidLibraryBuilder.createBuilder(androidLibraryTarget)
             .addSrc(Paths.get("java/com/facebook/base/Base.java"))
-            .build(ruleResolver);
+            .build(graphBuilder);
 
     ImmutableSortedSet<BuildTarget> originalDepsTargets =
         ImmutableSortedSet.of(androidLibrary.getBuildTarget());
@@ -441,7 +441,7 @@ public class AndroidPackageableCollectorTest {
             .setManifest(FakeSourcePath.of("apps/sample/AndroidManifest.xml"))
             .setOriginalDeps(originalDepsTargets)
             .setKeystore(keystoreTarget)
-            .build(ruleResolver);
+            .build(graphBuilder);
 
     AndroidPackageableCollection packageableCollection =
         androidBinary.getAndroidPackageableCollection();

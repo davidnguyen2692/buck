@@ -16,21 +16,21 @@
 
 package com.facebook.buck.jvm.java;
 
+import com.facebook.buck.core.build.buildable.context.BuildableContext;
+import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.impl.AbstractBuildRuleWithDeclaredAndExtraDeps;
+import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.core.HasClasspathEntries;
 import com.facebook.buck.jvm.core.HasMavenCoordinates;
 import com.facebook.buck.jvm.core.HasSources;
 import com.facebook.buck.jvm.core.JavaLibrary;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
-import com.facebook.buck.rules.BuildContext;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildableContext;
-import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.util.RichStream;
@@ -42,6 +42,7 @@ import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Ordering;
 import com.google.common.collect.Sets;
 import java.nio.file.Path;
+import java.util.Collections;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -182,7 +183,8 @@ public class MavenUberJar extends AbstractBuildRuleWithDeclaredAndExtraDeps
         ImmutableSortedSet<SourcePath> topLevelSrcs,
         Optional<String> mavenCoords,
         Optional<SourcePath> mavenPomTemplate) {
-      TraversedDeps traversedDeps = TraversedDeps.traverse(params.getBuildDeps());
+      // Do not package deps by default.
+      TraversedDeps traversedDeps = TraversedDeps.traverse(params.getBuildDeps(), false);
 
       params = adjustParams(params, traversedDeps);
 
@@ -229,6 +231,11 @@ public class MavenUberJar extends AbstractBuildRuleWithDeclaredAndExtraDeps
     }
 
     private static TraversedDeps traverse(Set<? extends BuildRule> roots) {
+      return traverse(roots, true);
+    }
+
+    private static TraversedDeps traverse(
+        Set<? extends BuildRule> roots, boolean alwaysPackageRoots) {
       ImmutableSortedSet.Builder<HasMavenCoordinates> depsCollector =
           ImmutableSortedSet.naturalOrder();
 
@@ -239,7 +246,7 @@ public class MavenUberJar extends AbstractBuildRuleWithDeclaredAndExtraDeps
             ((HasClasspathEntries) root)
                 .getTransitiveClasspathDeps()
                 .stream()
-                .filter(buildRule -> !root.equals(buildRule))
+                .filter(buildRule -> !(alwaysPackageRoots && root.equals(buildRule)))
                 .iterator());
       }
       ImmutableSortedSet.Builder<JavaLibrary> removals = ImmutableSortedSet.naturalOrder();
@@ -250,10 +257,11 @@ public class MavenUberJar extends AbstractBuildRuleWithDeclaredAndExtraDeps
         }
       }
 
+      Set<JavaLibrary> difference = Sets.difference(candidates.build(), removals.build());
+      Set<? extends BuildRule> mandatoryRules = alwaysPackageRoots ? roots : Collections.emptySet();
       return new TraversedDeps(
           /* mavenDeps */ depsCollector.build(),
-          /* packagedDeps */ Sets.union(
-              roots, Sets.difference(candidates.build(), removals.build())));
+          /* packagedDeps */ Sets.union(mandatoryRules, difference));
     }
   }
 }

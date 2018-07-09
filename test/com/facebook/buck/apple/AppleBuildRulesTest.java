@@ -21,27 +21,29 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assume.assumeTrue;
 
+import com.facebook.buck.core.cell.Cell;
+import com.facebook.buck.core.cell.TestCellBuilder;
+import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.targetgraph.TargetGraph;
+import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
+import com.facebook.buck.core.model.targetgraph.TargetNode;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
+import com.facebook.buck.core.sourcepath.DefaultBuildTargetSourcePath;
 import com.facebook.buck.cxx.CxxDescriptionEnhancer;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.Cell;
-import com.facebook.buck.rules.DefaultBuildTargetSourcePath;
 import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.rules.TargetGraph;
-import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.TestBuildRuleCreationContextFactory;
 import com.facebook.buck.rules.TestBuildRuleParams;
-import com.facebook.buck.rules.TestBuildRuleResolver;
-import com.facebook.buck.rules.TestCellBuilder;
 import com.facebook.buck.shell.GenruleBuilder;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
-import com.facebook.buck.testutil.TargetGraphFactory;
+import com.facebook.buck.util.environment.Platform;
 import com.facebook.buck.util.types.Either;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -49,6 +51,7 @@ import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
 import java.util.Collection;
 import java.util.Optional;
+import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
@@ -63,6 +66,11 @@ public class AppleBuildRulesTest {
 
   @Parameterized.Parameter(0)
   public boolean useCache;
+
+  @Before
+  public void setUp() throws Exception {
+    assumeTrue(Platform.detect() == Platform.MACOS || Platform.detect() == Platform.LINUX);
+  }
 
   @Test
   public void testAppleLibraryIsXcodeTargetDescription() {
@@ -91,8 +99,8 @@ public class AppleBuildRulesTest {
     BuildTarget sandboxTarget =
         BuildTargetFactory.newInstance("//foo:xctest#iphoneos-i386")
             .withFlavors(CxxDescriptionEnhancer.SANDBOX_TREE_FLAVOR);
-    BuildRuleResolver resolver =
-        new TestBuildRuleResolver(
+    ActionGraphBuilder graphBuilder =
+        new TestActionGraphBuilder(
             TargetGraphFactory.newInstance(
                 new AppleTestBuilder(sandboxTarget)
                     .setInfoPlist(FakeSourcePath.of("Info.plist"))
@@ -108,7 +116,8 @@ public class AppleBuildRulesTest {
 
     TargetGraph targetGraph = TargetGraphFactory.newInstance(ImmutableSet.of(appleTestNode));
 
-    BuildRule testRule = appleTestBuilder.build(resolver, new FakeProjectFilesystem(), targetGraph);
+    BuildRule testRule =
+        appleTestBuilder.build(graphBuilder, new FakeProjectFilesystem(), targetGraph);
     assertTrue(AppleBuildRules.isXcodeTargetTestBuildRule(testRule));
   }
 
@@ -117,10 +126,10 @@ public class AppleBuildRulesTest {
     ProjectFilesystem projectFilesystem = new FakeProjectFilesystem();
     BuildTarget buildTarget = BuildTargetFactory.newInstance("//foo:lib");
     BuildRuleParams params = TestBuildRuleParams.create();
-    BuildRuleResolver buildRuleResolver = new TestBuildRuleResolver();
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     BuildRule libraryRule =
         FakeAppleRuleDescriptions.LIBRARY_DESCRIPTION.createBuildRule(
-            TestBuildRuleCreationContextFactory.create(buildRuleResolver, projectFilesystem),
+            TestBuildRuleCreationContextFactory.create(graphBuilder, projectFilesystem),
             buildTarget,
             params,
             AppleLibraryDescriptionArg.builder().setName("lib").build());
@@ -324,81 +333,6 @@ public class AppleBuildRulesTest {
               Optional.empty());
 
       assertEquals(ImmutableSortedSet.of(staticResourceNode), ImmutableSortedSet.copyOf(rules));
-    }
-  }
-
-  @Test
-  public void exportedDepsAreCollectedForCopying() {
-    BuildTarget fooLibTarget =
-        BuildTargetFactory.newInstance("//foo:lib#" + CxxDescriptionEnhancer.SHARED_FLAVOR);
-    TargetNode<?, ?> fooLibNode = AppleLibraryBuilder.createBuilder(fooLibTarget).build();
-
-    BuildTarget fooFrameworkTarget = BuildTargetFactory.newInstance("//foo:framework");
-    TargetNode<?, ?> fooFrameworkNode =
-        AppleBundleBuilder.createBuilder(fooFrameworkTarget)
-            .setExtension(Either.ofLeft(AppleBundleExtension.FRAMEWORK))
-            .setBinary(fooLibTarget)
-            .setInfoPlist(FakeSourcePath.of("Info.plist"))
-            .build();
-
-    BuildTarget barLibTarget =
-        BuildTargetFactory.newInstance("//bar:lib#" + CxxDescriptionEnhancer.SHARED_FLAVOR);
-    TargetNode<?, ?> barLibNode =
-        AppleLibraryBuilder.createBuilder(barLibTarget)
-            .setDeps(ImmutableSortedSet.of(fooFrameworkTarget))
-            .setExportedDeps(ImmutableSortedSet.of(fooFrameworkTarget))
-            .build();
-
-    BuildTarget barFrameworkTarget = BuildTargetFactory.newInstance("//bar:framework");
-    TargetNode<?, ?> barFrameworkNode =
-        AppleBundleBuilder.createBuilder(barFrameworkTarget)
-            .setExtension(Either.ofLeft(AppleBundleExtension.FRAMEWORK))
-            .setBinary(barLibTarget)
-            .setInfoPlist(FakeSourcePath.of("Info.plist"))
-            .build();
-
-    BuildTarget bazLibTarget =
-        BuildTargetFactory.newInstance("//baz:lib#" + CxxDescriptionEnhancer.SHARED_FLAVOR);
-    TargetNode<?, ?> bazLibNode =
-        AppleLibraryBuilder.createBuilder(bazLibTarget)
-            .setDeps(ImmutableSortedSet.of(barFrameworkTarget))
-            .build();
-
-    BuildTarget bazFrameworkTarget = BuildTargetFactory.newInstance("//baz:framework");
-    TargetNode<?, ?> bazFrameworkNode =
-        AppleBundleBuilder.createBuilder(bazFrameworkTarget)
-            .setExtension(Either.ofLeft(AppleBundleExtension.FRAMEWORK))
-            .setBinary(bazLibTarget)
-            .setInfoPlist(FakeSourcePath.of("Info.plist"))
-            .build();
-
-    ImmutableSet<TargetNode<?, ?>> targetNodes =
-        ImmutableSet.<TargetNode<?, ?>>builder()
-            .add(
-                fooLibNode,
-                fooFrameworkNode,
-                barLibNode,
-                barFrameworkNode,
-                bazLibNode,
-                bazFrameworkNode)
-            .build();
-
-    TargetGraph targetGraph = TargetGraphFactory.newInstance(targetNodes);
-    Optional<AppleDependenciesCache> cache =
-        useCache ? Optional.of(new AppleDependenciesCache(targetGraph)) : Optional.empty();
-
-    for (int i = 0; i < (useCache ? 2 : 1); i++) {
-      Iterable<TargetNode<?, ?>> rules =
-          AppleBuildRules.getRecursiveTargetNodeDependenciesOfTypes(
-              targetGraph,
-              cache,
-              AppleBuildRules.RecursiveDependenciesMode.COPYING,
-              bazFrameworkNode,
-              Optional.empty());
-
-      assertEquals(
-          ImmutableSortedSet.of(barFrameworkNode, fooFrameworkNode),
-          ImmutableSortedSet.copyOf(rules));
     }
   }
 

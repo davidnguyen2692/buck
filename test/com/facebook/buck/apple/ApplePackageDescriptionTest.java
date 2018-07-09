@@ -22,23 +22,23 @@ import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.apple.toolchain.AppleCxxPlatformsProvider;
 import com.facebook.buck.config.FakeBuckConfig;
+import com.facebook.buck.core.cell.TestCellPathResolver;
+import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.InternalFlavor;
+import com.facebook.buck.core.model.targetgraph.TargetGraph;
+import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.model.InternalFlavor;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TestBuildRuleCreationContextFactory;
 import com.facebook.buck.rules.TestBuildRuleParams;
-import com.facebook.buck.rules.TestBuildRuleResolver;
-import com.facebook.buck.rules.TestCellPathResolver;
 import com.facebook.buck.sandbox.NoSandboxExecutionStrategy;
 import com.facebook.buck.shell.ExportFileBuilder;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
-import com.facebook.buck.testutil.TargetGraphFactory;
 import com.facebook.buck.toolchain.impl.ToolchainProviderBuilder;
 import com.facebook.buck.util.types.Either;
 import com.google.common.collect.ImmutableSortedSet;
@@ -68,7 +68,7 @@ public class ApplePackageDescriptionTest {
 
     BuildTarget packageBuildTarget = BuildTargetFactory.newInstance("//foo:package#macosx-x86_64");
 
-    BuildRuleResolver resolver = new TestBuildRuleResolver(graph);
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder(graph);
 
     ProjectFilesystem projectFilesystem = new FakeProjectFilesystem();
     ImmutableSortedSet.Builder<BuildTarget> implicitDeps = ImmutableSortedSet.naturalOrder();
@@ -78,10 +78,10 @@ public class ApplePackageDescriptionTest {
         arg,
         implicitDeps,
         ImmutableSortedSet.naturalOrder());
-    resolver.requireAllRules(implicitDeps.build());
+    graphBuilder.requireAllRules(implicitDeps.build());
     BuildRule rule =
         description.createBuildRule(
-            TestBuildRuleCreationContextFactory.create(graph, resolver, projectFilesystem),
+            TestBuildRuleCreationContextFactory.create(graph, graphBuilder, projectFilesystem),
             packageBuildTarget,
             TestBuildRuleParams.create(),
             arg);
@@ -90,7 +90,8 @@ public class ApplePackageDescriptionTest {
     assertThat(
         rule.getBuildDeps(),
         hasItem(
-            resolver.getRule(bundleBuildTarget.withFlavors(InternalFlavor.of("macosx-x86_64")))));
+            graphBuilder.getRule(
+                bundleBuildTarget.withFlavors(InternalFlavor.of("macosx-x86_64")))));
   }
 
   @Test
@@ -117,7 +118,7 @@ public class ApplePackageDescriptionTest {
 
     BuildTarget packageBuildTarget = BuildTargetFactory.newInstance("//foo:package#macosx-x86_64");
 
-    BuildRuleResolver resolver = new TestBuildRuleResolver(graph);
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder(graph);
 
     ProjectFilesystem projectFilesystem = new FakeProjectFilesystem();
     BuildRuleParams params = TestBuildRuleParams.create();
@@ -128,15 +129,15 @@ public class ApplePackageDescriptionTest {
         arg,
         implicitDeps,
         ImmutableSortedSet.naturalOrder());
-    resolver.requireAllRules(implicitDeps.build());
+    graphBuilder.requireAllRules(implicitDeps.build());
     BuildRule rule =
         description.createBuildRule(
-            TestBuildRuleCreationContextFactory.create(graph, resolver, projectFilesystem),
+            TestBuildRuleCreationContextFactory.create(graph, graphBuilder, projectFilesystem),
             packageBuildTarget,
             params,
             arg);
 
-    assertThat(rule.getBuildDeps(), hasItem(resolver.getRule(exportFileBuildTarget)));
+    assertThat(rule.getBuildDeps(), hasItem(graphBuilder.getRule(exportFileBuildTarget)));
   }
 
   private ApplePackageDescription descriptionWithCommand(String command) {

@@ -18,16 +18,25 @@ package com.facebook.buck.android;
 
 import com.facebook.buck.android.toolchain.ndk.NdkCompilerType;
 import com.facebook.buck.android.toolchain.ndk.NdkCxxRuntime;
+import com.facebook.buck.android.toolchain.ndk.NdkCxxRuntimeType;
 import com.facebook.buck.config.BuckConfig;
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rules.BuildRuleResolver;
+import com.facebook.buck.core.toolchain.tool.Tool;
+import com.facebook.buck.rules.tool.config.ToolConfig;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Optional;
-import java.util.Set;
 
 public class AndroidBuckConfig {
+
+  private static final String ANDROID_SECTION = "android";
+  private static final String REDEX = "redex";
 
   private final BuckConfig delegate;
   private final Platform platform;
@@ -65,11 +74,15 @@ public class AndroidBuckConfig {
     return delegate.getValue("ndk", "ndk_repository_path");
   }
 
-  public Optional<String> getNdkAppPlatform() {
+  public Optional<String> getNdkCpuAbiFallbackAppPlatform() {
     return delegate.getValue("ndk", "app_platform");
   }
 
-  public Optional<Set<String>> getNdkCpuAbis() {
+  public ImmutableMap<String, String> getNdkCpuAbiAppPlatformMap() {
+    return delegate.getMap("ndk", "app_platform_per_cpu_abi");
+  }
+
+  public Optional<ImmutableSet<String>> getNdkCpuAbis() {
     return delegate.getOptionalListWithoutComments("ndk", "cpu_abis").map(ImmutableSet::copyOf);
   }
 
@@ -89,6 +102,10 @@ public class AndroidBuckConfig {
     return delegate.getEnum("ndk", "cxx_runtime", NdkCxxRuntime.class);
   }
 
+  public Optional<NdkCxxRuntimeType> getNdkCxxRuntimeType() {
+    return delegate.getEnum("ndk", "cxx_runtime_type", NdkCxxRuntimeType.class);
+  }
+
   public ImmutableList<String> getExtraNdkCFlags() {
     return delegate.getListWithoutComments("ndk", "extra_cflags", ' ');
   }
@@ -101,8 +118,25 @@ public class AndroidBuckConfig {
     return delegate.getListWithoutComments("ndk", "extra_ldflags", ' ');
   }
 
+  public Optional<Boolean> getNdkUnifiedHeaders() {
+    return delegate.getBoolean("ndk", "use_unified_headers");
+  }
+
   public boolean isGrayscaleImageProcessingEnabled() {
     return delegate.getBooleanValue("resources", "resource_grayscale_enabled", false);
+  }
+
+  /**
+   * Returns the CPU specific app platform, or the fallback one if set. If neither are set, returns
+   * `Optional.empty` instead of a default value so callers can determine the difference between
+   * user-set and buck defaults.
+   */
+  public Optional<String> getNdkAppPlatformForCpuAbi(String cpuAbi) {
+    ImmutableMap<String, String> platformMap = getNdkCpuAbiAppPlatformMap();
+    Optional<String> specificAppPlatform = Optional.ofNullable(platformMap.get(cpuAbi));
+    return specificAppPlatform.isPresent()
+        ? specificAppPlatform
+        : getNdkCpuAbiFallbackAppPlatform();
   }
 
   /**
@@ -119,6 +153,22 @@ public class AndroidBuckConfig {
    */
   public Optional<Path> getAapt2Override() {
     return getToolOverride("aapt2");
+  }
+
+  public Optional<BuildTarget> getRedexTarget() {
+    return delegate.getMaybeBuildTarget(ANDROID_SECTION, REDEX);
+  }
+
+  public Tool getRedexTool(BuildRuleResolver buildRuleResolver) {
+    Optional<Tool> redexBinary =
+        delegate.getView(ToolConfig.class).getTool(ANDROID_SECTION, REDEX, buildRuleResolver);
+    if (!redexBinary.isPresent()) {
+      throw new HumanReadableException(
+          "Requested running ReDex but the path to the tool"
+              + "has not been specified in the %s.%s .buckconfig section.",
+          ANDROID_SECTION, REDEX);
+    }
+    return redexBinary.get();
   }
 
   private Optional<Path> getToolOverride(String tool) {

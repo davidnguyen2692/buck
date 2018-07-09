@@ -132,13 +132,13 @@ public class DistBuildTrace {
         Map<String, RuleTrace> allRuleTracesByName, DistributableBuildGraph buildGraph) {
 
       DistributableNode targetNode = buildGraph.getNode(ruleName);
-      ImmutableSet<String> ancestors = targetNode.getTransitiveCachableDependents(buildGraph);
+      ImmutableSet<String> ancestors = targetNode.getTransitiveCacheableDependents(buildGraph);
       numberOfDependents = ancestors.size();
 
       for (String ancestor : ancestors) {
         RuleTrace dependentTrace = allRuleTracesByName.get(ancestor);
         if (dependentTrace == null) {
-          LOG.error("Couldn't find trace for rule: [%s].", ancestor);
+          LOG.debug("Couldn't find trace for rule: [%s].", ancestor);
           continue;
         }
 

@@ -16,12 +16,14 @@
 
 package com.facebook.buck.cli;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
 
-import com.facebook.buck.rules.RelativeCellName;
+import com.facebook.buck.core.cell.name.RelativeCellName;
+import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.util.BuckArgsMethods;
-import com.facebook.buck.util.HumanReadableException;
+import com.google.common.base.Charsets;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -150,6 +152,62 @@ public class BuckArgsMethodsTest {
   }
 
   @Test
+  public void nestedFlagFileIsSupported() throws Exception {
+    Path arg = tmp.newFile("argsfile");
+    Files.write(arg, ImmutableList.of("arg1", "--flagfile", "flagfile"));
+    Path nestedFlagFile = tmp.newFile("flagfile");
+    Files.write(nestedFlagFile, ImmutableList.of("arg2"));
+
+    assertThat(
+        BuckArgsMethods.expandAtFiles(
+            ImmutableList.of("arg0", "--flagfile", arg.toString()),
+            ImmutableMap.of(RelativeCellName.ROOT_CELL_NAME, tmp.getRoot())),
+        Matchers.contains("arg0", "arg1", "arg2"));
+  }
+
+  @Test
+  public void nestedAtFileIsSupported() throws Exception {
+    Path arg = tmp.newFile("argsfile");
+    Files.write(arg, ImmutableList.of("arg1", "@flagfile"));
+    Path nestedFlagFile = tmp.newFile("flagfile");
+    Files.write(nestedFlagFile, ImmutableList.of("arg2"));
+
+    assertThat(
+        BuckArgsMethods.expandAtFiles(
+            ImmutableList.of("arg0", "--flagfile", arg.toString()),
+            ImmutableMap.of(RelativeCellName.ROOT_CELL_NAME, tmp.getRoot())),
+        Matchers.contains("arg0", "arg1", "arg2"));
+  }
+
+  @Test
+  public void nestedFlagFileExpansionLoopDetected() throws Exception {
+    Path arg = tmp.newFile("argsfile");
+    Files.write(arg, ImmutableList.of("--flagfile", "flagfile"));
+    Path flagFile = tmp.newFile("flagfile");
+    Files.write(flagFile, ImmutableList.of("--flagfile", "argsfile"));
+
+    thrown.expectMessage("Expansion loop detected:");
+    thrown.expectMessage("argsfile -> flagfile -> argsfile");
+    BuckArgsMethods.expandAtFiles(
+        ImmutableList.of("arg0", "--flagfile", arg.toString()),
+        ImmutableMap.of(RelativeCellName.ROOT_CELL_NAME, tmp.getRoot()));
+  }
+
+  @Test
+  public void mixOfAtAndFlagFileExpansionLoopIsDetected() throws Exception {
+    Path arg = tmp.newFile("argsfile");
+    Files.write(arg, ImmutableList.of("--flagfile", "flagfile"));
+    Path flagFile = tmp.newFile("flagfile");
+    Files.write(flagFile, ImmutableList.of("@argsfile"));
+
+    thrown.expectMessage("Expansion loop detected:");
+    thrown.expectMessage("argsfile -> flagfile -> argsfile");
+    BuckArgsMethods.expandAtFiles(
+        ImmutableList.of("arg0", "--flagfile", arg.toString()),
+        ImmutableMap.of(RelativeCellName.ROOT_CELL_NAME, tmp.getRoot()));
+  }
+
+  @Test
   public void bothAtFileSyntaxAreSupported() throws Exception {
     Path argsfile = tmp.newFile("argsfile");
     Files.write(argsfile, ImmutableList.of("arg2", "arg3"));
@@ -234,5 +292,24 @@ public class BuckArgsMethodsTest {
             ImmutableList.of("--option1", "value1", "--option1", "value2", "arg1", "arg2"),
             ImmutableSet.of("--option1")),
         Matchers.contains("arg1", "arg2"));
+  }
+
+  @Test
+  public void testStripsEmptyLines() throws IOException {
+    Path staticArgs = tmp.newFile("args_static");
+    Path pythonArgs = tmp.newFile("args.py");
+
+    Files.write(staticArgs, "--foo\n\nbar \n--baz\n\n".getBytes(Charsets.UTF_8));
+    Files.write(
+        pythonArgs, "print(\"--py-foo\\n\\npy-bar \\n--py-baz\\n\")\n".getBytes(Charsets.UTF_8));
+
+    ImmutableMap<RelativeCellName, Path> cellMapping =
+        ImmutableMap.of(RelativeCellName.ROOT_CELL_NAME, tmp.getRoot());
+    assertEquals(
+        ImmutableList.of("--foo", "bar ", "--baz"),
+        BuckArgsMethods.expandAtFiles(ImmutableList.of("@" + staticArgs.toString()), cellMapping));
+    assertEquals(
+        ImmutableList.of("--py-foo", "py-bar ", "--py-baz"),
+        BuckArgsMethods.expandAtFiles(ImmutableList.of("@" + pythonArgs.toString()), cellMapping));
   }
 }

@@ -16,26 +16,27 @@
 
 package com.facebook.buck.distributed.build_slave;
 
-import static com.facebook.buck.distributed.testutil.CustomBuildRuleResolverFactory.CHAIN_TOP_TARGET;
-import static com.facebook.buck.distributed.testutil.CustomBuildRuleResolverFactory.LEAF_TARGET;
-import static com.facebook.buck.distributed.testutil.CustomBuildRuleResolverFactory.LEFT_TARGET;
-import static com.facebook.buck.distributed.testutil.CustomBuildRuleResolverFactory.RIGHT_TARGET;
-import static com.facebook.buck.distributed.testutil.CustomBuildRuleResolverFactory.ROOT_TARGET;
+import static com.facebook.buck.distributed.testutil.CustomActiongGraphBuilderFactory.CHAIN_TOP_TARGET;
+import static com.facebook.buck.distributed.testutil.CustomActiongGraphBuilderFactory.LEAF_TARGET;
+import static com.facebook.buck.distributed.testutil.CustomActiongGraphBuilderFactory.LEFT_TARGET;
+import static com.facebook.buck.distributed.testutil.CustomActiongGraphBuilderFactory.RIGHT_TARGET;
+import static com.facebook.buck.distributed.testutil.CustomActiongGraphBuilderFactory.ROOT_TARGET;
 
 import com.facebook.buck.artifact_cache.CacheResult;
 import com.facebook.buck.command.BuildExecutor;
+import com.facebook.buck.core.build.engine.BuildEngineResult;
+import com.facebook.buck.core.build.engine.BuildResult;
+import com.facebook.buck.core.build.engine.BuildRuleStatus;
+import com.facebook.buck.core.build.engine.BuildRuleSuccessType;
+import com.facebook.buck.core.build.engine.impl.CachingBuildEngine;
+import com.facebook.buck.core.model.BuildId;
+import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.distributed.thrift.BuildSlaveRunId;
+import com.facebook.buck.distributed.thrift.MinionType;
 import com.facebook.buck.distributed.thrift.StampedeId;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.DefaultBuckEventBus;
-import com.facebook.buck.model.BuildId;
 import com.facebook.buck.parser.exceptions.NoSuchBuildTargetException;
-import com.facebook.buck.rules.BuildEngineResult;
-import com.facebook.buck.rules.BuildResult;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleStatus;
-import com.facebook.buck.rules.BuildRuleSuccessType;
-import com.facebook.buck.rules.CachingBuildEngine;
 import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.slb.ThriftException;
 import com.facebook.buck.util.ExitCode;
@@ -61,6 +62,7 @@ import org.junit.rules.TemporaryFolder;
 public class MinionModeRunnerIntegrationTest {
 
   private static final StampedeId STAMPEDE_ID = ThriftCoordinatorServerIntegrationTest.STAMPEDE_ID;
+  private static final MinionType MINION_TYPE = MinionType.STANDARD_SPEC;
   private static final int MAX_PARALLEL_WORK_UNITS = 10;
   private static final long POLL_LOOP_INTERVAL_MILLIS = 9;
   private static final int CONNECTION_TIMEOUT_MILLIS = 1000;
@@ -80,8 +82,9 @@ public class MinionModeRunnerIntegrationTest {
             OptionalInt.of(4242),
             Futures.immediateFuture(localBuilder),
             STAMPEDE_ID,
+            MINION_TYPE,
             new BuildSlaveRunId().setId("sl1"),
-            MAX_PARALLEL_WORK_UNITS,
+            new SingleBuildCapacityTracker(MAX_PARALLEL_WORK_UNITS),
             checker,
             POLL_LOOP_INTERVAL_MILLIS,
             new NoOpMinionBuildProgressTracker(),
@@ -117,8 +120,9 @@ public class MinionModeRunnerIntegrationTest {
             OptionalInt.of(4242),
             Futures.immediateFuture(localBuilder),
             STAMPEDE_ID,
+            MINION_TYPE,
             new BuildSlaveRunId().setId("sl2"),
-            MAX_PARALLEL_WORK_UNITS,
+            new SingleBuildCapacityTracker(MAX_PARALLEL_WORK_UNITS),
             checker,
             POLL_LOOP_INTERVAL_MILLIS,
             new NoOpMinionBuildProgressTracker(),
@@ -263,8 +267,9 @@ public class MinionModeRunnerIntegrationTest {
               OptionalInt.of(server.getPort()),
               Futures.immediateFuture(buildExecutor),
               STAMPEDE_ID,
+              MINION_TYPE,
               new BuildSlaveRunId().setId("sl3"),
-              MAX_PARALLEL_WORK_UNITS,
+              new SingleBuildCapacityTracker(MAX_PARALLEL_WORK_UNITS),
               checker,
               POLL_LOOP_INTERVAL_MILLIS,
               unexpectedCacheMissTracker,
@@ -284,7 +289,8 @@ public class MinionModeRunnerIntegrationTest {
   }
 
   private ThriftCoordinatorServer createServer() throws NoSuchBuildTargetException, IOException {
-    BuildTargetsQueue queue = BuildTargetsQueueTest.createDiamondDependencyQueueWithChainFromLeaf();
+    BuildTargetsQueue queue =
+        ReverseDepBuildTargetsQueueTest.createDiamondDependencyQueueWithChainFromLeaf();
     return ThriftCoordinatorServerIntegrationTest.createServerOnRandomPort(queue);
   }
 

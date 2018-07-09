@@ -16,38 +16,43 @@
 
 package com.facebook.buck.worker;
 
+import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.is;
+import static org.hamcrest.Matchers.not;
+import static org.hamcrest.Matchers.nullValue;
 import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.util.Threads;
 import com.facebook.buck.util.function.ThrowingSupplier;
+import com.facebook.buck.worker.WorkerProcessPool.BorrowedWorkerProcess;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.hash.Hashing;
 import java.io.IOException;
-import java.lang.Thread.State;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
+import java.util.concurrent.Phaser;
 import java.util.concurrent.SynchronousQueue;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
-import org.hamcrest.Matchers;
+import java.util.function.Consumer;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
 public class WorkerProcessPoolTest {
 
+  private static final int WAIT_FOR_TEST_THREADS_TIMEOUT = 1000;
   private TestThreads testThreads;
 
   @Before
@@ -60,131 +65,156 @@ public class WorkerProcessPoolTest {
     testThreads.close();
   }
 
-  @Test
-  public void testProvidesWorkersAccordingToCapacityThenBlocks() throws InterruptedException {
+  @Test(timeout = WAIT_FOR_TEST_THREADS_TIMEOUT)
+  public void testProvidesWorkersAccordingToCapacityThenBlocks() throws Exception {
     int maxWorkers = 3;
-    WorkerProcessPool pool = createPool(maxWorkers);
-    Set<WorkerProcess> createdWorkers = concurrentSet();
+    Set<WorkerProcess> createdWorkers = new HashSet<>();
+    WorkerProcessPool pool = createPool(maxWorkers, createdWorkers::add);
 
-    for (int i = 0; i < maxWorkers; i++) {
-      testThreads.startThread(borrowWorkerProcessWithoutReturning(pool, createdWorkers));
-    }
+    AtomicReference<BorrowedWorkerProcess> extraWorkerProcess = new AtomicReference<>();
+    // acquire enough workers to exhaust the pool
+    acquireWorkersThenRunActionThenRelease(
+        pool,
+        maxWorkers,
+        () ->
+            pool.borrowWorkerProcess(1, TimeUnit.MILLISECONDS).ifPresent(extraWorkerProcess::set));
 
-    testThreads.awaitThreadStates(State.TERMINATED, State.WAITING);
-
-    State[] testThreadStates =
-        testThreads.threads().stream().map(Thread::getState).toArray(State[]::new);
-    assertThat(Arrays.asList(testThreadStates), Matchers.everyItem(Matchers.is(State.TERMINATED)));
-    assertThat(createdWorkers.size(), Matchers.is(maxWorkers));
+    // no more workers than `capacity` were spawned
+    assertThat(createdWorkers.size(), is(maxWorkers));
+    assertThat(extraWorkerProcess.get(), is(nullValue()));
   }
 
-  @Test
-  public void testReusesWorkerProcesses() throws InterruptedException {
+  @Test(timeout = WAIT_FOR_TEST_THREADS_TIMEOUT)
+  public void testReusesWorkerProcesses() throws Exception {
     int maxWorkers = 3;
-    WorkerProcessPool pool = createPool(maxWorkers);
-    ConcurrentHashMap<Thread, WorkerProcess> usedWorkers = new ConcurrentHashMap<>();
+    int firstBatch = 2;
+    int secondBatch = 3;
 
-    int numThreads = 5;
-    for (int i = 0; i < numThreads; i++) {
-      testThreads.startThread(borrowAndReturnWorkerProcess(pool, usedWorkers));
-    }
+    Set<WorkerProcess> usedWorkers = new HashSet<>();
+    WorkerProcessPool pool = createPool(maxWorkers, usedWorkers::add);
 
-    testThreads.join();
+    // create two worker processes, and release them.
+    acquireWorkersThenRelease(pool, firstBatch);
 
-    assertThat(usedWorkers.keySet(), Matchers.equalTo(testThreads.threads()));
-    assertThat(
-        countDistinct(usedWorkers),
-        Matchers.is(
-            Matchers.both(Matchers.greaterThan(0)).and(Matchers.lessThanOrEqualTo(maxWorkers))));
+    // acquire three more worker processes, two should be reused, and one created
+    acquireWorkersThenRelease(pool, secondBatch);
+
+    assertThat(usedWorkers.size(), equalTo(maxWorkers));
   }
 
   @Test
-  public void testUnlimitedPool() throws InterruptedException {
-    int numThreads = 20;
-    WorkerProcessPool pool = createPool(Integer.MAX_VALUE);
-    Set<WorkerProcess> createdWorkers = concurrentSet();
+  public void testLargePool() throws Exception {
+    int numConcurrentConsumers = 128;
+    Set<WorkerProcess> createdWorkers = new HashSet<>();
+    WorkerProcessPool pool = createPool(numConcurrentConsumers * 2, createdWorkers::add);
 
-    for (int i = 0; i < numThreads; i++) {
-      testThreads.startThread(borrowWorkerProcessWithoutReturning(pool, createdWorkers));
-    }
+    acquireWorkersThenRelease(pool, numConcurrentConsumers);
 
-    testThreads.join();
-
-    assertThat(createdWorkers.size(), Matchers.is(numThreads));
+    assertThat(createdWorkers.size(), is(numConcurrentConsumers));
   }
 
   @Test
-  public void testReusesWorkerProcessesInUnlimitedPools() throws InterruptedException {
-    int numThreads = 3;
-    WorkerProcessPool pool = createPool(Integer.MAX_VALUE);
-    ConcurrentHashMap<Thread, WorkerProcess> usedWorkers = new ConcurrentHashMap<>();
+  public void testReusesWorkerProcessesInLargePools() throws Exception {
+    int numConcurrentConsumers = 128;
+    Set<WorkerProcess> createdWorkers = new HashSet<>();
+    WorkerProcessPool pool = createPool(numConcurrentConsumers * 2, createdWorkers::add);
 
-    for (int i = 0; i < numThreads; i++) {
-      testThreads.startThread(borrowAndReturnWorkerProcess(pool, usedWorkers));
-    }
+    acquireWorkersThenRelease(pool, numConcurrentConsumers / 2);
+    acquireWorkersThenRelease(pool, numConcurrentConsumers);
 
-    testThreads.join();
-
-    for (int i = 0; i < numThreads; i++) {
-      testThreads.startThread(borrowAndReturnWorkerProcess(pool, usedWorkers));
-    }
-
-    testThreads.join();
-
-    assertThat(
-        countDistinct(usedWorkers),
-        Matchers.allOf(Matchers.greaterThan(0), Matchers.lessThanOrEqualTo(numThreads)));
+    assertThat(createdWorkers.size(), equalTo(numConcurrentConsumers));
   }
 
-  @Test
-  public void destroysProcessOnFailure() throws InterruptedException {
-    WorkerProcessPool pool = createPool(1);
-    ConcurrentHashMap<Thread, WorkerProcess> usedWorkers = new ConcurrentHashMap<>();
+  @Test(timeout = WAIT_FOR_TEST_THREADS_TIMEOUT)
+  public void destroysProcessOnFailure() throws Exception {
+    Set<WorkerProcess> createdWorkers = new HashSet<>();
+    WorkerProcessPool pool = createPool(1, createdWorkers::add);
 
-    testThreads.startThread(borrowAndReturnWorkerProcess(pool, usedWorkers)).join();
-    assertThat(usedWorkers.size(), Matchers.is(1));
+    acquireWorkersThenRelease(pool, 1);
+    assertThat(createdWorkers.size(), is(1));
 
-    testThreads.startThread(borrowAndKillWorkerProcess(pool, usedWorkers)).join();
-    testThreads.startThread(borrowAndReturnWorkerProcess(pool, usedWorkers)).join();
+    acquireWorkersThenRunActionThenRelease(
+        pool,
+        1,
+        () -> {
+          createdWorkers
+              .stream()
+              .findFirst()
+              .orElseThrow(IllegalStateException::new)
+              // closing a worker process will trigger removal from the pool
+              .close();
+        });
 
-    assertThat(usedWorkers.size(), Matchers.is(3));
-    assertThat(countDistinct(usedWorkers), Matchers.is(2));
+    acquireWorkersThenRelease(pool, 1);
+
+    assertThat(createdWorkers.size(), is(2));
   }
 
-  @Test
+  @Test(timeout = WAIT_FOR_TEST_THREADS_TIMEOUT)
   public void returnAndDestroyDoNotInterrupt() throws InterruptedException, IOException {
     WorkerProcessPool pool = createPool(1);
-    WorkerProcess process = pool.borrowWorkerProcess();
-    process.ensureLaunchAndHandshake();
 
-    Threads.interruptCurrentThread();
-    pool.returnWorkerProcess(process);
-    assertThat(Thread.interrupted(), Matchers.is(true));
+    WorkerProcess process;
+    try (BorrowedWorkerProcess worker = pool.borrowWorkerProcess()) {
+      process = worker.get();
+      process.ensureLaunchAndHandshake();
+      Threads.interruptCurrentThread();
+    }
+    assertThat(Thread.interrupted(), is(true));
 
-    WorkerProcess process2 = pool.borrowWorkerProcess();
-    process2.ensureLaunchAndHandshake();
-    assertThat(process2, Matchers.is(process));
+    try (BorrowedWorkerProcess worker = pool.borrowWorkerProcess()) {
+      WorkerProcess process2 = worker.get();
+      process2.ensureLaunchAndHandshake();
+      assertThat(process2, is(process));
 
-    Threads.interruptCurrentThread();
-    pool.destroyWorkerProcess(process2);
-    assertThat(Thread.interrupted(), Matchers.is(true));
+      process2.close(); // closing a fake worker process triggers destruction
+      Threads.interruptCurrentThread();
+    }
+    assertThat(Thread.interrupted(), is(true));
   }
 
   @Test
   public void cleansUpDeadProcesses() throws InterruptedException, IOException {
     WorkerProcessPool pool = createPool(1);
-    WorkerProcess process = pool.borrowWorkerProcess();
-    process.ensureLaunchAndHandshake();
-    pool.returnWorkerProcess(process);
+
+    WorkerProcess process;
+    try (BorrowedWorkerProcess worker = pool.borrowWorkerProcess()) {
+      process = worker.get();
+      process.ensureLaunchAndHandshake();
+    }
+    // only for testing – use after closing BorrowedWorker is illegal.
+    // Closing the fake worker will cause isAlive() to return true when returning it to the pool,
+    // and to return false when the next consumer retrieves it.
     process.close();
 
-    WorkerProcess process2 = pool.borrowWorkerProcess();
-    process2.ensureLaunchAndHandshake();
-    assertThat(process2, Matchers.is(Matchers.not(process)));
-    pool.returnWorkerProcess(process2);
+    WorkerProcess process2;
+    try (BorrowedWorkerProcess worker = pool.borrowWorkerProcess()) {
+      process2 = worker.get();
+      process2.ensureLaunchAndHandshake();
+    }
+
+    assertThat(process2, is(not(process)));
   }
 
-  @Test
+  @Test(timeout = WAIT_FOR_TEST_THREADS_TIMEOUT)
+  public void notifiesWaitingThreadsWhenCleaningDeadProcesses() throws Exception {
+    int maxWorkers = 2;
+    Set<WorkerProcess> createdProcesses = concurrentSet();
+    WorkerProcessPool pool = createPool(maxWorkers, createdProcesses::add);
+
+    acquireWorkersThenRunActionThenRelease(
+        pool,
+        maxWorkers,
+        () -> {
+          testThreads.startThread(() -> acquireWorkersThenRelease(pool, 1));
+          createdProcesses.forEach(WorkerProcess::close);
+          Thread.sleep(100); // give test thread opportunity to wait for the lock.
+        });
+
+    testThreads.join();
+  }
+
+  @Test(timeout = WAIT_FOR_TEST_THREADS_TIMEOUT)
   public void canStartupMultipleWorkersInParallel() throws InterruptedException, IOException {
     ArrayBlockingQueue<Future<WorkerProcess>> workers = new ArrayBlockingQueue<>(1);
     WorkerProcessPool pool = createPool(2, workers);
@@ -195,28 +225,30 @@ public class WorkerProcessPoolTest {
     // transfer an incomplete future to thread 1. Thread 1 is blocked on @{link Future#get}.
     workers.put(new CompletableFuture<>());
 
+    // transfer a completable future to thread 2
+    // .put will block until thread 1 takes the un-completable future added first
+    FakeWorkerProcess createdWorker = new FakeWorkerProcess(ImmutableMap.of());
+    Future<WorkerProcess> worker = CompletableFuture.completedFuture(createdWorker);
+    workers.put(worker);
+
     // thread 2, attempting to borrow a worker
     Set<WorkerProcess> createdWorkers = concurrentSet();
     Thread secondThread =
         testThreads.startThread(borrowWorkerProcessWithoutReturning(pool, createdWorkers));
 
-    // transfer a fake worker process to thread 2
-    FakeWorkerProcess worker = new FakeWorkerProcess(ImmutableMap.of());
-    workers.put(CompletableFuture.completedFuture(worker));
-
-    awaitThreadState(secondThread, State.TERMINATED, State.BLOCKED);
-
-    assertThat(secondThread.getState(), Matchers.is(State.TERMINATED));
+    // wait until thread 2 ends
+    secondThread.join();
 
     // here, the second thread has finished running, and has thus added the worker it borrowed to
     // `createdWorkers`.
-    assertThat(createdWorkers, Matchers.equalTo(ImmutableSet.of(worker)));
+    assertThat(createdWorkers, equalTo(ImmutableSet.of(createdWorker)));
   }
 
   @Test
   public void canReturnAndBorrowWorkersWhileStartingUpOtherWorkers() throws Exception {
     SynchronousQueue<Future<WorkerProcess>> workers = new SynchronousQueue<>();
     WorkerProcessPool pool = createPool(2, workers);
+    CountDownLatch firstThreadWaitingToBorrowProcess = new CountDownLatch(1);
     CountDownLatch secondThreadWaitingForWorker = new CountDownLatch(1);
 
     AtomicReference<WorkerProcess> firstBorrowedWorker = new AtomicReference<>();
@@ -226,15 +258,20 @@ public class WorkerProcessPoolTest {
     Thread firstThread =
         testThreads.startThread(
             () -> {
-              WorkerProcess workerProcess = pool.borrowWorkerProcess();
-              firstBorrowedWorker.set(workerProcess);
-              secondThreadWaitingForWorker.await();
-              pool.returnWorkerProcess(workerProcess);
-              secondBorrowedWorker.set(pool.borrowWorkerProcess());
+              try (BorrowedWorkerProcess worker = pool.borrowWorkerProcess()) {
+                firstThreadWaitingToBorrowProcess.countDown();
+                firstBorrowedWorker.set(worker.get());
+              }
+              try (BorrowedWorkerProcess worker = pool.borrowWorkerProcess()) {
+                secondThreadWaitingForWorker.await();
+                secondBorrowedWorker.set(worker.get());
+              }
             });
 
     // transfer a fake worker to thread 1
     workers.put(CompletableFuture.completedFuture(new FakeWorkerProcess(ImmutableMap.of())));
+
+    firstThreadWaitingToBorrowProcess.await();
 
     // thread 2, attempting to borrow a worker
     testThreads.startThread(borrowWorkerProcessWithoutReturning(pool, concurrentSet()));
@@ -245,27 +282,119 @@ public class WorkerProcessPoolTest {
     // thread 1 continues, returns the worker, and borrows another one
     secondThreadWaitingForWorker.countDown();
 
-    awaitThreadState(firstThread, State.TERMINATED, State.BLOCKED, State.WAITING);
+    firstThread.join(WAIT_FOR_TEST_THREADS_TIMEOUT);
     // here, thread 1 has borrowed a worker two times, or is blocked returning the first worker.
 
-    assertThat(firstThread.getState(), Matchers.is(State.TERMINATED));
-    assertThat(secondBorrowedWorker.get(), Matchers.is(firstBorrowedWorker.get()));
+    assertThat(secondBorrowedWorker.get(), is(firstBorrowedWorker.get()));
+  }
+
+  @Test(timeout = WAIT_FOR_TEST_THREADS_TIMEOUT)
+  public void testEmptyPoolDoesNotBlockForever() throws InterruptedException {
+    int CAPACITY = 3;
+    int NUM_CONSUMERS = 6;
+
+    AtomicInteger numStartedWorkers = new AtomicInteger();
+    ConcurrentHashMap<Thread, WorkerProcess> usedWorkers = new ConcurrentHashMap<>();
+    Phaser phaser = new Phaser(CAPACITY + 1); // + 1 for test main thread
+
+    WorkerProcessPool pool =
+        createPool(
+            CAPACITY,
+            () -> {
+              phaser.awaitAdvance(phaser.arriveAndDeregister());
+              numStartedWorkers.incrementAndGet();
+              throw new IOException("failed to start worker process");
+            });
+
+    for (int i = 0; i < NUM_CONSUMERS; ++i) {
+      Thread thread = testThreads.startThread(borrowAndReturnWorkerProcess(pool, usedWorkers));
+      thread.setUncaughtExceptionHandler((t, e) -> {}); // avoids logging all thrown exceptions
+    }
+
+    // wait until pool is exhausted
+    phaser.awaitAdvance(phaser.arriveAndDeregister());
+    testThreads.join();
+    assertThat(numStartedWorkers.get(), equalTo(NUM_CONSUMERS));
+  }
+
+  @Test
+  public void testPoolClosesCleanyIfNoWorkersUsed() {
+    int arbitraryNumber = 16;
+    createPool(arbitraryNumber).close();
+  }
+
+  @Test
+  public void testPoolClosesCleanlyAfterSomeWorkersWereUsedAndReturned() throws Exception {
+    int maxWorkers = 6;
+    WorkerProcessPool pool = createPool(maxWorkers);
+    acquireWorkersThenRelease(pool, maxWorkers / 2);
+    pool.close();
+  }
+
+  @Test
+  public void testPoolClosesCleanlyAfterAllWorkersWereUsedAndReturned() throws Exception {
+    int maxWorkers = 6;
+    WorkerProcessPool pool = createPool(maxWorkers);
+    acquireWorkersThenRelease(pool, maxWorkers);
+    pool.close();
+  }
+
+  @Test
+  public void testPoolClosesCleanlyAfterSomeWorkersWereReused() throws Exception {
+    int maxWorkers = 6;
+    WorkerProcessPool pool = createPool(maxWorkers);
+    for (int i = 0; i < 2; ++i) {
+      // first iteration starts up workers, second iteration reuses
+      acquireWorkersThenRelease(pool, 2);
+    }
+    pool.close();
+  }
+
+  @Test(expected = IllegalStateException.class)
+  public void testThrowsWhenClosingWithoutAllWorkersReturned()
+      throws InterruptedException, IOException {
+    int arbitraryNumber = 3;
+    WorkerProcessPool pool = createPool(arbitraryNumber);
+    BorrowedWorkerProcess worker = pool.borrowWorkerProcess();
+    worker.get(); // use worker
+    pool.close();
+    worker.close();
+  }
+
+  @Test(expected = IllegalStateException.class)
+  public void testThrowsWhenClosingWithoutAllUnusedWorkersReturned() throws InterruptedException {
+    int arbitraryNumber = 5;
+    WorkerProcessPool pool = createPool(arbitraryNumber);
+    BorrowedWorkerProcess worker = pool.borrowWorkerProcess();
+    pool.close();
+    worker.close();
   }
 
   private static WorkerProcessPool createPool(
       int maxWorkers, ThrowingSupplier<WorkerProcess, IOException> startWorkerProcess) {
-    return new WorkerProcessPool(maxWorkers, Hashing.sha1().hashLong(0)) {
-      @Override
-      protected WorkerProcess startWorkerProcess() throws IOException {
-        WorkerProcess workerProcess = startWorkerProcess.get();
-        workerProcess.ensureLaunchAndHandshake();
-        return workerProcess;
-      }
-    };
+    return new WorkerProcessPool(
+        maxWorkers,
+        Hashing.sha1().hashLong(0),
+        () -> {
+          WorkerProcess workerProcess = startWorkerProcess.get();
+          workerProcess.ensureLaunchAndHandshake();
+          return workerProcess;
+        });
   }
 
   private static WorkerProcessPool createPool(int maxWorkers) {
-    return createPool(maxWorkers, () -> new FakeWorkerProcess(ImmutableMap.of()));
+    return createPool(maxWorkers, x -> {});
+  }
+
+  private static WorkerProcessPool createPool(
+      int maxWorkers, Consumer<WorkerProcess> onWorkerCreated) {
+    return createPool(
+        maxWorkers,
+        () -> {
+          FakeWorkerProcess worker = new FakeWorkerProcess(ImmutableMap.of());
+          onWorkerCreated.accept(worker);
+          return worker;
+        });
   }
 
   private static WorkerProcessPool createPool(
@@ -282,17 +411,14 @@ public class WorkerProcessPoolTest {
   }
 
   private static <T> Set<T> concurrentSet() {
-    return Collections.newSetFromMap(new ConcurrentHashMap<T, Boolean>());
-  }
-
-  private static int countDistinct(ConcurrentHashMap<Thread, WorkerProcess> usedWorkers) {
-    return new HashSet<>(usedWorkers.values()).size();
+    return Collections.newSetFromMap(new ConcurrentHashMap<>());
   }
 
   private static UnsafeRunnable borrowWorkerProcessWithoutReturning(
       WorkerProcessPool pool, Set<WorkerProcess> createdWorkers) {
     return () -> {
-      WorkerProcess process = pool.borrowWorkerProcess();
+      BorrowedWorkerProcess worker = pool.borrowWorkerProcess();
+      WorkerProcess process = worker.get();
       process.ensureLaunchAndHandshake();
       createdWorkers.add(process);
     };
@@ -301,32 +427,29 @@ public class WorkerProcessPoolTest {
   private static UnsafeRunnable borrowAndReturnWorkerProcess(
       WorkerProcessPool pool, ConcurrentHashMap<Thread, WorkerProcess> usedWorkers) {
     return () -> {
-      WorkerProcess workerProcess = pool.borrowWorkerProcess();
-      usedWorkers.put(Thread.currentThread(), workerProcess);
-      workerProcess.ensureLaunchAndHandshake();
-      pool.returnWorkerProcess(workerProcess);
+      try (BorrowedWorkerProcess worker = pool.borrowWorkerProcess()) {
+        WorkerProcess workerProcess = worker.get();
+        usedWorkers.put(Thread.currentThread(), workerProcess);
+        workerProcess.ensureLaunchAndHandshake();
+      }
     };
   }
 
-  private static UnsafeRunnable borrowAndKillWorkerProcess(
-      WorkerProcessPool pool, ConcurrentMap<Thread, WorkerProcess> usedWorkers) {
-    return () -> {
-      WorkerProcess workerProcess = pool.borrowWorkerProcess();
-      usedWorkers.put(Thread.currentThread(), workerProcess);
-      workerProcess.ensureLaunchAndHandshake();
-      pool.destroyWorkerProcess(workerProcess);
-    };
+  private static void acquireWorkersThenRelease(WorkerProcessPool pool, int numWorkers)
+      throws Exception {
+    acquireWorkersThenRunActionThenRelease(pool, numWorkers, () -> {});
   }
 
-  private static void awaitThreadState(Thread thread, State... desiredState)
-      throws InterruptedException {
-    awaitThreadState(thread, Arrays.asList(desiredState));
-  }
-
-  private static void awaitThreadState(Thread thread, List<State> desiredState)
-      throws InterruptedException {
-    while (!desiredState.contains(thread.getState())) {
-      Thread.sleep(1);
+  private static void acquireWorkersThenRunActionThenRelease(
+      WorkerProcessPool pool, int numWorkers, UnsafeRunnable action) throws Exception {
+    if (numWorkers < 1) {
+      action.run();
+      return;
+    }
+    try (BorrowedWorkerProcess worker = pool.borrowWorkerProcess()) {
+      // use worker
+      worker.get();
+      acquireWorkersThenRunActionThenRelease(pool, numWorkers - 1, action);
     }
   }
 
@@ -370,10 +493,9 @@ public class WorkerProcessPoolTest {
       }
     }
 
-    void awaitThreadStates(State... desiredStates) throws InterruptedException {
-      List<State> states = Arrays.asList(desiredStates);
+    void join(int millis) throws InterruptedException {
       for (Thread thread : threads) {
-        awaitThreadState(thread, states);
+        thread.join(millis);
       }
     }
 

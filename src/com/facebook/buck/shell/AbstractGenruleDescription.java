@@ -19,19 +19,20 @@ package com.facebook.buck.shell;
 import com.facebook.buck.android.toolchain.AndroidPlatformTarget;
 import com.facebook.buck.android.toolchain.AndroidSdkLocation;
 import com.facebook.buck.android.toolchain.ndk.AndroidNdk;
+import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.description.arg.CommonDescriptionArg;
+import com.facebook.buck.core.description.arg.HasTests;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
+import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
+import com.facebook.buck.core.model.targetgraph.TargetGraph;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleResolver;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.common.BuildableSupport;
+import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleCreationContext;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildableSupport;
-import com.facebook.buck.rules.CommonDescriptionArg;
-import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.HasTests;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.macros.AbstractMacroExpander;
 import com.facebook.buck.rules.macros.ClasspathAbiMacroExpander;
@@ -63,7 +64,7 @@ import java.util.function.Function;
 import java.util.stream.Stream;
 
 public abstract class AbstractGenruleDescription<T extends AbstractGenruleDescription.CommonArg>
-    implements Description<T> {
+    implements DescriptionWithTargetGraph<T> {
 
   protected final ToolchainProvider toolchainProvider;
   protected final SandboxExecutionStrategy sandboxExecutionStrategy;
@@ -82,7 +83,7 @@ public abstract class AbstractGenruleDescription<T extends AbstractGenruleDescri
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
-      BuildRuleResolver resolver,
+      ActionGraphBuilder graphBuilder,
       T args,
       Optional<Arg> cmd,
       Optional<Arg> bash,
@@ -117,7 +118,8 @@ public abstract class AbstractGenruleDescription<T extends AbstractGenruleDescri
             AndroidPlatformTarget.DEFAULT_NAME, AndroidPlatformTarget.class),
         toolchainProvider.getByNameIfPresent(AndroidNdk.DEFAULT_NAME, AndroidNdk.class),
         toolchainProvider.getByNameIfPresent(
-            AndroidSdkLocation.DEFAULT_NAME, AndroidSdkLocation.class));
+            AndroidSdkLocation.DEFAULT_NAME, AndroidSdkLocation.class),
+        false);
   }
 
   /**
@@ -146,24 +148,30 @@ public abstract class AbstractGenruleDescription<T extends AbstractGenruleDescri
 
   @Override
   public BuildRule createBuildRule(
-      BuildRuleCreationContext context, BuildTarget buildTarget, BuildRuleParams params, T args) {
-    BuildRuleResolver resolver = context.getBuildRuleResolver();
+      BuildRuleCreationContextWithTargetGraph context,
+      BuildTarget buildTarget,
+      BuildRuleParams params,
+      T args) {
+    ActionGraphBuilder graphBuilder = context.getActionGraphBuilder();
     Optional<ImmutableList<AbstractMacroExpander<? extends Macro, ?>>> maybeExpanders =
         getMacroHandler(
-            buildTarget, context.getProjectFilesystem(), resolver, context.getTargetGraph(), args);
+            buildTarget,
+            context.getProjectFilesystem(),
+            graphBuilder,
+            context.getTargetGraph(),
+            args);
     if (maybeExpanders.isPresent()) {
       ImmutableList<AbstractMacroExpander<? extends Macro, ?>> expanders = maybeExpanders.get();
-      SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+      SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
       StringWithMacrosConverter converter =
-          StringWithMacrosConverter.of(
-              buildTarget, context.getCellPathResolver(), resolver, expanders);
+          StringWithMacrosConverter.of(buildTarget, context.getCellPathResolver(), expanders);
       Function<StringWithMacros, Arg> toArg =
           str -> {
-            Arg arg = converter.convert(str);
+            Arg arg = converter.convert(str, graphBuilder);
             if (RichStream.from(str.getMacros())
                 .map(MacroContainer::getMacro)
                 .anyMatch(WorkerMacro.class::isInstance)) {
-              arg = WorkerMacroArg.fromStringWithMacros(arg, buildTarget, resolver, str);
+              arg = WorkerMacroArg.fromStringWithMacros(arg, buildTarget, graphBuilder, str);
             }
             return arg;
           };
@@ -178,11 +186,9 @@ public abstract class AbstractGenruleDescription<T extends AbstractGenruleDescri
                       ruleFinder.filterBuildRuleInputs(args.getSrcs()).stream(),
                       Stream.of(cmd, bash, cmdExe)
                           .flatMap(Optionals::toStream)
-                          .flatMap(
-                              input ->
-                                  BuildableSupport.getDepsCollection(input, ruleFinder).stream()))
+                          .flatMap(input -> BuildableSupport.getDeps(input, ruleFinder)))
                   .collect(ImmutableSortedSet.toImmutableSortedSet(Comparator.naturalOrder()))),
-          resolver,
+          graphBuilder,
           args,
           cmd,
           bash,
@@ -192,7 +198,7 @@ public abstract class AbstractGenruleDescription<T extends AbstractGenruleDescri
         buildTarget,
         context.getProjectFilesystem(),
         params,
-        resolver,
+        graphBuilder,
         args,
         Optional.empty(),
         Optional.empty(),

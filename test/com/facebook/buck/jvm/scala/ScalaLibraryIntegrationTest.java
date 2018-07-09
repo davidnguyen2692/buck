@@ -22,11 +22,11 @@ import static org.junit.Assert.assertThat;
 import static org.junit.Assume.assumeNoException;
 
 import com.facebook.buck.config.FakeBuckConfig;
-import com.facebook.buck.rules.TestBuildRuleResolver;
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TestDataHelper;
-import com.facebook.buck.util.HumanReadableException;
 import org.hamcrest.Matchers;
 import org.junit.Before;
 import org.junit.Rule;
@@ -48,7 +48,12 @@ public class ScalaLibraryIntegrationTest {
     assertThat(
         workspace
             .runBuckCommand(
-                "run", "--config", "scala.compiler=//:scala-compiler", "//:bin", "--", "world!")
+                "run",
+                "--config",
+                "scala.compiler=buck//third-party/scala:scala-compiler",
+                "//:bin",
+                "--",
+                "world!")
             .assertSuccess()
             .getStdout(),
         Matchers.containsString("Hello WORLD!"));
@@ -57,7 +62,7 @@ public class ScalaLibraryIntegrationTest {
   @Test(timeout = (2 * 60 * 1000))
   public void shouldWorkWithLocalCompiler() throws Exception {
     try {
-      new ScalaBuckConfig(FakeBuckConfig.builder().build()).getScalac(new TestBuildRuleResolver());
+      new ScalaBuckConfig(FakeBuckConfig.builder().build()).getScalac(new TestActionGraphBuilder());
     } catch (HumanReadableException e) {
       assumeNoException("Could not find local scalac", e);
     }
@@ -105,7 +110,7 @@ public class ScalaLibraryIntegrationTest {
             .runBuckCommand(
                 "run",
                 "--config",
-                "scala.compiler=//:scala-compiler",
+                "scala.compiler=buck//third-party/scala:scala-compiler",
                 "//:bin_mixed",
                 "--",
                 "world!")

@@ -31,6 +31,16 @@ import com.facebook.buck.android.AndroidPrebuiltAarBuilder;
 import com.facebook.buck.android.AndroidResourceDescriptionArg;
 import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.config.FakeBuckConfig;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.targetgraph.TargetNode;
+import com.facebook.buck.core.rules.BuildRuleResolver;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
+import com.facebook.buck.core.sourcepath.PathSourcePath;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.sourcepath.SourceWithFlags;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.cxx.CxxLibraryBuilder;
 import com.facebook.buck.ide.intellij.aggregation.AggregationMode;
 import com.facebook.buck.ide.intellij.model.DependencyType;
@@ -53,18 +63,8 @@ import com.facebook.buck.jvm.java.JavaLibraryBuilder;
 import com.facebook.buck.jvm.java.JavaTestBuilder;
 import com.facebook.buck.jvm.java.JvmLibraryArg;
 import com.facebook.buck.jvm.kotlin.FauxKotlinLibraryBuilder;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.rules.PathSourcePath;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.SourceWithFlags;
-import com.facebook.buck.rules.TargetNode;
-import com.facebook.buck.rules.TestBuildRuleResolver;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableMap;
@@ -637,7 +637,7 @@ public class DefaultIjModuleFactoryTest {
             .setJavadocUrl(androidSupportJavadocUrl)
             .build();
 
-    BuildRuleResolver buildRuleResolver = new TestBuildRuleResolver();
+    BuildRuleResolver buildRuleResolver = new TestActionGraphBuilder();
     SourcePathResolver sourcePathResolver =
         DefaultSourcePathResolver.from(new SourcePathRuleFinder(buildRuleResolver));
     IjLibraryFactoryResolver ijLibraryFactoryResolver =

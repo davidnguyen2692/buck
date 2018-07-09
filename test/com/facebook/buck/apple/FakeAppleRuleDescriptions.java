@@ -28,6 +28,7 @@ import com.facebook.buck.apple.toolchain.impl.AppleCxxPlatforms;
 import com.facebook.buck.apple.toolchain.impl.XcodeToolFinder;
 import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.config.FakeBuckConfig;
+import com.facebook.buck.core.model.FlavorDomain;
 import com.facebook.buck.cxx.CxxBinaryFactory;
 import com.facebook.buck.cxx.CxxBinaryFlavored;
 import com.facebook.buck.cxx.CxxBinaryImplicitFlavors;
@@ -43,7 +44,6 @@ import com.facebook.buck.cxx.toolchain.CxxPlatformsProvider;
 import com.facebook.buck.cxx.toolchain.DefaultCxxPlatforms;
 import com.facebook.buck.cxx.toolchain.InferBuckConfig;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.FlavorDomain;
 import com.facebook.buck.swift.SwiftBuckConfig;
 import com.facebook.buck.swift.SwiftLibraryDescription;
 import com.facebook.buck.swift.toolchain.SwiftPlatform;
@@ -176,9 +176,8 @@ public class FakeAppleRuleDescriptions {
           "i386",
           DEFAULT_IPHONEOS_SDK_PATHS,
           DEFAULT_BUCK_CONFIG,
-          new XcodeToolFinder(),
-          FAKE_XCODE_BUILD_VERSION_CACHE,
-          Optional.empty());
+          new XcodeToolFinder(DEFAULT_BUCK_CONFIG.getView(AppleConfig.class)),
+          FAKE_XCODE_BUILD_VERSION_CACHE);
 
   public static final AppleCxxPlatform DEFAULT_IPHONEOS_X86_64_PLATFORM =
       AppleCxxPlatforms.buildWithXcodeToolFinder(
@@ -188,9 +187,8 @@ public class FakeAppleRuleDescriptions {
           "x86_64",
           DEFAULT_IPHONEOS_SDK_PATHS,
           DEFAULT_BUCK_CONFIG,
-          new XcodeToolFinder(),
-          FAKE_XCODE_BUILD_VERSION_CACHE,
-          Optional.empty());
+          new XcodeToolFinder(DEFAULT_BUCK_CONFIG.getView(AppleConfig.class)),
+          FAKE_XCODE_BUILD_VERSION_CACHE);
 
   public static final AppleCxxPlatform DEFAULT_WATCHOS_ARMV7K_PLATFORM =
       AppleCxxPlatforms.buildWithXcodeToolFinder(
@@ -200,9 +198,8 @@ public class FakeAppleRuleDescriptions {
           "armv7k",
           DEFAULT_IPHONEOS_SDK_PATHS,
           DEFAULT_BUCK_CONFIG,
-          new XcodeToolFinder(),
-          FAKE_XCODE_BUILD_VERSION_CACHE,
-          Optional.empty());
+          new XcodeToolFinder(DEFAULT_BUCK_CONFIG.getView(AppleConfig.class)),
+          FAKE_XCODE_BUILD_VERSION_CACHE);
 
   public static final AppleCxxPlatform DEFAULT_MACOSX_X86_64_PLATFORM =
       AppleCxxPlatforms.buildWithXcodeToolFinder(
@@ -212,9 +209,8 @@ public class FakeAppleRuleDescriptions {
           "x86_64",
           DEFAULT_MACOSX_SDK_PATHS,
           DEFAULT_BUCK_CONFIG,
-          new XcodeToolFinder(),
-          FAKE_XCODE_BUILD_VERSION_CACHE,
-          Optional.empty());
+          new XcodeToolFinder(DEFAULT_BUCK_CONFIG.getView(AppleConfig.class)),
+          FAKE_XCODE_BUILD_VERSION_CACHE);
 
   public static final CxxPlatform DEFAULT_PLATFORM =
       DefaultCxxPlatforms.build(Platform.MACOS, new CxxBuckConfig(DEFAULT_BUCK_CONFIG));
