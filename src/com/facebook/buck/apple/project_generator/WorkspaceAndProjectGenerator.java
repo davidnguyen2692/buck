@@ -457,7 +457,7 @@ public class WorkspaceAndProjectGenerator {
       } else {
         LOG.debug("Generating project for directory %s with targets %s", projectDirectory, rules);
         String projectName;
-        if (projectDirectory.getFileName().toString().equals("")) {
+        if (projectDirectory.toString().equals("") || (projectDirectory.getFileName() != null && projectDirectory.getFileName().toString().equals(""))) {
           // If we're generating a project in the root directory, use a generic name.
           Optional<BuildTarget> buildTargetOptional = workspaceArguments.getSrcTarget();
 
