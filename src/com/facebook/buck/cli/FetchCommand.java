@@ -26,6 +26,7 @@ import com.facebook.buck.core.build.event.BuildEvent;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.actiongraph.ActionGraphAndBuilder;
 import com.facebook.buck.core.model.actiongraph.computation.ActionGraphCache;
+import com.facebook.buck.core.model.actiongraph.computation.ActionGraphConfig;
 import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraphAndBuildTargets;
 import com.facebook.buck.core.rulekey.RuleKey;
@@ -84,7 +85,10 @@ public class FetchCommand extends BuildCommand {
                     params.getCell(),
                     getEnableParserProfiling(),
                     pool.getListeningExecutorService(),
-                    parseArgumentsAsTargetNodeSpecs(params.getBuckConfig(), getArguments()),
+                    parseArgumentsAsTargetNodeSpecs(
+                        params.getCell().getCellPathResolver(),
+                        params.getBuckConfig(),
+                        getArguments()),
                     parserConfig.getDefaultFlavorsMode());
         if (params.getBuckConfig().getBuildVersions()) {
           result = toVersionedTargetGraph(params, result);
@@ -97,8 +101,14 @@ public class FetchCommand extends BuildCommand {
                         ruleGenerator,
                         result.getTargetGraph(),
                         params.getCell().getCellProvider(),
-                        params.getBuckConfig().getActionGraphParallelizationMode(),
-                        params.getBuckConfig().getShouldInstrumentActionGraph(),
+                        params
+                            .getBuckConfig()
+                            .getView(ActionGraphConfig.class)
+                            .getActionGraphParallelizationMode(),
+                        params
+                            .getBuckConfig()
+                            .getView(ActionGraphConfig.class)
+                            .getShouldInstrumentActionGraph(),
                         params.getPoolSupplier()));
         buildTargets = ruleGenerator.getDownloadableTargets();
       } catch (BuildFileParseException | VersionException e) {

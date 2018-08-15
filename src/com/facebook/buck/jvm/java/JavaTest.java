@@ -18,12 +18,13 @@ package com.facebook.buck.jvm.java;
 
 import com.facebook.buck.core.build.buildable.context.BuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
-import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.model.BuildId;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.InternalFlavor;
+import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.attr.ExportDependencies;
 import com.facebook.buck.core.rules.attr.HasPostBuildSteps;
@@ -43,7 +44,6 @@ import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.core.HasClasspathEntries;
 import com.facebook.buck.jvm.core.JavaLibrary;
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.step.AbstractExecutionStep;
 import com.facebook.buck.step.ExecutionContext;
@@ -106,7 +106,7 @@ public class JavaTest extends AbstractBuildRuleWithDeclaredAndExtraDeps
   private static final Path TESTRUNNER_CLASSES =
       Paths.get(
           System.getProperty(
-              "buck.testrunner_classes", new File("build/testrunner/classes").getAbsolutePath()));
+              "buck.testrunner_classes", new File("ant-out/testrunner/classes").getAbsolutePath()));
 
   private final JavaLibrary compiledTestsLibrary;
 
@@ -214,7 +214,8 @@ public class JavaTest extends AbstractBuildRuleWithDeclaredAndExtraDeps
   }
 
   private Path getClassPathFile() {
-    return BuildTargets.getGenPath(getProjectFilesystem(), getBuildTarget(), "%s/classpath-file");
+    return BuildTargetPaths.getGenPath(
+        getProjectFilesystem(), getBuildTarget(), "%s/classpath-file");
   }
 
   private JUnitStep getJUnitStep(
@@ -229,7 +230,11 @@ public class JavaTest extends AbstractBuildRuleWithDeclaredAndExtraDeps
         reorderClasses(testClassNames, options.isShufflingTests());
 
     ImmutableList<String> properVmArgs =
-        amendVmArgs(this.vmArgs, pathResolver, executionContext.getTargetDevice());
+        amendVmArgs(
+            this.vmArgs,
+            pathResolver,
+            executionContext.getTargetDevice(),
+            options.getJavaTempDir());
 
     BuckEventBus buckEventBus = executionContext.getBuckEventBus();
     BuildId buildId = buckEventBus.getBuildId();
@@ -256,7 +261,6 @@ public class JavaTest extends AbstractBuildRuleWithDeclaredAndExtraDeps
             .build();
 
     return new JUnitStep(
-        getBuildTarget(),
         getProjectFilesystem(),
         nativeLibsEnvironment,
         testRuleTimeoutMs,
@@ -350,9 +354,11 @@ public class JavaTest extends AbstractBuildRuleWithDeclaredAndExtraDeps
   ImmutableList<String> amendVmArgs(
       ImmutableList<String> existingVmArgs,
       SourcePathResolver pathResolver,
-      Optional<TargetDevice> targetDevice) {
+      Optional<TargetDevice> targetDevice,
+      Optional<String> javaTempDir) {
     ImmutableList.Builder<String> vmArgs = ImmutableList.builder();
     vmArgs.addAll(existingVmArgs);
+    javaTempDir.ifPresent(dir -> vmArgs.add(String.format("-Djava.io.tmpdir=%s", dir)));
     onAmendVmArgs(vmArgs, pathResolver, targetDevice);
     return vmArgs.build();
   }
@@ -382,7 +388,7 @@ public class JavaTest extends AbstractBuildRuleWithDeclaredAndExtraDeps
 
   @Override
   public Path getPathToTestOutputDirectory() {
-    return BuildTargets.getGenPath(
+    return BuildTargetPaths.getGenPath(
         getProjectFilesystem(), getBuildTarget(), "__java_test_%s_output__");
   }
 

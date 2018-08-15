@@ -19,28 +19,32 @@ package com.facebook.buck.cli;
 import com.facebook.buck.artifact_cache.ArtifactCache;
 import com.facebook.buck.artifact_cache.ArtifactCaches;
 import com.facebook.buck.artifact_cache.config.ArtifactCacheBuckConfig;
-import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.core.cell.Cell;
+import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.model.actiongraph.computation.ActionGraphCache;
 import com.facebook.buck.core.rulekey.RuleKey;
-import com.facebook.buck.core.rules.knowntypes.KnownBuildRuleTypesProvider;
+import com.facebook.buck.core.rules.knowntypes.KnownRuleTypesProvider;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.FileHashCacheEvent;
 import com.facebook.buck.httpserver.WebServer;
 import com.facebook.buck.io.ExecutableFinder;
-import com.facebook.buck.io.WatchmanCursor;
-import com.facebook.buck.io.WatchmanWatcher;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.io.watchman.WatchmanCursor;
+import com.facebook.buck.io.watchman.WatchmanWatcher;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.parser.DefaultParser;
 import com.facebook.buck.parser.Parser;
 import com.facebook.buck.parser.ParserConfig;
+import com.facebook.buck.parser.ParserPythonInterpreterProvider;
+import com.facebook.buck.parser.PerBuildStateFactory;
 import com.facebook.buck.parser.TargetSpecResolver;
 import com.facebook.buck.rules.coercer.ConstructorArgMarshaller;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
 import com.facebook.buck.rules.keys.DefaultRuleKeyCache;
 import com.facebook.buck.rules.keys.RuleKeyCacheRecycler;
+import com.facebook.buck.support.bgtasks.BackgroundTaskManager;
+import com.facebook.buck.support.bgtasks.SynchronousBackgroundTaskManager;
 import com.facebook.buck.util.RichStream;
 import com.facebook.buck.util.cache.ProjectFileHashCache;
 import com.facebook.buck.util.cache.impl.DefaultFileHashCache;
@@ -77,11 +81,13 @@ final class Daemon implements Closeable {
   private final ActionGraphCache actionGraphCache;
   private final RuleKeyCacheRecycler<RuleKey> defaultRuleKeyFactoryCacheRecycler;
   private final ImmutableMap<Path, WatchmanCursor> cursor;
-  private final KnownBuildRuleTypesProvider knownBuildRuleTypesProvider;
+  private final KnownRuleTypesProvider knownRuleTypesProvider;
+
+  private final BackgroundTaskManager bgTaskManager;
 
   Daemon(
       Cell rootCell,
-      KnownBuildRuleTypesProvider knownBuildRuleTypesProvider,
+      KnownRuleTypesProvider knownRuleTypesProvider,
       ExecutableFinder executableFinder,
       Optional<WebServer> webServerToReuse) {
     this.rootCell = rootCell;
@@ -107,16 +113,19 @@ final class Daemon implements Closeable {
     this.actionGraphCache =
         new ActionGraphCache(rootCell.getBuckConfig().getMaxActionGraphCacheEntries());
     this.versionedTargetGraphCache = new VersionedTargetGraphCache();
-    this.knownBuildRuleTypesProvider = knownBuildRuleTypesProvider;
+    this.knownRuleTypesProvider = knownRuleTypesProvider;
 
     typeCoercerFactory = new DefaultTypeCoercerFactory();
+    ParserConfig parserConfig = rootCell.getBuckConfig().getView(ParserConfig.class);
     this.parser =
         new DefaultParser(
-            rootCell.getBuckConfig().getView(ParserConfig.class),
+            new PerBuildStateFactory(
+                typeCoercerFactory,
+                new ConstructorArgMarshaller(typeCoercerFactory),
+                knownRuleTypesProvider,
+                new ParserPythonInterpreterProvider(parserConfig, executableFinder)),
+            parserConfig,
             typeCoercerFactory,
-            new ConstructorArgMarshaller(typeCoercerFactory),
-            knownBuildRuleTypesProvider,
-            executableFinder,
             new TargetSpecResolver());
     parser.register(fileEventBus);
 
@@ -145,6 +154,8 @@ final class Daemon implements Closeable {
     }
     LOG.debug("Using Watchman Cursor: %s", cursor);
     persistentWorkerPools = new ConcurrentHashMap<>();
+
+    this.bgTaskManager = new SynchronousBackgroundTaskManager(true);
   }
 
   Cell getRootCell() {
@@ -188,6 +199,10 @@ final class Daemon implements Closeable {
     return port >= 0 ? OptionalInt.of(port) : OptionalInt.empty();
   }
 
+  BackgroundTaskManager getBgTaskManager() {
+    return bgTaskManager;
+  }
+
   Optional<WebServer> getWebServer() {
     return webServer;
   }
@@ -212,8 +227,8 @@ final class Daemon implements Closeable {
     return hashCaches;
   }
 
-  KnownBuildRuleTypesProvider getKnownBuildRuleTypesProvider() {
-    return knownBuildRuleTypesProvider;
+  public KnownRuleTypesProvider getKnownRuleTypesProvider() {
+    return knownRuleTypesProvider;
   }
 
   ConcurrentMap<String, WorkerProcessPool> getPersistentWorkerPools() {

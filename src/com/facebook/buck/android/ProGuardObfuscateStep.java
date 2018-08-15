@@ -19,7 +19,6 @@ package com.facebook.buck.android;
 import com.facebook.buck.android.toolchain.AndroidPlatformTarget;
 import com.facebook.buck.core.build.buildable.context.BuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
-import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.shell.ShellStep;
@@ -77,7 +76,6 @@ public final class ProGuardObfuscateStep extends ShellStep {
    * @param steps Where to append the generated steps.
    */
   public static void create(
-      BuildTarget target,
       AndroidPlatformTarget androidPlatformTarget,
       ImmutableList<String> javaRuntimeLauncher,
       ProjectFilesystem filesystem,
@@ -121,7 +119,6 @@ public final class ProGuardObfuscateStep extends ShellStep {
     } else {
       ProGuardObfuscateStep proGuardStep =
           new ProGuardObfuscateStep(
-              target,
               androidPlatformTarget,
               javaRuntimeLauncher,
               filesystem,
@@ -136,14 +133,16 @@ public final class ProGuardObfuscateStep extends ShellStep {
       buildableContext.recordArtifact(commandLineHelperStep.getConfigurationTxt());
       buildableContext.recordArtifact(commandLineHelperStep.getMappingTxt());
       buildableContext.recordArtifact(commandLineHelperStep.getSeedsTxt());
+      buildableContext.recordArtifact(commandLineHelperStep.getUsageTxt());
 
       steps.add(
           commandLineHelperStep,
           proGuardStep,
           // Some proguard configs can propagate the "-dontobfuscate" flag which disables
-          // obfuscation and prevents the mapping.txt file from being generated.  So touch it
-          // here to guarantee it's around when we go to cache this rule.
-          new TouchStep(filesystem, commandLineHelperStep.getMappingTxt()));
+          // obfuscation and prevents the mapping.txt & usage.txt file from being generated.
+          // So touch it here to guarantee it's around when we go to cache this rule.
+          new TouchStep(filesystem, commandLineHelperStep.getMappingTxt()),
+          new TouchStep(filesystem, commandLineHelperStep.getUsageTxt()));
     }
   }
 
@@ -153,7 +152,6 @@ public final class ProGuardObfuscateStep extends ShellStep {
    * @param pathToProGuardCommandLineArgsFile Path to file containing arguments to ProGuard.
    */
   private ProGuardObfuscateStep(
-      BuildTarget buildTarget,
       AndroidPlatformTarget androidPlatformTarget,
       ImmutableList<String> javaRuntimeLauncher,
       ProjectFilesystem filesystem,
@@ -164,7 +162,7 @@ public final class ProGuardObfuscateStep extends ShellStep {
       String proguardMaxHeapSize,
       Optional<List<String>> proguardJvmArgs,
       Optional<String> proguardAgentPath) {
-    super(Optional.of(buildTarget), filesystem.getRootPath());
+    super(filesystem.getRootPath());
     this.androidPlatformTarget = androidPlatformTarget;
     this.javaRuntimeLauncher = javaRuntimeLauncher;
     this.filesystem = filesystem;
@@ -375,6 +373,7 @@ public final class ProGuardObfuscateStep extends ShellStep {
       args.add("-printmapping").add(getMappingTxt().toString());
       args.add("-printconfiguration").add(getConfigurationTxt().toString());
       args.add("-printseeds").add(getSeedsTxt().toString());
+      args.add("-printusage").add(getUsageTxt().toString());
 
       return args.build();
     }
@@ -389,6 +388,10 @@ public final class ProGuardObfuscateStep extends ShellStep {
 
     public Path getSeedsTxt() {
       return proguardDirectory.resolve("seeds.txt");
+    }
+
+    public Path getUsageTxt() {
+      return proguardDirectory.resolve("usage.txt");
     }
 
     @Override

@@ -20,8 +20,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedSet;
 import java.io.IOException;
-import java.io.Reader;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -56,6 +54,7 @@ public final class Configs {
    *   <li>Files (in lexicographical order) in {@code /etc/buckconfig.d}
    *   <li>{@code <HOME>/.buckconfig}
    *   <li>Files (in lexicographical order) in {@code <HOME>/buckconfig.d}
+   *   <li>Files (in lexicographical order) in {@code <PROJECT ROOT >/buckconfig.d}
    *   <li>{@code <PROJECT ROOT>/.buckconfig}
    *   <li>{@code <PROJECT ROOT>/.buckconfig.local}
    *   <li>Any overrides (usually from the command line)
@@ -73,18 +72,16 @@ public final class Configs {
     Path configFile = getMainConfigurationFile(root);
 
     RawConfig.Builder builder = RawConfig.builder();
-    for (Path file : configFiles) {
-      try (Reader reader = Files.newBufferedReader(file, StandardCharsets.UTF_8)) {
-        ImmutableMap<String, ImmutableMap<String, String>> parsedConfiguration =
-            Inis.read(reader, file.toString());
-        if (file.equals(configFile)) {
-          LOG.debug("Loaded project configuration file %s", file);
-          LOG.verbose("Contents of %s: %s", file, parsedConfiguration);
-        } else {
-          LOG.debug("Loaded a configuration file %s, %s", file, parsedConfiguration);
-        }
-        builder.putAll(parsedConfiguration);
+    for (Path path : configFiles) {
+      ImmutableMap<String, ImmutableMap<String, String>> parsedConfiguration =
+          Inis.read(path.toUri().toURL());
+      if (path.equals(configFile)) {
+        LOG.debug("Loaded project configuration file %s", path);
+        LOG.verbose("Contents of %s: %s", path, parsedConfiguration);
+      } else {
+        LOG.debug("Loaded a configuration file %s, %s", path, parsedConfiguration);
       }
+      builder.putAll(parsedConfiguration);
     }
     LOG.debug("Adding configuration overrides %s", configOverrides);
     builder.putAll(configOverrides);
@@ -122,6 +119,10 @@ public final class Configs {
     Path homeDirectory = Paths.get(System.getProperty("user.home"));
     Path userConfigDir = homeDirectory.resolve(DEFAULT_BUCK_CONFIG_DIRECTORY_NAME);
     configFileBuilder.addAll(listFiles(userConfigDir));
+
+    Path projectConfigDir = root.resolve(DEFAULT_BUCK_CONFIG_DIRECTORY_NAME);
+    configFileBuilder.addAll(listFiles(projectConfigDir));
+
     Path userConfigFile = homeDirectory.resolve(DEFAULT_BUCK_CONFIG_FILE_NAME);
     if (Files.isRegularFile(userConfigFile)) {
       configFileBuilder.add(userConfigFile);
@@ -147,11 +148,9 @@ public final class Configs {
 
   public static ImmutableMap<String, ImmutableMap<String, String>> parseConfigFile(Path file)
       throws IOException {
-    try (Reader reader = Files.newBufferedReader(file, StandardCharsets.UTF_8)) {
-      ImmutableMap<String, ImmutableMap<String, String>> parsedConfiguration =
-          Inis.read(reader, file.toString());
-      LOG.debug("Loaded a configuration file %s: %s", file, parsedConfiguration);
-      return parsedConfiguration;
-    }
+    ImmutableMap<String, ImmutableMap<String, String>> parsedConfiguration =
+        Inis.read(file.toUri().toURL());
+    LOG.debug("Loaded a configuration file %s: %s", file, parsedConfiguration);
+    return parsedConfiguration;
   }
 }

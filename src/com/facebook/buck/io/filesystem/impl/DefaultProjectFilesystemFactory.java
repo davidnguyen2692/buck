@@ -44,7 +44,7 @@ public class DefaultProjectFilesystemFactory implements ProjectFilesystemFactory
   private static final Pattern GLOB_CHARS = Pattern.compile("[\\*\\?\\{\\[]");
 
   // WindowsFS singleton instance
-  private static WindowsFS winFSInstance = null;
+  @Nullable private static WindowsFS winFSInstance = null;
 
   /** Intialize the winFSInstane singleton when on Windows. */
   static {
@@ -58,14 +58,14 @@ public class DefaultProjectFilesystemFactory implements ProjectFilesystemFactory
    *
    * @return the WindowsFS instance.
    */
+  @Nullable
   public static WindowsFS getWindowsFSInstance() {
     return winFSInstance;
   }
 
   @Override
   public ProjectFilesystem createProjectFilesystem(
-      Path root, Config config, Optional<EmbeddedCellBuckOutInfo> embeddedCellBuckOutInfo)
-      throws InterruptedException {
+      Path root, Config config, Optional<EmbeddedCellBuckOutInfo> embeddedCellBuckOutInfo) {
     BuckPaths buckPaths = getConfiguredBuckPaths(root, config, embeddedCellBuckOutInfo);
     return new DefaultProjectFilesystem(
         root.getFileSystem(),
@@ -77,13 +77,12 @@ public class DefaultProjectFilesystemFactory implements ProjectFilesystemFactory
   }
 
   @Override
-  public ProjectFilesystem createProjectFilesystem(Path root, Config config)
-      throws InterruptedException {
+  public ProjectFilesystem createProjectFilesystem(Path root, Config config) {
     return createProjectFilesystem(root, config, Optional.empty());
   }
 
   @Override
-  public ProjectFilesystem createProjectFilesystem(Path root) throws InterruptedException {
+  public ProjectFilesystem createProjectFilesystem(Path root) {
     return createProjectFilesystem(root, new Config());
   }
 

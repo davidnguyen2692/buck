@@ -18,9 +18,10 @@ package com.facebook.buck.features.go;
 
 import com.facebook.buck.core.build.buildable.context.BuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
-import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
+import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.impl.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.core.rules.impl.SymlinkTree;
 import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
@@ -31,7 +32,6 @@ import com.facebook.buck.features.go.GoListStep.FileType;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.MkdirStep;
@@ -101,7 +101,7 @@ public class GoCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps {
     this.packer = platform.getPacker();
     this.platform = platform;
     this.output =
-        BuildTargets.getGenPath(
+        BuildTargetPaths.getGenPath(
             getProjectFilesystem(),
             getBuildTarget(),
             "%s/" + getBuildTarget().getShortName() + ".a");
@@ -146,7 +146,7 @@ public class GoCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps {
     if (!rawAsmSrcs.isEmpty()) {
       asmHeaderPath =
           Optional.of(
-              BuildTargets.getScratchPath(
+              BuildTargetPaths.getScratchPath(
                       getProjectFilesystem(),
                       getBuildTarget(),
                       "%s/" + getBuildTarget().getShortName() + "__asm_hdr")
@@ -164,24 +164,19 @@ public class GoCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps {
 
     boolean allowExternalReferences = !rawAsmSrcs.isEmpty() || !extraAsmOutputs.isEmpty();
 
-    SourcePathResolver pathResolver = context.getSourcePathResolver();
+    SourcePathResolver resolver = context.getSourcePathResolver();
     if (rawCompileSrcs.isEmpty()) {
       steps.add(new TouchStep(getProjectFilesystem(), output));
     } else {
       FilteredSourceFiles filteredCompileSrcs =
           new FilteredSourceFiles(
-              rawCompileSrcs,
-              getSourceFiles(generatedSrcs, context),
-              getBuildTarget(),
-              platform,
-              goFileTypes);
+              rawCompileSrcs, getSourceFiles(generatedSrcs, context), platform, goFileTypes);
       steps.addAll(filteredCompileSrcs.getFilterSteps());
       steps.add(
           new GoCompileStep(
-              getBuildTarget(),
               getProjectFilesystem().getRootPath(),
-              compiler.getEnvironment(pathResolver),
-              compiler.getCommandPrefix(pathResolver),
+              compiler.getEnvironment(resolver),
+              compiler.getCommandPrefix(resolver),
               compilerFlags,
               packageName,
               filteredCompileSrcs,
@@ -196,13 +191,12 @@ public class GoCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps {
     ImmutableList.Builder<Path> asmOutputs = ImmutableList.builder();
 
     FilteredSourceFiles filteredAsmSrcs =
-        new FilteredSourceFiles(
-            rawAsmSrcs, getBuildTarget(), platform, Arrays.asList(FileType.SFiles));
+        new FilteredSourceFiles(rawAsmSrcs, platform, Arrays.asList(FileType.SFiles));
     steps.addAll(filteredAsmSrcs.getFilterSteps());
 
     if (!rawAsmSrcs.isEmpty()) {
       Path asmIncludeDir =
-          BuildTargets.getScratchPath(
+          BuildTargetPaths.getScratchPath(
               getProjectFilesystem(),
               getBuildTarget(),
               "%s/" + getBuildTarget().getShortName() + "__asm_includes");
@@ -228,7 +222,7 @@ public class GoCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps {
       }
 
       Path asmOutputDir =
-          BuildTargets.getScratchPath(
+          BuildTargetPaths.getScratchPath(
               getProjectFilesystem(),
               getBuildTarget(),
               "%s/" + getBuildTarget().getShortName() + "__asm_compile");
@@ -240,10 +234,9 @@ public class GoCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps {
       Path asmOutputPath = asmOutputDir.resolve(getBuildTarget().getShortName() + ".o");
       steps.add(
           new GoAssembleStep(
-              getBuildTarget(),
               getProjectFilesystem().getRootPath(),
-              assembler.getEnvironment(pathResolver),
-              assembler.getCommandPrefix(pathResolver),
+              assembler.getEnvironment(resolver),
+              assembler.getCommandPrefix(resolver),
               assemblerFlags,
               filteredAsmSrcs,
               ImmutableList.<Path>builder()
@@ -258,14 +251,12 @@ public class GoCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps {
     if (!rawAsmSrcs.isEmpty() || !extraAsmOutputs.isEmpty()) {
       steps.add(
           new GoPackStep(
-              getBuildTarget(),
               getProjectFilesystem().getRootPath(),
-              packer.getEnvironment(pathResolver),
-              packer.getCommandPrefix(pathResolver),
+              packer.getEnvironment(resolver),
+              packer.getCommandPrefix(resolver),
               GoPackStep.Operation.APPEND,
               asmOutputs
-                  .addAll(
-                      extraAsmOutputs.stream().map(x -> pathResolver.getAbsolutePath(x)).iterator())
+                  .addAll(extraAsmOutputs.stream().map(x -> resolver.getAbsolutePath(x)).iterator())
                   .build(),
               filteredAsmSrcs,
               output));

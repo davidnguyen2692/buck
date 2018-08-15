@@ -22,9 +22,8 @@ import com.facebook.buck.core.model.InternalFlavor;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
-import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.jvm.core.HasJavaAbi;
+import com.facebook.buck.jvm.core.JavaAbis;
 import com.facebook.buck.jvm.java.AnnotationProcessingParams;
 import com.facebook.buck.jvm.java.ExtraClasspathProvider;
 import com.facebook.buck.jvm.java.Javac;
@@ -67,7 +66,7 @@ public class AndroidLibraryGraphEnhancer {
       boolean useOldStyleableFormat,
       boolean skipNonUnionRDotJava) {
     this.projectFilesystem = projectFilesystem;
-    Preconditions.checkState(!HasJavaAbi.isAbiTarget(buildTarget));
+    Preconditions.checkState(!JavaAbis.isAbiTarget(buildTarget));
     this.dummyRDotJavaBuildTarget = getDummyRDotJavaTarget(buildTarget);
     this.originalDeps = ImmutableSortedSet.copyOf(buildRuleDeps);
     this.javac = javac;
@@ -128,13 +127,7 @@ public class AndroidLibraryGraphEnhancer {
               SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
 
               JavacToJarStepFactory compileToJarStepFactory =
-                  new JavacToJarStepFactory(
-                      DefaultSourcePathResolver.from(ruleFinder),
-                      ruleFinder,
-                      projectFilesystem,
-                      javac,
-                      javacOptions,
-                      ExtraClasspathProvider.EMPTY);
+                  new JavacToJarStepFactory(javac, javacOptions, ExtraClasspathProvider.EMPTY);
 
               return new DummyRDotJava(
                   dummyRDotJavaBuildTarget,

@@ -16,7 +16,6 @@
 
 package com.facebook.buck.jvm.java;
 
-import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.description.arg.HasDeclaredDeps;
 import com.facebook.buck.core.description.arg.HasProvidedDeps;
 import com.facebook.buck.core.description.arg.HasSrcs;
@@ -25,22 +24,23 @@ import com.facebook.buck.core.description.arg.Hint;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.Flavored;
+import com.facebook.buck.core.model.impl.ImmutableBuildTarget;
 import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
 import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.toolchain.ToolchainProvider;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.core.HasClasspathEntries;
-import com.facebook.buck.jvm.core.HasJavaAbi;
 import com.facebook.buck.jvm.core.HasSources;
+import com.facebook.buck.jvm.core.JavaAbis;
 import com.facebook.buck.jvm.core.JavaLibrary;
 import com.facebook.buck.jvm.java.toolchain.JavacOptionsProvider;
 import com.facebook.buck.maven.aether.AetherUtil;
-import com.facebook.buck.model.ImmutableBuildTarget;
-import com.facebook.buck.toolchain.ToolchainProvider;
 import com.facebook.buck.versions.VersionPropagator;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -60,10 +60,10 @@ public class JavaLibraryDescription
           Javadoc.DOC_JAR,
           JavaLibrary.SRC_JAR,
           JavaLibrary.MAVEN_JAR,
-          HasJavaAbi.CLASS_ABI_FLAVOR,
-          HasJavaAbi.SOURCE_ABI_FLAVOR,
-          HasJavaAbi.SOURCE_ONLY_ABI_FLAVOR,
-          HasJavaAbi.VERIFIED_SOURCE_ABI_FLAVOR);
+          JavaAbis.CLASS_ABI_FLAVOR,
+          JavaAbis.SOURCE_ABI_FLAVOR,
+          JavaAbis.SOURCE_ONLY_ABI_FLAVOR,
+          JavaAbis.VERIFIED_SOURCE_ABI_FLAVOR);
 
   private final ToolchainProvider toolchainProvider;
   private final JavaBuckConfig javaBuckConfig;
@@ -200,7 +200,7 @@ public class JavaLibraryDescription
             .setToolchainProvider(context.getToolchainProvider())
             .build();
 
-    if (HasJavaAbi.isAbiTarget(buildTarget)) {
+    if (JavaAbis.isAbiTarget(buildTarget)) {
       return defaultJavaLibraryRules.buildAbi();
     }
 

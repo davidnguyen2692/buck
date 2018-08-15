@@ -20,6 +20,7 @@ import com.facebook.buck.android.toolchain.AndroidPlatformTarget;
 import com.facebook.buck.core.build.buildable.context.BuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
@@ -28,7 +29,6 @@ import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.coercer.ManifestEntries;
 import com.facebook.buck.shell.ShellStep;
 import com.facebook.buck.step.ExecutionContext;
@@ -57,6 +57,7 @@ public class Aapt2Link extends AbstractBuildRule {
   @AddToRuleKey private final boolean noAutoVersion;
   @AddToRuleKey private final boolean noVersionTransitions;
   @AddToRuleKey private final boolean noAutoAddOverlay;
+  @AddToRuleKey private final boolean useProtoFormat;
   @AddToRuleKey private final ImmutableList<Aapt2Compile> compileRules;
   @AddToRuleKey private final SourcePath manifest;
   @AddToRuleKey private final ManifestEntries manifestEntries;
@@ -78,6 +79,7 @@ public class Aapt2Link extends AbstractBuildRule {
       boolean noAutoVersion,
       boolean noVersionTransitions,
       boolean noAutoAddOverlay,
+      boolean useProtoFormat,
       AndroidPlatformTarget androidPlatformTarget) {
     super(buildTarget, projectFilesystem);
     this.androidPlatformTarget = androidPlatformTarget;
@@ -89,6 +91,7 @@ public class Aapt2Link extends AbstractBuildRule {
     this.noAutoVersion = noAutoVersion;
     this.noVersionTransitions = noVersionTransitions;
     this.noAutoAddOverlay = noAutoAddOverlay;
+    this.useProtoFormat = useProtoFormat;
     this.buildDepsSupplier =
         MoreSuppliers.memoize(
             () ->
@@ -131,7 +134,7 @@ public class Aapt2Link extends AbstractBuildRule {
         manifestEntries);
 
     Path linkTreePath =
-        BuildTargets.getScratchPath(getProjectFilesystem(), getBuildTarget(), "%s/link-tree");
+        BuildTargetPaths.getScratchPath(getProjectFilesystem(), getBuildTarget(), "%s/link-tree");
 
     // Need to reverse the order of the rules because aapt2 allows later resources
     // to override earlier ones, but aapt gives the earlier ones precedence.
@@ -161,7 +164,6 @@ public class Aapt2Link extends AbstractBuildRule {
 
     steps.add(
         new Aapt2LinkStep(
-            getBuildTarget(),
             getProjectFilesystem().resolve(linkTreePath),
             symlinkPaths.build(),
             dependencyResourceApks
@@ -187,26 +189,28 @@ public class Aapt2Link extends AbstractBuildRule {
   }
 
   private Path getFinalManifestPath() {
-    return BuildTargets.getGenPath(
+    return BuildTargetPaths.getGenPath(
         getProjectFilesystem(), getBuildTarget(), "%s/AndroidManifest.xml");
   }
 
   private Path getResourceApkPath() {
-    return BuildTargets.getGenPath(getProjectFilesystem(), getBuildTarget(), "%s/resource-apk.ap_");
+    return BuildTargetPaths.getGenPath(
+        getProjectFilesystem(), getBuildTarget(), "%s/resource-apk.ap_");
   }
 
   private Path getProguardConfigPath() {
-    return BuildTargets.getGenPath(
+    return BuildTargetPaths.getGenPath(
         getProjectFilesystem(), getBuildTarget(), "%s/proguard-for-resources.pro");
   }
 
   private Path getRDotTxtPath() {
-    return BuildTargets.getGenPath(getProjectFilesystem(), getBuildTarget(), "%s/R.txt");
+    return BuildTargetPaths.getGenPath(getProjectFilesystem(), getBuildTarget(), "%s/R.txt");
   }
 
   /** Directory containing R.java files produced by aapt2 link. */
   private Path getInitialRDotJavaDir() {
-    return BuildTargets.getGenPath(getProjectFilesystem(), getBuildTarget(), "%s/initial-rdotjava");
+    return BuildTargetPaths.getGenPath(
+        getProjectFilesystem(), getBuildTarget(), "%s/initial-rdotjava");
   }
 
   public AaptOutputInfo getAaptOutputInfo() {
@@ -226,11 +230,10 @@ public class Aapt2Link extends AbstractBuildRule {
     private final List<Path> compiledResourceApkPaths;
 
     Aapt2LinkStep(
-        BuildTarget buildTarget,
         Path workingDirectory,
         List<Path> compiledResourcePaths,
         List<Path> compiledResourceApkPaths) {
-      super(Optional.of(buildTarget), workingDirectory);
+      super(workingDirectory);
       this.compiledResourcePaths = compiledResourcePaths;
       this.compiledResourceApkPaths = compiledResourceApkPaths;
     }
@@ -264,6 +267,10 @@ public class Aapt2Link extends AbstractBuildRule {
 
       if (!noAutoAddOverlay) {
         builder.add("--auto-add-overlay");
+      }
+
+      if (useProtoFormat) {
+        builder.add("--proto-format");
       }
 
       ProjectFilesystem pf = getProjectFilesystem();

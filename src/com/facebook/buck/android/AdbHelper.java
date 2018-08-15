@@ -30,6 +30,7 @@ import com.facebook.buck.android.exopackage.RealAndroidDevice;
 import com.facebook.buck.android.toolchain.AndroidPlatformTarget;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.toolchain.ToolchainProvider;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.event.InstallEvent;
@@ -41,10 +42,8 @@ import com.facebook.buck.log.CommandThreadFactory;
 import com.facebook.buck.step.AdbOptions;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.TargetDeviceOptions;
-import com.facebook.buck.toolchain.ToolchainProvider;
 import com.facebook.buck.util.Ansi;
 import com.facebook.buck.util.Console;
-import com.facebook.buck.util.InterruptionFailedException;
 import com.facebook.buck.util.MoreSuppliers;
 import com.facebook.buck.util.Scope;
 import com.facebook.buck.util.Threads;
@@ -578,7 +577,7 @@ public class AdbHelper implements AndroidDevicesHelper {
           executorService,
           10,
           TimeUnit.MINUTES,
-          new InterruptionFailedException("Failed to shutdown ExecutorService."));
+          new RuntimeException("Failed to shutdown ExecutorService."));
       executorService = null;
     }
   }

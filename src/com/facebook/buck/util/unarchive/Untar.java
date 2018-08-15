@@ -20,7 +20,6 @@ import com.facebook.buck.io.file.MorePosixFilePermissions;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.io.ByteStreams;
 import java.io.BufferedInputStream;
@@ -33,6 +32,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.attribute.PosixFilePermission;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.NavigableMap;
 import java.util.Optional;
@@ -68,8 +68,12 @@ public class Untar extends Unarchiver {
     return new Untar(Optional.of(CompressorStreamFactory.XZ));
   }
 
+  public static Untar zstdUnarchiver() {
+    return new Untar(Optional.of(CompressorStreamFactory.ZSTANDARD));
+  }
+
   @Override
-  public ImmutableList<Path> extractArchive(
+  public ImmutableSet<Path> extractArchive(
       Path archiveFile,
       ProjectFilesystem filesystem,
       Path filesystemRelativePath,
@@ -86,7 +90,7 @@ public class Untar extends Unarchiver {
   }
 
   @VisibleForTesting
-  ImmutableList<Path> extractArchive(
+  ImmutableSet<Path> extractArchive(
       Path archiveFile,
       ProjectFilesystem filesystem,
       Path filesystemRelativePath,
@@ -96,6 +100,7 @@ public class Untar extends Unarchiver {
       throws IOException {
 
     ImmutableSet.Builder<Path> paths = ImmutableSet.builder();
+    HashSet<Path> dirsToTidy = new HashSet<>();
     TreeMap<Path, Long> dirCreationTimes = new TreeMap<>();
     DirectoryCreator creator = new DirectoryCreator(filesystem);
 
@@ -120,6 +125,7 @@ public class Untar extends Unarchiver {
         }
 
         if (entry.isDirectory()) {
+          dirsToTidy.add(destPath);
           mkdirs(creator, destPath);
           dirCreationTimes.put(destPath, entry.getModTime().getTime());
         } else if (entry.isSymbolicLink()) {
@@ -148,9 +154,9 @@ public class Untar extends Unarchiver {
     ImmutableSet<Path> filePaths = paths.build();
     if (existingFileMode == ExistingFileMode.OVERWRITE_AND_CLEAN_DIRECTORIES) {
       // Clean out directories of files that were not in the archive
-      tidyDirectories(filesystem, creator, filePaths);
+      tidyDirectories(filesystem, dirsToTidy, filePaths);
     }
-    return filePaths.asList();
+    return filePaths;
   }
 
   private TarArchiveInputStream getArchiveInputStream(Path tarFile)
@@ -167,12 +173,11 @@ public class Untar extends Unarchiver {
 
   /** Cleans up any files that exist on the filesystem that were not in the archive */
   private void tidyDirectories(
-      ProjectFilesystem filesystem, DirectoryCreator creator, ImmutableSet<Path> createdFiles)
+      ProjectFilesystem filesystem, Set<Path> dirsToTidy, ImmutableSet<Path> createdFiles)
       throws IOException {
-    Set<Path> directories = creator.recordedDirectories();
-    for (Path directory : directories) {
+    for (Path directory : dirsToTidy) {
       for (Path foundFile : filesystem.getDirectoryContents(directory)) {
-        if (!createdFiles.contains(foundFile) && !directories.contains(foundFile)) {
+        if (!createdFiles.contains(foundFile) && !dirsToTidy.contains(foundFile)) {
           filesystem.deleteRecursivelyIfExists(foundFile);
         }
       }

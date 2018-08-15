@@ -33,12 +33,14 @@ import com.facebook.buck.io.filesystem.ProjectFilesystemFactory;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.integration.ZipInspector;
+import com.facebook.buck.util.CreateSymlinksForTests;
 import com.facebook.buck.util.config.Config;
 import com.facebook.buck.util.config.ConfigBuilder;
 import com.facebook.buck.util.environment.Platform;
 import com.facebook.buck.util.unarchive.Unzip;
 import com.facebook.buck.util.zip.Zip;
 import com.facebook.buck.util.zip.ZipConstants;
+import com.google.common.base.Charsets;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
@@ -83,10 +85,13 @@ import org.junit.Assume;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.ExpectedException;
 
 public class DefaultProjectFilesystemTest {
 
   @Rule public TemporaryPaths tmp = new TemporaryPaths();
+
+  @Rule public ExpectedException expected = ExpectedException.none();
 
   private ProjectFilesystem filesystem;
 
@@ -132,7 +137,7 @@ public class DefaultProjectFilesystemTest {
     Assume.assumeTrue("System supports symlinks", !Platform.detect().equals(Platform.WINDOWS));
     Files.createDirectory(tmp.getRoot().resolve("real_dir"));
     // Create a relative symbolic link.
-    Files.createSymbolicLink(
+    CreateSymlinksForTests.createSymLink(
         tmp.getRoot().resolve("symlinked_dir"), filesystem.getPath("real_dir"));
     filesystem.mkdirs(filesystem.getPath("symlinked_dir"));
   }
@@ -375,7 +380,8 @@ public class DefaultProjectFilesystemTest {
   public void testWalkFileTreeFollowsSymlinks() throws IOException {
     tmp.newFolder("dir");
     tmp.newFile("dir/file.txt");
-    Files.createSymbolicLink(tmp.getRoot().resolve("linkdir"), tmp.getRoot().resolve("dir"));
+    CreateSymlinksForTests.createSymLink(
+        tmp.getRoot().resolve("linkdir"), tmp.getRoot().resolve("dir"));
 
     ImmutableList.Builder<Path> filePaths = ImmutableList.builder();
 
@@ -541,7 +547,7 @@ public class DefaultProjectFilesystemTest {
   @Test
   public void testIsSymLinkReturnsTrueForSymLink() throws IOException {
     Path rootPath = tmp.getRoot();
-    Files.createSymbolicLink(rootPath.resolve("foo"), rootPath.resolve("bar"));
+    CreateSymlinksForTests.createSymLink(rootPath.resolve("foo"), rootPath.resolve("bar"));
     assertTrue(filesystem.isSymLink(Paths.get("foo")));
   }
 
@@ -665,5 +671,78 @@ public class DefaultProjectFilesystemTest {
         new DefaultProjectFilesystemFactory().createProjectFilesystem(root);
     assertEquals(vfs, projectFilesystem.getPath("bar").getFileSystem());
     assertEquals(vfs.getPath("bar"), projectFilesystem.getPath("bar"));
+  }
+
+  @Test
+  public void moveChildrenFailsIfFilesAlreadyExistAndOverwriteIsNotSet() throws IOException {
+    expected.expect(IOException.class);
+
+    tmp.newFolder("dir1");
+    Files.write(tmp.newFile("dir1/file1"), "new file 1".getBytes(Charsets.UTF_8));
+
+    tmp.newFolder("dir2");
+    tmp.newFile("dir2/file1");
+
+    filesystem.mergeChildren(Paths.get("dir1"), Paths.get("dir2"));
+  }
+
+  @Test
+  public void moveChildrenFailsIfTryingToMoveAFileToANonEmptyDirectory() throws IOException {
+    expected.expect(IOException.class);
+
+    tmp.newFolder("dir1");
+    Files.write(tmp.newFile("dir1/file1"), "new file 1".getBytes(Charsets.UTF_8));
+
+    tmp.newFolder("dir2");
+    tmp.newFolder("dir2/file1");
+    tmp.newFile("dir2/file1/file2");
+
+    filesystem.mergeChildren(
+        Paths.get("dir1"), Paths.get("dir2"), StandardCopyOption.REPLACE_EXISTING);
+  }
+
+  @Test
+  public void moveChildrenMergesOneDirectoryIntoAnother() throws IOException {
+    Path srcDir = tmp.newFolder("dir1");
+    Files.write(tmp.newFile("dir1/file1"), "new file 1".getBytes(Charsets.UTF_8));
+
+    tmp.newFolder("dir1/subdir1");
+    Files.write(tmp.newFile("dir1/subdir1/file2"), "new file 2".getBytes(Charsets.UTF_8));
+
+    tmp.newFolder("dir1/subdir1/subdir2");
+    Files.write(tmp.newFile("dir1/subdir1/subdir2/file3"), "new file 3".getBytes(Charsets.UTF_8));
+
+    tmp.newFolder("dir1/subdir1/subdir2/subdir3");
+
+    tmp.newFolder("dir2");
+    Path destRoot = tmp.newFolder("dir2/dir3");
+    Files.write(tmp.newFile("dir2/dir3/file1"), "old file 1".getBytes(Charsets.UTF_8));
+    Files.write(tmp.newFile("dir2/dir3/file1_1"), "old file 1_1".getBytes(Charsets.UTF_8));
+
+    tmp.newFolder("dir2/dir3/dir4");
+    tmp.newFolder("dir2/dir3/subdir1");
+
+    filesystem.mergeChildren(
+        Paths.get("dir1"), Paths.get("dir2/dir3"), StandardCopyOption.REPLACE_EXISTING);
+
+    assertTrue(Files.isDirectory(srcDir));
+    assertEquals("new file 1", Files.readAllLines(destRoot.resolve("file1")).get(0));
+    assertEquals("old file 1_1", Files.readAllLines(destRoot.resolve("file1_1")).get(0));
+
+    assertTrue(Files.isDirectory(destRoot.resolve("dir4")));
+    assertTrue(Files.isDirectory(destRoot.resolve("subdir1")));
+    assertEquals(
+        "new file 2", Files.readAllLines(destRoot.resolve("subdir1").resolve("file2")).get(0));
+
+    assertTrue(Files.isDirectory(destRoot.resolve("subdir1").resolve("subdir2")));
+    assertEquals(
+        "new file 3",
+        Files.readAllLines(destRoot.resolve("subdir1").resolve("subdir2").resolve("file3")).get(0));
+
+    assertTrue(
+        Files.isDirectory(destRoot.resolve("subdir1").resolve("subdir2").resolve("subdir3")));
+
+    assertFalse(Files.exists(srcDir.resolve("subdir1")));
+    assertFalse(Files.exists(srcDir.resolve("file1")));
   }
 }

@@ -20,12 +20,12 @@ import com.facebook.buck.android.packageable.AndroidPackageable;
 import com.facebook.buck.android.packageable.AndroidPackageableCollector;
 import com.facebook.buck.core.build.buildable.context.BuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
-import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.BuildRuleResolver;
-import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.attr.BuildOutputInitializer;
 import com.facebook.buck.core.rules.attr.ExportDependencies;
 import com.facebook.buck.core.rules.attr.InitializableFromDisk;
@@ -38,9 +38,11 @@ import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.jvm.core.DefaultJavaAbiInfo;
 import com.facebook.buck.jvm.core.HasClasspathEntries;
+import com.facebook.buck.jvm.core.JavaAbiInfo;
 import com.facebook.buck.jvm.core.JavaLibrary;
-import com.facebook.buck.model.BuildTargets;
+import com.facebook.buck.rules.modern.impl.ModernBuildableSupport;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.CopyStep;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
@@ -70,7 +72,7 @@ public class PrebuiltJar extends AbstractBuildRuleWithDeclaredAndExtraDeps
         SupportsInputBasedRuleKey {
 
   @AddToRuleKey private final SourcePath binaryJar;
-  private final JarContentsSupplier binaryJarContentsSupplier;
+  private final DefaultJavaAbiInfo javaAbiInfo;
   private final Path copiedBinaryJar;
   @AddToRuleKey private final Optional<SourcePath> sourceJar;
 
@@ -133,9 +135,9 @@ public class PrebuiltJar extends AbstractBuildRuleWithDeclaredAndExtraDeps
     String fileNameWithJarExtension =
         String.format("%s.jar", MorePaths.getNameWithoutExtension(fileName));
     copiedBinaryJar =
-        BuildTargets.getGenPath(
+        BuildTargetPaths.getGenPath(
             getProjectFilesystem(), getBuildTarget(), "__%s__/" + fileNameWithJarExtension);
-    this.binaryJarContentsSupplier = new JarContentsSupplier(resolver, getSourcePathToOutput());
+    this.javaAbiInfo = new DefaultJavaAbiInfo(getBuildTarget(), getSourcePathToOutput());
 
     buildOutputInitializer = new BuildOutputInitializer<>(buildTarget, this);
   }
@@ -159,9 +161,14 @@ public class PrebuiltJar extends AbstractBuildRuleWithDeclaredAndExtraDeps
   }
 
   @Override
-  public JavaLibrary.Data initializeFromDisk() throws IOException {
+  public void invalidateInitializeFromDiskState() {
+    javaAbiInfo.invalidate();
+  }
+
+  @Override
+  public JavaLibrary.Data initializeFromDisk(SourcePathResolver pathResolver) throws IOException {
     // Warm up the jar contents. We just wrote the thing, so it should be in the filesystem cache
-    binaryJarContentsSupplier.load();
+    javaAbiInfo.load(pathResolver);
     return JavaLibraryRules.initializeFromDisk(getBuildTarget(), getProjectFilesystem());
   }
 
@@ -281,13 +288,17 @@ public class PrebuiltJar extends AbstractBuildRuleWithDeclaredAndExtraDeps
     }
     buildableContext.recordArtifact(copiedBinaryJar);
 
+    Path pathToClassHashes =
+        JavaLibraryRules.getPathToClassHashes(getBuildTarget(), getProjectFilesystem());
+    buildableContext.recordArtifact(pathToClassHashes);
+
     JavaLibraryRules.addAccumulateClassNamesStep(
-        getBuildTarget(),
+        ModernBuildableSupport.newCellRelativePathFactory(
+            context.getBuildCellRootPath(), getProjectFilesystem()),
         getProjectFilesystem(),
-        getSourcePathToOutput(),
-        buildableContext,
-        context,
-        steps);
+        steps,
+        Optional.of(context.getSourcePathResolver().getRelativePath(getSourcePathToOutput())),
+        pathToClassHashes);
 
     return steps.build();
   }
@@ -311,25 +322,12 @@ public class PrebuiltJar extends AbstractBuildRuleWithDeclaredAndExtraDeps
   }
 
   @Override
-  public ImmutableSortedSet<SourcePath> getJarContents() {
-    return binaryJarContentsSupplier.get();
-  }
-
-  @Override
-  public boolean jarContains(String path) {
-    return binaryJarContentsSupplier.jarContains(path);
+  public JavaAbiInfo getAbiInfo() {
+    return javaAbiInfo;
   }
 
   @Override
   public Optional<String> getMavenCoords() {
     return mavenCoords;
-  }
-
-  @Override
-  public void updateBuildRuleResolver(
-      BuildRuleResolver ruleResolver,
-      SourcePathRuleFinder ruleFinder,
-      SourcePathResolver pathResolver) {
-    binaryJarContentsSupplier.updateSourcePathResolver(pathResolver);
   }
 }

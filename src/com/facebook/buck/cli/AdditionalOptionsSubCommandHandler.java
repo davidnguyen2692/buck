@@ -16,12 +16,8 @@
 
 package com.facebook.buck.cli;
 
-import com.facebook.buck.util.MoreStrings;
-import com.facebook.buck.util.types.Pair;
-import com.google.common.collect.ImmutableList;
+import com.facebook.buck.util.string.MoreStrings;
 import java.util.Arrays;
-import java.util.Collection;
-import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import org.kohsuke.args4j.CmdLineException;
@@ -32,20 +28,23 @@ import org.kohsuke.args4j.spi.Setter;
 import org.kohsuke.args4j.spi.SubCommand;
 import org.kohsuke.args4j.spi.SubCommandHandler;
 import org.kohsuke.args4j.spi.SubCommands;
+import org.pf4j.PluginManager;
 
 public class AdditionalOptionsSubCommandHandler extends SubCommandHandler {
 
+  private final PluginManager pluginManager;
   private final Setter<Object> cachedSetter;
 
   public AdditionalOptionsSubCommandHandler(
       CmdLineParser parser, OptionDef option, Setter<Object> setter) {
     super(parser, option, setter);
+    this.pluginManager = ((AdditionalOptionsCmdLineParser) parser).getPluginManager();
     this.cachedSetter = setter;
   }
 
   @Override
   protected CmdLineParser configureParser(Object subCmd, SubCommand c) {
-    return new AdditionalOptionsCmdLineParser(subCmd);
+    return new AdditionalOptionsCmdLineParser(pluginManager, subCmd);
   }
 
   @Override
@@ -59,7 +58,8 @@ public class AdditionalOptionsSubCommandHandler extends SubCommandHandler {
     SubCommand c = availableSubcommands.get(subCmd);
     if (c == null) {
       // Try alternative spellings
-      List<String> suggestions = spellingSuggestions(subCmd, availableSubcommands.keySet(), 2);
+      List<String> suggestions =
+          MoreStrings.getSpellingSuggestions(subCmd, availableSubcommands.keySet(), 2);
       if (suggestions.size() == 1) {
         // Only use the suggestion if it's unambiguous
         String corrected = suggestions.get(0);
@@ -70,7 +70,9 @@ public class AdditionalOptionsSubCommandHandler extends SubCommandHandler {
     }
     if (c != null) {
       try {
-        cachedSetter.addValue(subCommand(c, params));
+        Command command = (Command) subCommand(c, params);
+        command.setPluginManager(pluginManager);
+        cachedSetter.addValue(command);
       } catch (CmdLineException e) {
         Object subCmdObj = instantiate(c);
         if (subCmdObj instanceof AbstractCommand) {
@@ -83,16 +85,5 @@ public class AdditionalOptionsSubCommandHandler extends SubCommandHandler {
     } else {
       return fallback(subCmd);
     }
-  }
-
-  private static List<String> spellingSuggestions(
-      String input, Collection<String> options, int maxDistance) {
-    return options
-        .stream()
-        .map(option -> new Pair<>(option, MoreStrings.getLevenshteinDistance(input, option)))
-        .filter(pair -> pair.getSecond() <= maxDistance)
-        .sorted(Comparator.comparing(Pair::getSecond))
-        .map(Pair::getFirst)
-        .collect(ImmutableList.toImmutableList());
   }
 }

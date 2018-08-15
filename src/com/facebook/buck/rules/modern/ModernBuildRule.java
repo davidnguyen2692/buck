@@ -25,6 +25,7 @@ import com.facebook.buck.core.rules.BuildRuleResolver;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.attr.SupportsInputBasedRuleKey;
 import com.facebook.buck.core.rules.impl.AbstractBuildRule;
+import com.facebook.buck.core.sourcepath.BuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
@@ -209,7 +210,7 @@ public class ModernBuildRule<T extends Buildable> extends AbstractBuildRule
   /**
    * This should only be exposed to implementations of the ModernBuildRule, not of the Buildable.
    */
-  protected final SourcePath getSourcePath(OutputPath outputPath) {
+  protected final BuildTargetSourcePath getSourcePath(OutputPath outputPath) {
     // TODO(cjhopman): enforce that the outputPath is actually from this target somehow.
     return ExplicitBuildTargetSourcePath.of(
         getBuildTarget(), outputPathResolver.resolvePath(outputPath));
@@ -252,14 +253,15 @@ public class ModernBuildRule<T extends Buildable> extends AbstractBuildRule
               .withRecursive(true));
     }
 
-    stepBuilder.addAll(
-        MakeCleanDirectoryStep.of(
-            BuildCellRelativePath.fromCellRelativePath(
-                context.getBuildCellRootPath(), filesystem, outputPathResolver.getRootPath())));
-    stepBuilder.addAll(
-        MakeCleanDirectoryStep.of(
-            BuildCellRelativePath.fromCellRelativePath(
-                context.getBuildCellRootPath(), filesystem, outputPathResolver.getTempPath())));
+    BuildCellRelativePath rootPath =
+        BuildCellRelativePath.fromCellRelativePath(
+            context.getBuildCellRootPath(), filesystem, outputPathResolver.getRootPath());
+    BuildCellRelativePath tempPath =
+        BuildCellRelativePath.fromCellRelativePath(
+            context.getBuildCellRootPath(), filesystem, outputPathResolver.getTempPath());
+
+    stepBuilder.addAll(MakeCleanDirectoryStep.of(rootPath));
+    stepBuilder.addAll(MakeCleanDirectoryStep.of(tempPath));
 
     stepBuilder.addAll(
         buildable.getBuildSteps(
@@ -269,12 +271,10 @@ public class ModernBuildRule<T extends Buildable> extends AbstractBuildRule
             new DefaultBuildCellRelativePathFactory(
                 context.getBuildCellRootPath(), filesystem, Optional.of(outputPathResolver))));
 
-    // TODO(cjhopman): Should this delete the scratch directory? Maybe delete by default but
-    // preserve it based on verbosity. Currently, since CachingBuildEngine doesn't know what files
-    // may have been created by a BuildRule, it can't reliably clear out old state when building a
-    // rule. With ModernBuildRule, all outputs are limited to the gen/scratch roots which are unique
-    // to the rule and so the engine could reliably clean old state and then leaving the scratch
-    // directory would be fine.
+    // TODO(cjhopman): This should probably be handled by the build engine.
+    if (context.getShouldDeleteTemporaries()) {
+      stepBuilder.add(RmStep.of(tempPath).withRecursive(true));
+    }
 
     return stepBuilder.build();
   }
@@ -312,7 +312,19 @@ public class ModernBuildRule<T extends Buildable> extends AbstractBuildRule
     collector.add(outputPathResolver.getRootPath());
     classInfo.visit(
         buildable,
-        new OutputPathVisitor(path1 -> collector.add(outputPathResolver.resolvePath(path1))));
+        new OutputPathVisitor(
+            path1 -> {
+              // Check that any PublicOutputPath is not specified inside the rule's temporary
+              // directory,
+              // as the temp directory may be deleted after the rule is run.
+              if (path1 instanceof PublicOutputPath
+                  && path1.getPath().startsWith(outputPathResolver.getTempPath())) {
+                throw new IllegalStateException(
+                    "PublicOutputPath should not be inside rule temporary directory. Path: "
+                        + path1);
+              }
+              collector.add(outputPathResolver.resolvePath(path1));
+            }));
     // ImmutableSet guarantees that iteration order is unchanged.
     Set<Path> outputs = collector.build().collect(ImmutableSet.toImmutableSet());
     for (Path path : outputs) {

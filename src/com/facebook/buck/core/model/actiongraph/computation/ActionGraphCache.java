@@ -16,9 +16,6 @@
 
 package com.facebook.buck.core.model.actiongraph.computation;
 
-import com.facebook.buck.config.ActionGraphParallelizationMode;
-import com.facebook.buck.config.BuckConfig;
-import com.facebook.buck.config.IncrementalActionGraphMode;
 import com.facebook.buck.core.cell.CellProvider;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.actiongraph.ActionGraph;
@@ -38,13 +35,13 @@ import com.facebook.buck.core.rules.transformer.TargetNodeToBuildRuleTransformer
 import com.facebook.buck.core.rules.transformer.impl.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
+import com.facebook.buck.core.util.graph.AbstractBottomUpTraversal;
 import com.facebook.buck.event.ActionGraphEvent;
 import com.facebook.buck.event.ActionGraphPerfStatEvent;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.ExperimentEvent;
 import com.facebook.buck.event.PerfEventId;
 import com.facebook.buck.event.SimplePerfEvent;
-import com.facebook.buck.graph.AbstractBottomUpTraversal;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.log.thrift.ThriftRuleKeyLogger;
 import com.facebook.buck.rules.keys.ContentAgnosticRuleKeyFactory;
@@ -92,21 +89,21 @@ public class ActionGraphCache {
       BuckEventBus eventBus,
       TargetGraph targetGraph,
       CellProvider cellProvider,
-      BuckConfig buckConfig,
+      ActionGraphConfig actionGraphConfig,
       RuleKeyConfiguration ruleKeyConfiguration,
       CloseableMemoizedSupplier<ForkJoinPool> poolSupplier) {
     return getActionGraph(
         eventBus,
-        buckConfig.isActionGraphCheckingEnabled(),
-        buckConfig.isSkipActionGraphCache(),
+        actionGraphConfig.isActionGraphCheckingEnabled(),
+        actionGraphConfig.isSkipActionGraphCache(),
         targetGraph,
         cellProvider,
         ruleKeyConfiguration,
-        buckConfig.getActionGraphParallelizationMode(),
+        actionGraphConfig.getActionGraphParallelizationMode(),
         Optional.empty(),
-        buckConfig.getShouldInstrumentActionGraph(),
-        buckConfig.getIncrementalActionGraphMode(),
-        buckConfig.getIncrementalActionGraphExperimentGroups(),
+        actionGraphConfig.getShouldInstrumentActionGraph(),
+        actionGraphConfig.getIncrementalActionGraphMode(),
+        actionGraphConfig.getIncrementalActionGraphExperimentGroups(),
         poolSupplier);
   }
 
@@ -115,22 +112,22 @@ public class ActionGraphCache {
       BuckEventBus eventBus,
       TargetGraph targetGraph,
       CellProvider cellProvider,
-      BuckConfig buckConfig,
+      ActionGraphConfig actionGraphConfig,
       RuleKeyConfiguration ruleKeyConfiguration,
       Optional<ThriftRuleKeyLogger> ruleKeyLogger,
       CloseableMemoizedSupplier<ForkJoinPool> poolSupplier) {
     return getActionGraph(
         eventBus,
-        buckConfig.isActionGraphCheckingEnabled(),
-        buckConfig.isSkipActionGraphCache(),
+        actionGraphConfig.isActionGraphCheckingEnabled(),
+        actionGraphConfig.isSkipActionGraphCache(),
         targetGraph,
         cellProvider,
         ruleKeyConfiguration,
-        buckConfig.getActionGraphParallelizationMode(),
+        actionGraphConfig.getActionGraphParallelizationMode(),
         ruleKeyLogger,
-        buckConfig.getShouldInstrumentActionGraph(),
-        buckConfig.getIncrementalActionGraphMode(),
-        buckConfig.getIncrementalActionGraphExperimentGroups(),
+        actionGraphConfig.getShouldInstrumentActionGraph(),
+        actionGraphConfig.getIncrementalActionGraphMode(),
+        actionGraphConfig.getIncrementalActionGraphExperimentGroups(),
         poolSupplier);
   }
 
@@ -416,9 +413,9 @@ public class ActionGraphCache {
     }
 
     LOG.debug("start target graph walk");
-    new AbstractBottomUpTraversal<TargetNode<?, ?>, RuntimeException>(targetGraph) {
+    new AbstractBottomUpTraversal<TargetNode<?>, RuntimeException>(targetGraph) {
       @Override
-      public void visit(TargetNode<?, ?> node) {
+      public void visit(TargetNode<?> node) {
         // If we're loading this node from cache, we don't need to wait on our children, as the
         // entire subgraph will be loaded from cache.
         CompletableFuture<BuildRule>[] depFutures =
@@ -475,9 +472,9 @@ public class ActionGraphCache {
     }
 
     LOG.debug("start target graph walk");
-    new AbstractBottomUpTraversal<TargetNode<?, ?>, RuntimeException>(targetGraph) {
+    new AbstractBottomUpTraversal<TargetNode<?>, RuntimeException>(targetGraph) {
       @Override
-      public void visit(TargetNode<?, ?> node) {
+      public void visit(TargetNode<?> node) {
         if (shouldInstrumentGraphBuilding) {
           Clock clock = new DefaultClock();
           try (Scope ignored =

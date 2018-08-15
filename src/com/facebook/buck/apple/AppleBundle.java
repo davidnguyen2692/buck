@@ -30,12 +30,13 @@ import com.facebook.buck.apple.toolchain.ProvisioningProfileMetadata;
 import com.facebook.buck.apple.toolchain.ProvisioningProfileStore;
 import com.facebook.buck.core.build.buildable.context.BuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
-import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.attr.HasRuntimeDeps;
 import com.facebook.buck.core.rules.impl.AbstractBuildRuleWithDeclaredAndExtraDeps;
@@ -55,7 +56,6 @@ import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.CopyStep;
@@ -289,7 +289,7 @@ public class AppleBundle extends AbstractBuildRuleWithDeclaredAndExtraDeps
 
   public static Path getBundleRoot(
       ProjectFilesystem filesystem, BuildTarget buildTarget, String binaryName, String extension) {
-    return BuildTargets.getGenPath(filesystem, buildTarget, "%s")
+    return BuildTargetPaths.getGenPath(filesystem, buildTarget, "%s")
         .resolve(binaryName + "." + extension);
   }
 
@@ -401,7 +401,7 @@ public class AppleBundle extends AbstractBuildRuleWithDeclaredAndExtraDeps
 
     Path infoPlistInputPath = context.getSourcePathResolver().getAbsolutePath(infoPlist);
     Path infoPlistSubstitutionTempPath =
-        BuildTargets.getScratchPath(getProjectFilesystem(), getBuildTarget(), "%s.plist");
+        BuildTargetPaths.getScratchPath(getProjectFilesystem(), getBuildTarget(), "%s.plist");
     Path infoPlistOutputPath = metadataPath.resolve("Info.plist");
 
     stepsBuilder.add(
@@ -577,7 +577,7 @@ public class AppleBundle extends AbstractBuildRuleWithDeclaredAndExtraDeps
                     Path originalEntitlementsPlist =
                         srcRoot.resolve(Paths.get(entitlementsPlistName));
                     Path entitlementsPlistWithSubstitutions =
-                        BuildTargets.getScratchPath(
+                        BuildTargetPaths.getScratchPath(
                             filesystem, getBuildTarget(), "%s-Entitlements.plist");
 
                     stepsBuilder.add(
@@ -594,7 +594,8 @@ public class AppleBundle extends AbstractBuildRuleWithDeclaredAndExtraDeps
 
         signingEntitlementsTempPath =
             Optional.of(
-                BuildTargets.getScratchPath(getProjectFilesystem(), getBuildTarget(), "%s.xcent"));
+                BuildTargetPaths.getScratchPath(
+                    getProjectFilesystem(), getBuildTarget(), "%s.xcent"));
 
         Path dryRunResultPath = bundleRoot.resolve(PP_DRY_RUN_RESULT_FILE);
 
@@ -990,7 +991,8 @@ public class AppleBundle extends AbstractBuildRuleWithDeclaredAndExtraDeps
       stepsBuilder.add(
           new SwiftStdlibStep(
               getProjectFilesystem().getRootPath(),
-              BuildTargets.getScratchPath(getProjectFilesystem(), getBuildTarget(), tempDirPattern),
+              BuildTargetPaths.getScratchPath(
+                  getProjectFilesystem(), getBuildTarget(), tempDirPattern),
               this.sdkPath,
               destinationPath,
               swiftStdlibCommand.build(),
@@ -1008,10 +1010,10 @@ public class AppleBundle extends AbstractBuildRuleWithDeclaredAndExtraDeps
           "Compiling storyboard %s to storyboardc %s and linking", sourcePath, destinationPath);
 
       Path compiledStoryboardPath =
-          BuildTargets.getScratchPath(getProjectFilesystem(), getBuildTarget(), "%s.storyboardc");
+          BuildTargetPaths.getScratchPath(
+              getProjectFilesystem(), getBuildTarget(), "%s.storyboardc");
       stepsBuilder.add(
           new IbtoolStep(
-              getBuildTarget(),
               getProjectFilesystem(),
               ibtool.getEnvironment(resolver),
               ibtool.getCommandPrefix(resolver),
@@ -1022,7 +1024,6 @@ public class AppleBundle extends AbstractBuildRuleWithDeclaredAndExtraDeps
 
       stepsBuilder.add(
           new IbtoolStep(
-              getBuildTarget(),
               getProjectFilesystem(),
               ibtool.getEnvironment(resolver),
               ibtool.getCommandPrefix(resolver),
@@ -1040,7 +1041,6 @@ public class AppleBundle extends AbstractBuildRuleWithDeclaredAndExtraDeps
       Path compiledStoryboardPath = destinationPath.getParent().resolve(compiledStoryboardFilename);
       stepsBuilder.add(
           new IbtoolStep(
-              getBuildTarget(),
               getProjectFilesystem(),
               ibtool.getEnvironment(resolver),
               ibtool.getCommandPrefix(resolver),
@@ -1082,7 +1082,6 @@ public class AppleBundle extends AbstractBuildRuleWithDeclaredAndExtraDeps
         LOG.debug("Compiling XIB %s to NIB %s", sourcePath, destinationPath);
         stepsBuilder.add(
             new IbtoolStep(
-                getBuildTarget(),
                 getProjectFilesystem(),
                 ibtool.getEnvironment(resolver),
                 ibtool.getCommandPrefix(resolver),

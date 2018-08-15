@@ -22,7 +22,7 @@ import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.CompilerErrorEvent;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.jvm.core.HasJavaAbi;
+import com.facebook.buck.jvm.core.JavaAbis;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
@@ -44,6 +44,8 @@ public class JavacStep implements Step {
   private final BuildTarget invokingRule;
 
   private final boolean ownsPipelineObject;
+  private final SourcePathResolver resolver;
+  private final ProjectFilesystem filesystem;
 
   public JavacStep(
       Javac javac,
@@ -60,25 +62,35 @@ public class JavacStep implements Step {
             javac,
             javacOptions,
             invokingRule,
-            resolver,
-            filesystem,
             classpathChecker,
             compilerParameters,
             abiJarParameters,
             libraryJarParameters),
         invokingRule,
-        true);
+        true,
+        resolver,
+        filesystem);
   }
 
-  public JavacStep(JavacPipelineState pipeline, BuildTarget invokingRule) {
-    this(pipeline, invokingRule, false);
+  public JavacStep(
+      JavacPipelineState pipeline,
+      BuildTarget invokingRule,
+      SourcePathResolver resolver,
+      ProjectFilesystem filesystem) {
+    this(pipeline, invokingRule, false, resolver, filesystem);
   }
 
   private JavacStep(
-      JavacPipelineState pipeline, BuildTarget invokingRule, boolean ownsPipelineObject) {
+      JavacPipelineState pipeline,
+      BuildTarget invokingRule,
+      boolean ownsPipelineObject,
+      SourcePathResolver resolver,
+      ProjectFilesystem filesystem) {
     this.pipeline = pipeline;
     this.invokingRule = invokingRule;
     this.ownsPipelineObject = ownsPipelineObject;
+    this.resolver = resolver;
+    this.filesystem = filesystem;
   }
 
   @Override
@@ -89,10 +101,10 @@ public class JavacStep implements Step {
     String firstOrderStderr;
     Optional<String> returnedStderr;
     try {
-      Javac.Invocation invocation = pipeline.getJavacInvocation(context);
-      if (HasJavaAbi.isSourceAbiTarget(invokingRule)) {
+      Javac.Invocation invocation = pipeline.getJavacInvocation(resolver, filesystem, context);
+      if (JavaAbis.isSourceAbiTarget(invokingRule)) {
         declaredDepsBuildResult = invocation.buildSourceAbiJar();
-      } else if (HasJavaAbi.isSourceOnlyAbiTarget(invokingRule)) {
+      } else if (JavaAbis.isSourceOnlyAbiTarget(invokingRule)) {
         declaredDepsBuildResult = invocation.buildSourceOnlyAbiJar();
       } else {
         declaredDepsBuildResult = invocation.buildClasses();
@@ -142,10 +154,9 @@ public class JavacStep implements Step {
             .getDescription(
                 getOptions(context, getClasspathEntries()),
                 pipeline.getCompilerParameters().getSourceFilePaths(),
-                pipeline.getCompilerParameters().getPathToSourcesList());
+                pipeline.getCompilerParameters().getOutputPaths().getPathToSourcesList());
 
-    if (HasJavaAbi.isLibraryTarget(invokingRule)
-        && pipeline.getLibraryJarParameters().isPresent()) {
+    if (JavaAbis.isLibraryTarget(invokingRule) && pipeline.getLibraryJarParameters().isPresent()) {
       JarParameters jarParameters = pipeline.getLibraryJarParameters().get();
       Optional<Path> manifestFile = jarParameters.getManifestFile();
       ImmutableSortedSet<Path> entriesToJar = jarParameters.getEntriesToJar();
@@ -166,9 +177,9 @@ public class JavacStep implements Step {
   @Override
   public String getShortName() {
     String name;
-    if (HasJavaAbi.isSourceAbiTarget(invokingRule)) {
+    if (JavaAbis.isSourceAbiTarget(invokingRule)) {
       return "source_abi";
-    } else if (HasJavaAbi.isSourceOnlyAbiTarget(invokingRule)) {
+    } else if (JavaAbis.isSourceOnlyAbiTarget(invokingRule)) {
       return "source_only_abi";
     } else if (pipeline.getLibraryJarParameters().isPresent()) {
       name = "javac_jar";
@@ -189,7 +200,7 @@ public class JavacStep implements Step {
   @VisibleForTesting
   ImmutableList<String> getOptions(
       ExecutionContext context, ImmutableSortedSet<Path> buildClasspathEntries) {
-    return pipeline.getOptions(context, buildClasspathEntries);
+    return pipeline.getOptions(context, buildClasspathEntries, filesystem, resolver);
   }
 
   /** @return The classpath entries used to invoke javac. */

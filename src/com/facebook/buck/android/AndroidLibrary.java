@@ -20,17 +20,17 @@ import com.facebook.buck.android.AndroidLibraryDescription.CoreArg;
 import com.facebook.buck.android.packageable.AndroidPackageable;
 import com.facebook.buck.android.packageable.AndroidPackageableCollector;
 import com.facebook.buck.core.cell.resolver.CellPathResolver;
-import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.common.BuildDeps;
 import com.facebook.buck.core.sourcepath.SourcePath;
-import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.toolchain.ToolchainProvider;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.jvm.core.HasJavaAbi;
+import com.facebook.buck.jvm.core.JavaAbis;
 import com.facebook.buck.jvm.java.ConfiguredCompilerFactory;
 import com.facebook.buck.jvm.java.DefaultJavaLibrary;
 import com.facebook.buck.jvm.java.DefaultJavaLibraryRules;
@@ -41,7 +41,6 @@ import com.facebook.buck.jvm.java.JavaLibraryDeps;
 import com.facebook.buck.jvm.java.JavacFactory;
 import com.facebook.buck.jvm.java.JavacOptions;
 import com.facebook.buck.jvm.java.UnusedDependenciesFinderFactory;
-import com.facebook.buck.toolchain.ToolchainProvider;
 import com.facebook.buck.util.DependencyMode;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
@@ -90,8 +89,8 @@ public class AndroidLibrary extends DefaultJavaLibrary implements AndroidPackage
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
       BuildDeps buildDeps,
-      SourcePathResolver resolver,
       JarBuildStepsFactory jarBuildStepsFactory,
+      SourcePathRuleFinder ruleFinder,
       Optional<SourcePath> proguardConfig,
       SortedSet<BuildRule> fullJarDeclaredDeps,
       ImmutableSortedSet<BuildRule> fullJarExportedDeps,
@@ -109,8 +108,8 @@ public class AndroidLibrary extends DefaultJavaLibrary implements AndroidPackage
         buildTarget,
         projectFilesystem,
         buildDeps,
-        resolver,
         jarBuildStepsFactory,
+        ruleFinder,
         proguardConfig,
         fullJarDeclaredDeps,
         fullJarExportedDeps,
@@ -172,8 +171,8 @@ public class AndroidLibrary extends DefaultJavaLibrary implements AndroidPackage
                 BuildTarget buildTarget,
                 ProjectFilesystem projectFilesystem,
                 BuildDeps buildDeps,
-                SourcePathResolver resolver,
                 JarBuildStepsFactory jarBuildStepsFactory,
+                SourcePathRuleFinder ruleFinder,
                 Optional<SourcePath> proguardConfig,
                 SortedSet<BuildRule> firstOrderPackageableDeps,
                 ImmutableSortedSet<BuildRule> fullJarExportedDeps,
@@ -190,8 +189,8 @@ public class AndroidLibrary extends DefaultJavaLibrary implements AndroidPackage
                   buildTarget,
                   projectFilesystem,
                   buildDeps,
-                  resolver,
                   jarBuildStepsFactory,
+                  ruleFinder,
                   proguardConfig,
                   firstOrderPackageableDeps,
                   fullJarExportedDeps,
@@ -212,9 +211,9 @@ public class AndroidLibrary extends DefaultJavaLibrary implements AndroidPackage
 
       JavaLibraryDeps deps = Preconditions.checkNotNull(delegateBuilder.getDeps());
       BuildTarget libraryTarget =
-          HasJavaAbi.isLibraryTarget(buildTarget)
+          JavaAbis.isLibraryTarget(buildTarget)
               ? buildTarget
-              : HasJavaAbi.getLibraryTarget(buildTarget);
+              : JavaAbis.getLibraryTarget(buildTarget);
       graphEnhancer =
           new AndroidLibraryGraphEnhancer(
               libraryTarget,

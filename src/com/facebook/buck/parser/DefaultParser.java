@@ -22,21 +22,18 @@ import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.HasDefaultFlavors;
+import com.facebook.buck.core.model.impl.ImmutableBuildTarget;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraphAndBuildTargets;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
-import com.facebook.buck.core.rules.knowntypes.KnownBuildRuleTypesProvider;
+import com.facebook.buck.core.util.graph.AcyclicDepthFirstPostOrderTraversal;
+import com.facebook.buck.core.util.graph.GraphTraversable;
+import com.facebook.buck.core.util.graph.MutableDirectedGraph;
 import com.facebook.buck.event.BuckEventBus;
-import com.facebook.buck.graph.AcyclicDepthFirstPostOrderTraversal;
-import com.facebook.buck.graph.GraphTraversable;
-import com.facebook.buck.graph.MutableDirectedGraph;
-import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.model.ImmutableBuildTarget;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
 import com.facebook.buck.parser.exceptions.BuildTargetException;
 import com.facebook.buck.parser.exceptions.MissingBuildFileException;
-import com.facebook.buck.rules.coercer.ConstructorArgMarshaller;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
 import com.facebook.buck.util.MoreMaps;
 import com.google.common.annotations.VisibleForTesting;
@@ -70,30 +67,19 @@ public class DefaultParser implements Parser {
 
   private final PerBuildStateFactory perBuildStateFactory;
   private final DaemonicParserState permState;
-  private final ConstructorArgMarshaller marshaller;
-  private final TypeCoercerFactory typeCoercerFactory;
-  private final KnownBuildRuleTypesProvider knownBuildRuleTypesProvider;
-  private final ParserPythonInterpreterProvider parserPythonInterpreterProvider;
   private final TargetSpecResolver targetSpecResolver;
 
   public DefaultParser(
+      PerBuildStateFactory perBuildStateFactory,
       ParserConfig parserConfig,
       TypeCoercerFactory typeCoercerFactory,
-      ConstructorArgMarshaller marshaller,
-      KnownBuildRuleTypesProvider knownBuildRuleTypesProvider,
-      ExecutableFinder executableFinder,
       TargetSpecResolver targetSpecResolver) {
-    this.perBuildStateFactory = new PerBuildStateFactory();
-    this.typeCoercerFactory = typeCoercerFactory;
+    this.perBuildStateFactory = perBuildStateFactory;
     this.permState =
         new DaemonicParserState(
             typeCoercerFactory,
             parserConfig.getNumParsingThreads(),
             parserConfig.shouldIgnoreEnvironmentVariablesChanges());
-    this.marshaller = marshaller;
-    this.knownBuildRuleTypesProvider = knownBuildRuleTypesProvider;
-    this.parserPythonInterpreterProvider =
-        new ParserPythonInterpreterProvider(parserConfig, executableFinder);
     this.targetSpecResolver = targetSpecResolver;
   }
 
@@ -111,7 +97,7 @@ public class DefaultParser implements Parser {
   }
 
   @Override
-  public ImmutableSet<TargetNode<?, ?>> getAllTargetNodes(
+  public ImmutableSet<TargetNode<?>> getAllTargetNodes(
       BuckEventBus eventBus,
       Cell cell,
       boolean enableProfiling,
@@ -130,22 +116,13 @@ public class DefaultParser implements Parser {
 
     try (PerBuildState state =
         perBuildStateFactory.create(
-            typeCoercerFactory,
-            permState,
-            marshaller,
-            eventBus,
-            parserPythonInterpreterProvider,
-            executor,
-            cell,
-            knownBuildRuleTypesProvider,
-            enableProfiling,
-            SpeculativeParsing.ENABLED)) {
+            permState, eventBus, executor, cell, enableProfiling, SpeculativeParsing.ENABLED)) {
       return state.getAllTargetNodes(cell, buildFile);
     }
   }
 
   @Override
-  public TargetNode<?, ?> getTargetNode(
+  public TargetNode<?> getTargetNode(
       BuckEventBus eventBus,
       Cell cell,
       boolean enableProfiling,
@@ -154,28 +131,19 @@ public class DefaultParser implements Parser {
       throws BuildFileParseException {
     try (PerBuildState state =
         perBuildStateFactory.create(
-            typeCoercerFactory,
-            permState,
-            marshaller,
-            eventBus,
-            parserPythonInterpreterProvider,
-            executor,
-            cell,
-            knownBuildRuleTypesProvider,
-            enableProfiling,
-            SpeculativeParsing.DISABLED)) {
+            permState, eventBus, executor, cell, enableProfiling, SpeculativeParsing.DISABLED)) {
       return state.getTargetNode(target);
     }
   }
 
   @Override
-  public TargetNode<?, ?> getTargetNode(PerBuildState perBuildState, BuildTarget target)
+  public TargetNode<?> getTargetNode(PerBuildState perBuildState, BuildTarget target)
       throws BuildFileParseException {
     return perBuildState.getTargetNode(target);
   }
 
   @Override
-  public ListenableFuture<TargetNode<?, ?>> getTargetNodeJob(
+  public ListenableFuture<TargetNode<?>> getTargetNodeJob(
       PerBuildState perBuildState, BuildTarget target) throws BuildTargetException {
     return perBuildState.getTargetNodeJob(target);
   }
@@ -183,7 +151,7 @@ public class DefaultParser implements Parser {
   @Nullable
   @Override
   public SortedMap<String, Object> getTargetNodeRawAttributes(
-      PerBuildState state, Cell cell, TargetNode<?, ?> targetNode) throws BuildFileParseException {
+      PerBuildState state, Cell cell, TargetNode<?> targetNode) throws BuildFileParseException {
     try {
 
       Cell owningCell = cell.getCell(targetNode.getBuildTarget());
@@ -194,8 +162,7 @@ public class DefaultParser implements Parser {
       String shortName = targetNode.getBuildTarget().getShortName();
       for (Map<String, Object> rawNode : allRawNodes) {
         if (shortName.equals(rawNode.get("name"))) {
-          SortedMap<String, Object> toReturn = new TreeMap<>();
-          toReturn.putAll(rawNode);
+          SortedMap<String, Object> toReturn = new TreeMap<>(rawNode);
           toReturn.put(
               "buck.direct_dependencies",
               targetNode
@@ -224,21 +191,12 @@ public class DefaultParser implements Parser {
       Cell cell,
       boolean enableProfiling,
       ListeningExecutorService executor,
-      TargetNode<?, ?> targetNode)
+      TargetNode<?> targetNode)
       throws BuildFileParseException {
 
     try (PerBuildState state =
         perBuildStateFactory.create(
-            typeCoercerFactory,
-            permState,
-            marshaller,
-            eventBus,
-            parserPythonInterpreterProvider,
-            executor,
-            cell,
-            knownBuildRuleTypesProvider,
-            enableProfiling,
-            SpeculativeParsing.DISABLED)) {
+            permState, eventBus, executor, cell, enableProfiling, SpeculativeParsing.DISABLED)) {
       return getTargetNodeRawAttributes(state, cell, targetNode);
     }
   }
@@ -271,16 +229,7 @@ public class DefaultParser implements Parser {
 
     try (PerBuildState state =
         perBuildStateFactory.create(
-            typeCoercerFactory,
-            permState,
-            marshaller,
-            eventBus,
-            parserPythonInterpreterProvider,
-            executor,
-            rootCell,
-            knownBuildRuleTypesProvider,
-            enableProfiling,
-            SpeculativeParsing.ENABLED)) {
+            permState, eventBus, executor, rootCell, enableProfiling, SpeculativeParsing.ENABLED)) {
       return buildTargetGraph(state, eventBus, toExplore);
     }
   }
@@ -293,15 +242,15 @@ public class DefaultParser implements Parser {
       return TargetGraph.EMPTY;
     }
 
-    MutableDirectedGraph<TargetNode<?, ?>> graph = new MutableDirectedGraph<>();
-    Map<BuildTarget, TargetNode<?, ?>> index = new HashMap<>();
+    MutableDirectedGraph<TargetNode<?>> graph = new MutableDirectedGraph<>();
+    Map<BuildTarget, TargetNode<?>> index = new HashMap<>();
 
     ParseEvent.Started parseStart = ParseEvent.started(toExplore);
     eventBus.post(parseStart);
 
     GraphTraversable<BuildTarget> traversable =
         target -> {
-          TargetNode<?, ?> node;
+          TargetNode<?> node;
           try {
             node = state.getTargetNode(target);
           } catch (BuildFileParseException e) {
@@ -331,7 +280,7 @@ public class DefaultParser implements Parser {
     TargetGraph targetGraph = null;
     try {
       for (BuildTarget target : targetNodeTraversal.traverse(toExplore)) {
-        TargetNode<?, ?> targetNode = state.getTargetNode(target);
+        TargetNode<?> targetNode = state.getTargetNode(target);
 
         Preconditions.checkNotNull(targetNode, "No target node found for %s", target);
         graph.addNode(targetNode);
@@ -397,16 +346,7 @@ public class DefaultParser implements Parser {
 
     try (PerBuildState state =
         perBuildStateFactory.create(
-            typeCoercerFactory,
-            permState,
-            marshaller,
-            eventBus,
-            parserPythonInterpreterProvider,
-            executor,
-            rootCell,
-            knownBuildRuleTypesProvider,
-            enableProfiling,
-            SpeculativeParsing.ENABLED)) {
+            permState, eventBus, executor, rootCell, enableProfiling, SpeculativeParsing.ENABLED)) {
 
       ImmutableSet<BuildTarget> buildTargets =
           ImmutableSet.copyOf(
@@ -447,16 +387,7 @@ public class DefaultParser implements Parser {
 
     try (PerBuildState state =
         perBuildStateFactory.create(
-            typeCoercerFactory,
-            permState,
-            marshaller,
-            eventBus,
-            parserPythonInterpreterProvider,
-            executor,
-            rootCell,
-            knownBuildRuleTypesProvider,
-            enableProfiling,
-            speculativeParsing)) {
+            permState, eventBus, executor, rootCell, enableProfiling, speculativeParsing)) {
       return targetSpecResolver.resolveTargetSpecs(
           eventBus,
           rootCell,
@@ -471,17 +402,18 @@ public class DefaultParser implements Parser {
   @VisibleForTesting
   static BuildTarget applyDefaultFlavors(
       BuildTarget target,
-      Optional<TargetNode<?, ?>> targetNode,
+      Optional<TargetNode<?>> targetNode,
       TargetNodeSpec.TargetType targetType,
       ParserConfig.ApplyDefaultFlavorsMode applyDefaultFlavorsMode) {
     if (target.isFlavored()
         || !targetNode.isPresent()
-        || targetType == TargetNodeSpec.TargetType.MULTIPLE_TARGETS
+        || (targetType == TargetNodeSpec.TargetType.MULTIPLE_TARGETS
+            && applyDefaultFlavorsMode == ParserConfig.ApplyDefaultFlavorsMode.SINGLE)
         || applyDefaultFlavorsMode == ParserConfig.ApplyDefaultFlavorsMode.DISABLED) {
       return target;
     }
 
-    TargetNode<?, ?> node = targetNode.get();
+    TargetNode<?> node = targetNode.get();
 
     ImmutableSortedSet<Flavor> defaultFlavors = ImmutableSortedSet.of();
     if (node.getConstructorArg() instanceof HasDefaultFlavors) {

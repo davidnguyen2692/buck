@@ -72,7 +72,7 @@ DEFAULT_WATCHMAN_QUERY_TIMEOUT = 60.0
 ORIGINAL_IMPORT = __builtin__.__import__
 
 _LOAD_TARGET_PATH_RE = re.compile(
-    r"^(?P<root>(?P<cell>@?[A-Za-z0-9_]+)?//)?(?P<package>.*):(?P<target>.*)$"
+    r"^(?P<root>(?P<cell>@?[\w\-.]+)?//)?(?P<package>.*):(?P<target>.*)$"
 )
 
 
@@ -443,6 +443,15 @@ def glob(
 
     if search_base is None:
         search_base = Path(build_env.dirname)
+
+    if build_env.dirname == build_env.project_root and any(
+        # match anything equivalent to recursive glob on all dirs e.g. "**/", "*/**/", "*/*/**/"
+        re.match(re.compile("^(\*\/)*\*\*\/"), pattern)
+        for pattern in includes
+    ):
+        fail(
+            "Recursive globs are prohibited at top-level directory", build_env=build_env
+        )
 
     results = None
     if not includes:
@@ -841,6 +850,9 @@ class BuildFileProcessor(object):
 
         self._global_functions = lazy_global_functions
         self._native_functions = lazy_native_functions
+        self._native_module_class = self._create_native_module_class(
+            self._global_functions, self._native_functions
+        )
         self._import_whitelist_manager = ImportWhitelistManager(
             import_whitelist=self._create_import_whitelist(project_import_whitelist),
             safe_modules_config=self.SAFE_MODULES_CONFIG,
@@ -865,8 +877,20 @@ class BuildFileProcessor(object):
         native_globals["glob"] = self._glob
         native_globals["host_info"] = self._host_info
         native_globals["read_config"] = self._read_config
-        native_module_type = collections.namedtuple("native", native_globals.keys())
-        return native_module_type(**native_globals)
+        return self._native_module_class(**native_globals)
+
+    @staticmethod
+    def _create_native_module_class(global_functions, native_functions):
+        """
+        Creates a native module class.
+        :return: namedtuple instance for native module
+        """
+        return collections.namedtuple(
+            "native",
+            global_functions.keys()
+            + native_functions.keys()
+            + ["glob", "host_info", "read_config"],
+        )
 
     def _wrap_env_var_read(self, read, real):
         """

@@ -16,6 +16,8 @@
 
 package com.facebook.buck.util.unarchive;
 
+import static com.google.common.collect.Iterables.concat;
+
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.testutil.TemporaryPaths;
@@ -23,6 +25,8 @@ import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
+import java.io.BufferedOutputStream;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -30,7 +34,10 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.attribute.FileTime;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
+import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
+import org.apache.commons.compress.archivers.tar.TarArchiveOutputStream;
 import org.hamcrest.Matchers;
 import org.junit.Assert;
 import org.junit.Assume;
@@ -40,7 +47,7 @@ import org.junit.Test;
 
 public class UntarTest {
 
-  @Rule public TemporaryPaths tmpFolder = new TemporaryPaths(true);
+  @Rule public TemporaryPaths tmpFolder = new TemporaryPaths();
 
   // Windows writes files by default as executable...
   private static final boolean FilesAreExecutableByDefault = Platform.detect() == Platform.WINDOWS;
@@ -255,7 +262,7 @@ public class UntarTest {
 
     Path archivePath = getTestFilePath(format.getExtension());
     Untar unarchiver = (Untar) format.getUnarchiver();
-    ImmutableList<Path> unarchivedFiles;
+    ImmutableSet<Path> unarchivedFiles;
     if (writeSymlinksLast.isPresent()) {
       unarchivedFiles =
           unarchiver.extractArchive(
@@ -325,7 +332,7 @@ public class UntarTest {
     ImmutableList<Path> expectedDirs = expectedDirsBuilder.build();
 
     Path archivePath = getTestFilePath(format.getExtension());
-    ImmutableList<Path> unarchivedFiles =
+    ImmutableSet<Path> unarchivedFiles =
         format
             .getUnarchiver()
             .extractArchive(
@@ -392,7 +399,7 @@ public class UntarTest {
     assertOutputFileExists(getDestPath("root"), "testing");
 
     Path archivePath = getTestFilePath(format.getExtension());
-    ImmutableList<Path> unarchivedFiles =
+    ImmutableSet<Path> unarchivedFiles =
         format
             .getUnarchiver()
             .extractArchive(
@@ -444,7 +451,7 @@ public class UntarTest {
     assertOutputFileExists(getDestPath("root", "echo.sh"), "testing");
 
     Path archivePath = getTestFilePath(format.getExtension());
-    ImmutableList<Path> unarchivedFiles =
+    ImmutableSet<Path> unarchivedFiles =
         format
             .getUnarchiver()
             .extractArchive(
@@ -514,7 +521,7 @@ public class UntarTest {
     assertOutputFileExists(getDestPath("root", "echo.sh"), "testing");
 
     Path archivePath = getTestFilePath(format.getExtension());
-    ImmutableList<Path> unarchivedFiles =
+    ImmutableSet<Path> unarchivedFiles =
         format
             .getUnarchiver()
             .extractArchive(
@@ -545,12 +552,70 @@ public class UntarTest {
     assertModifiedTime(expectedPaths);
     assertExecutable(expectedPaths.get(0), true);
     assertExecutable(expectedPaths.subList(1, expectedPaths.size()), false);
+  }
 
-    Assert.assertFalse(filesystem.exists(junkDirs.get(0)));
-    Assert.assertFalse(filesystem.exists(junkDirs.get(1)));
-    Assert.assertFalse(filesystem.exists(junkDirs.get(2)));
-    Assert.assertFalse(filesystem.exists(junkFiles.get(0)));
-    Assert.assertFalse(filesystem.exists(junkFiles.get(1)));
+  /**
+   * cleanDirectoriesExactly asserts that OVERWRITE_AND_CLEAN_DIRECTORIES removes exactly the files
+   * in any subdirectory of a directory entry in the tar archive.
+   *
+   * <p>This behavior supports unarchiving a Buck cache from multiple archives, each containing a
+   * part.
+   *
+   * <p>Explanations:
+   * <li>BUCK isn't removed because it's not in a subdirectory of a directory entry in the archive.
+   * <li>buck-out/gen/pkg1/rule1.jar isn't removed, even though buck-out/gen/pkg1/rule2.jar is in
+   *     the archive, because there's no directory entry for buck-out/gen/pkg1/.
+   * <li>buck-out/gen/pkg1/rule2#foo/lib.so, however, is removed because the archive contains the
+   *     directory buck-out/gen/pkg1/rule2#foo/
+   */
+  @Test
+  public void cleanDirectoriesExactly() throws Exception {
+    Path archive = filesystem.resolve("archive.tar");
+    Path outDir = filesystem.getRootPath();
+
+    List<String> toLeave =
+        ImmutableList.of(
+            "BUCK",
+            "buck-out/gen/pkg1/rule1.jar",
+            "buck-out/gen/pkg1/rule1#foo/lib.so",
+            "buck-out/gen/pkg2/rule.jar",
+            "buck-out/gen/pkg2/rule#foo/lib.so");
+    List<String> toDelete = ImmutableList.of("buck-out/gen/pkg1/rule2#foo/lib.so");
+    for (String s : concat(toDelete, toLeave)) {
+      Path path = filesystem.resolve(s);
+      filesystem.createParentDirs(path);
+      filesystem.writeContentsToPath("", path);
+    }
+
+    // Write test archive.
+    try (TarArchiveOutputStream stream =
+        new TarArchiveOutputStream(
+            new BufferedOutputStream(filesystem.newFileOutputStream(archive)))) {
+      stream.putArchiveEntry(new TarArchiveEntry("buck-out/gen/pkg1/rule2#foo/"));
+      stream.putArchiveEntry(new TarArchiveEntry("buck-out/gen/pkg1/rule2.jar"));
+      stream.closeArchiveEntry();
+    }
+
+    // Untar test archive.
+    Untar.tarUnarchiver()
+        .extractArchive(
+            archive,
+            filesystem,
+            outDir,
+            Optional.empty(),
+            ExistingFileMode.OVERWRITE_AND_CLEAN_DIRECTORIES);
+
+    // Assert expected file existence.
+    for (String s : toDelete) {
+      Assert.assertFalse(
+          String.format("Expected file %s to be deleted, but it wasn't", s),
+          filesystem.exists(filesystem.resolve(s)));
+    }
+    for (String s : toLeave) {
+      Assert.assertTrue(
+          String.format("Expected file %s to not be deleted, but it was", s),
+          filesystem.exists(filesystem.resolve(s)));
+    }
   }
 
   @Test
@@ -592,7 +657,7 @@ public class UntarTest {
     assertOutputFileExists(getDestPath("root", "echo.sh"), "testing");
 
     Path archivePath = getTestFilePath(format.getExtension());
-    ImmutableList<Path> unarchivedFiles =
+    ImmutableSet<Path> unarchivedFiles =
         format
             .getUnarchiver()
             .extractArchive(

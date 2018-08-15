@@ -23,14 +23,17 @@ import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.build.context.FakeBuildContext;
 import com.facebook.buck.core.cell.TestCellPathResolver;
 import com.facebook.buck.core.cell.resolver.CellPathResolver;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.model.InternalFlavor;
 import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.core.rulekey.RuleKeyObjectSink;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
+import com.facebook.buck.core.sourcepath.FakeSourcePath;
 import com.facebook.buck.core.sourcepath.PathSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
@@ -45,16 +48,14 @@ import com.facebook.buck.cxx.toolchain.GccCompiler;
 import com.facebook.buck.cxx.toolchain.GccPreprocessor;
 import com.facebook.buck.cxx.toolchain.Preprocessor;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.FakeBuildContext;
 import com.facebook.buck.rules.FakeBuildRule;
-import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.args.RuleKeyAppendableFunction;
 import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.facebook.buck.rules.keys.TestDefaultRuleKeyFactory;
 import com.facebook.buck.testutil.FakeFileHashCache;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
+import com.facebook.buck.testutil.PathNormalizer;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -119,19 +120,31 @@ public class CxxPreprocessAndCompileTest {
   private Preprocessor DEFAULT_PREPROCESSOR =
       new GccPreprocessor(
           new HashedFileTool(
-              () -> PathSourcePath.of(projectFilesystem, Paths.get("/root/preprocessor"))));
+              () ->
+                  PathSourcePath.of(
+                      projectFilesystem,
+                      PathNormalizer.toWindowsPathIfNeeded(Paths.get("/root/preprocessor")))));
   private Compiler DEFAULT_COMPILER =
       new GccCompiler(
           new HashedFileTool(
-              () -> PathSourcePath.of(projectFilesystem, Paths.get("/root/compiler"))));
+              () ->
+                  PathSourcePath.of(
+                      projectFilesystem,
+                      PathNormalizer.toWindowsPathIfNeeded(Paths.get("/root/compiler")))));
   private Preprocessor PREPROCESSOR_WITH_COLOR_SUPPORT =
       new PreprocessorWithColorSupport(
           new HashedFileTool(
-              () -> PathSourcePath.of(projectFilesystem, Paths.get("/root/preprocessor"))));
+              () ->
+                  PathSourcePath.of(
+                      projectFilesystem,
+                      PathNormalizer.toWindowsPathIfNeeded(Paths.get("/root/preprocessor")))));
   private Compiler COMPILER_WITH_COLOR_SUPPORT =
       new CompilerWithColorSupport(
           new HashedFileTool(
-              () -> PathSourcePath.of(projectFilesystem, Paths.get("/root/compiler"))));
+              () ->
+                  PathSourcePath.of(
+                      projectFilesystem,
+                      PathNormalizer.toWindowsPathIfNeeded(Paths.get("/root/compiler")))));
 
   @Test
   public void inputChangesCauseRuleKeyChangesForCompilation() throws Exception {
@@ -141,14 +154,33 @@ public class CxxPreprocessAndCompileTest {
     FakeFileHashCache hashCache =
         FakeFileHashCache.createFromStrings(
             ImmutableMap.<String, String>builder()
-                .put("/root/preprocessor", Strings.repeat("a", 40))
-                .put("/root/compiler", Strings.repeat("a", 40))
-                .put("test.o", Strings.repeat("b", 40))
-                .put("test.cpp", Strings.repeat("c", 40))
-                .put("/root/different", Strings.repeat("d", 40))
-                .put("foo/test.h", Strings.repeat("e", 40))
-                .put("path/to/a/plugin.so", Strings.repeat("f", 40))
-                .put("path/to/a/different/plugin.so", Strings.repeat("a0", 40))
+                .put(
+                    PathNormalizer.toWindowsPathIfNeeded(Paths.get("/root/preprocessor"))
+                        .toString(),
+                    Strings.repeat("a", 40))
+                .put(
+                    PathNormalizer.toWindowsPathIfNeeded(Paths.get("/root/compiler")).toString(),
+                    Strings.repeat("a", 40))
+                .put(
+                    PathNormalizer.toWindowsPathIfNeeded(Paths.get("test.o")).toString(),
+                    Strings.repeat("b", 40))
+                .put(
+                    PathNormalizer.toWindowsPathIfNeeded(Paths.get("test.cpp")).toString(),
+                    Strings.repeat("c", 40))
+                .put(
+                    PathNormalizer.toWindowsPathIfNeeded(Paths.get("/root/different")).toString(),
+                    Strings.repeat("d", 40))
+                .put(
+                    PathNormalizer.toWindowsPathIfNeeded(Paths.get("foo/test.h")).toString(),
+                    Strings.repeat("e", 40))
+                .put(
+                    PathNormalizer.toWindowsPathIfNeeded(Paths.get("path/to/a/plugin.so"))
+                        .toString(),
+                    Strings.repeat("f", 40))
+                .put(
+                    PathNormalizer.toWindowsPathIfNeeded(Paths.get("path/to/a/different/plugin.so"))
+                        .toString(),
+                    Strings.repeat("a0", 40))
                 .build());
 
     // Generate a rule key for the defaults.
@@ -183,7 +215,9 @@ public class CxxPreprocessAndCompileTest {
                         new GccCompiler(
                             new HashedFileTool(
                                 PathSourcePath.of(
-                                    projectFilesystem, Paths.get("/root/different")))),
+                                    projectFilesystem,
+                                    PathNormalizer.toWindowsPathIfNeeded(
+                                        Paths.get("/root/different"))))),
                         DEFAULT_TOOL_FLAGS),
                     DEFAULT_OUTPUT,
                     DEFAULT_INPUT,
@@ -206,7 +240,6 @@ public class CxxPreprocessAndCompileTest {
                         DEFAULT_PREPROCESSOR,
                         PreprocessorFlags.builder().build(),
                         DEFAULT_FRAMEWORK_PATH_SEARCH_PATH_FUNCTION,
-                        Optional.empty(),
                         /* leadingIncludePaths */ Optional.empty(),
                         Optional.of(
                             new FakeBuildRule(target.withFlavors(InternalFlavor.of("deps")))),
@@ -280,7 +313,8 @@ public class CxxPreprocessAndCompileTest {
                         DEFAULT_COMPILER,
                         DEFAULT_TOOL_FLAGS),
                     DEFAULT_OUTPUT,
-                    FakeSourcePath.of("/root/different"),
+                    FakeSourcePath.of(
+                        PathNormalizer.toWindowsPathIfNeeded(Paths.get("/root/different"))),
                     DEFAULT_INPUT_TYPE,
                     CxxPlatformUtils.DEFAULT_COMPILER_DEBUG_PATH_SANITIZER));
     assertNotEquals(defaultRuleKey, inputChange);
@@ -295,14 +329,33 @@ public class CxxPreprocessAndCompileTest {
     FakeFileHashCache hashCache =
         FakeFileHashCache.createFromStrings(
             ImmutableMap.<String, String>builder()
-                .put("/root/preprocessor", Strings.repeat("a", 40))
-                .put("/root/compiler", Strings.repeat("a", 40))
-                .put("test.o", Strings.repeat("b", 40))
-                .put("test.cpp", Strings.repeat("c", 40))
-                .put("/root/different", Strings.repeat("d", 40))
-                .put("foo/test.h", Strings.repeat("e", 40))
-                .put("path/to/a/plugin.so", Strings.repeat("f", 40))
-                .put("path/to/a/different/plugin.so", Strings.repeat("a0", 40))
+                .put(
+                    PathNormalizer.toWindowsPathIfNeeded(Paths.get("/root/preprocessor"))
+                        .toString(),
+                    Strings.repeat("a", 40))
+                .put(
+                    PathNormalizer.toWindowsPathIfNeeded(Paths.get("/root/compiler")).toString(),
+                    Strings.repeat("a", 40))
+                .put(
+                    PathNormalizer.toWindowsPathIfNeeded(Paths.get("test.o")).toString(),
+                    Strings.repeat("b", 40))
+                .put(
+                    PathNormalizer.toWindowsPathIfNeeded(Paths.get("test.cpp")).toString(),
+                    Strings.repeat("c", 40))
+                .put(
+                    PathNormalizer.toWindowsPathIfNeeded(Paths.get("/root/different")).toString(),
+                    Strings.repeat("d", 40))
+                .put(
+                    PathNormalizer.toWindowsPathIfNeeded(Paths.get("foo/test.h")).toString(),
+                    Strings.repeat("e", 40))
+                .put(
+                    PathNormalizer.toWindowsPathIfNeeded(Paths.get("path/to/a/plugin.so"))
+                        .toString(),
+                    Strings.repeat("f", 40))
+                .put(
+                    PathNormalizer.toWindowsPathIfNeeded(Paths.get("path/to/a/different/plugin.so"))
+                        .toString(),
+                    Strings.repeat("a0", 40))
                 .build());
 
     class TestData {
@@ -319,7 +372,6 @@ public class CxxPreprocessAndCompileTest {
                         DEFAULT_PREPROCESSOR,
                         flags,
                         DEFAULT_FRAMEWORK_PATH_SEARCH_PATH_FUNCTION,
-                        Optional.empty(),
                         /* leadingIncludePaths */ Optional.empty(),
                         Optional.of(
                             new FakeBuildRule(target.withFlavors(InternalFlavor.of("deps")))),
@@ -340,7 +392,9 @@ public class CxxPreprocessAndCompileTest {
     PreprocessorFlags defaultFlags = PreprocessorFlags.builder().build();
     PreprocessorFlags alteredFlags =
         defaultFlags.withFrameworkPaths(
-            FrameworkPath.ofSourcePath(FakeSourcePath.of("/root/different")));
+            FrameworkPath.ofSourcePath(
+                FakeSourcePath.of(
+                    PathNormalizer.toWindowsPathIfNeeded(Paths.get("/root/different")))));
     assertNotEquals(testData.generate(defaultFlags), testData.generate(alteredFlags));
   }
 
@@ -373,11 +427,14 @@ public class CxxPreprocessAndCompileTest {
 
     ImmutableList<String> expectedCompileCommand =
         ImmutableList.<String>builder()
-            .add("/root/compiler")
+            .add(PathNormalizer.toWindowsPathIfNeeded(Paths.get("/root/compiler")).toString())
             .add("-x", "c++")
             .add("-ffunction-sections")
             .add("-O3")
-            .add("-o", "buck-out/gen/foo/bar__/test.o")
+            .add(
+                "-o",
+                PathNormalizer.toWindowsPathIfNeeded(Paths.get("buck-out/gen/foo/bar__/test.o"))
+                    .toString())
             .add("-c")
             .add(input.toString())
             .build();
@@ -403,7 +460,9 @@ public class CxxPreprocessAndCompileTest {
 
     projectFilesystem.writeContentsToPath(
         "test.o: " + pathResolver.getRelativePath(DEFAULT_INPUT) + " ",
-        projectFilesystem.getPath("buck-out/gen/foo/bar__/test.o.dep"));
+        projectFilesystem.getPath(
+            PathNormalizer.toWindowsPathIfNeeded(Paths.get("buck-out/gen/foo/bar__/test.o.dep"))
+                .toString()));
     PathSourcePath fakeInput = FakeSourcePath.of(projectFilesystem, "test.cpp");
 
     CxxPreprocessAndCompile cxxPreprocess =
@@ -417,7 +476,6 @@ public class CxxPreprocessAndCompileTest {
                 new GccPreprocessor(preprocessorTool),
                 PreprocessorFlags.builder().build(),
                 DEFAULT_FRAMEWORK_PATH_SEARCH_PATH_FUNCTION,
-                Optional.empty(),
                 /* leadingIncludePaths */ Optional.empty(),
                 Optional.of(new FakeBuildRule(target.withFlavors(InternalFlavor.of("deps")))),
                 ImmutableSortedSet.of()),
@@ -506,7 +564,6 @@ public class CxxPreprocessAndCompileTest {
                 PREPROCESSOR_WITH_COLOR_SUPPORT,
                 PreprocessorFlags.builder().build(),
                 DEFAULT_FRAMEWORK_PATH_SEARCH_PATH_FUNCTION,
-                Optional.empty(),
                 /* leadingIncludePaths */ Optional.empty(),
                 Optional.of(new FakeBuildRule(target.withFlavors(InternalFlavor.of("deps")))),
                 ImmutableSortedSet.of()),
@@ -531,8 +588,13 @@ public class CxxPreprocessAndCompileTest {
 
   @Test
   public void testGetGcnoFile() {
-    Path input = projectFilesystem.resolve("foo/bar.m.o");
+    Path input =
+        projectFilesystem.resolve(
+            PathNormalizer.toWindowsPathIfNeeded(Paths.get("foo/bar.m.o")).toString());
     Path output = CxxPreprocessAndCompile.getGcnoPath(input);
-    assertEquals(projectFilesystem.resolve("foo/bar.m.gcno"), output);
+    assertEquals(
+        projectFilesystem.resolve(
+            PathNormalizer.toWindowsPathIfNeeded(Paths.get("foo/bar.m.gcno"))),
+        output);
   }
 }

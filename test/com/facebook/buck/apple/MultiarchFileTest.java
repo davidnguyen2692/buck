@@ -25,8 +25,11 @@ import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assume.assumeTrue;
 
+import com.facebook.buck.core.build.buildable.context.FakeBuildableContext;
+import com.facebook.buck.core.build.context.FakeBuildContext;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.Flavored;
 import com.facebook.buck.core.model.InternalFlavor;
@@ -37,16 +40,13 @@ import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
+import com.facebook.buck.core.sourcepath.FakeSourcePath;
 import com.facebook.buck.core.sourcepath.SourceWithFlags;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.cxx.CxxCompilationDatabase;
 import com.facebook.buck.cxx.CxxInferEnhancer;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.FakeBuildContext;
-import com.facebook.buck.rules.FakeBuildableContext;
-import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.shell.ShellStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
@@ -59,6 +59,7 @@ import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.function.Supplier;
 import org.hamcrest.Matchers;
 import org.junit.Before;
 import org.junit.Test;
@@ -73,12 +74,14 @@ public class MultiarchFileTest {
         new Object[][] {
           {
             "AppleBinaryDescription",
-            FakeAppleRuleDescriptions.BINARY_DESCRIPTION,
+            (Supplier<DescriptionWithTargetGraph<?>>)
+                () -> FakeAppleRuleDescriptions.BINARY_DESCRIPTION,
             (NodeBuilderFactory) AppleBinaryBuilder::createBuilder
           },
           {
             "AppleLibraryDescription (static)",
-            FakeAppleRuleDescriptions.LIBRARY_DESCRIPTION,
+            (Supplier<DescriptionWithTargetGraph<?>>)
+                () -> FakeAppleRuleDescriptions.LIBRARY_DESCRIPTION,
             (NodeBuilderFactory)
                 target ->
                     AppleLibraryBuilder.createBuilder(
@@ -88,7 +91,8 @@ public class MultiarchFileTest {
           },
           {
             "AppleLibraryDescription (shared)",
-            FakeAppleRuleDescriptions.LIBRARY_DESCRIPTION,
+            (Supplier<DescriptionWithTargetGraph<?>>)
+                () -> FakeAppleRuleDescriptions.LIBRARY_DESCRIPTION,
             (NodeBuilderFactory)
                 target ->
                     AppleLibraryBuilder.createBuilder(
@@ -103,7 +107,7 @@ public class MultiarchFileTest {
   public String name;
 
   @Parameterized.Parameter(1)
-  public DescriptionWithTargetGraph<?> description;
+  public Supplier<DescriptionWithTargetGraph<?>> descriptionFactory;
 
   @Parameterized.Parameter(2)
   public NodeBuilderFactory nodeBuilderFactory;
@@ -116,7 +120,7 @@ public class MultiarchFileTest {
   @Test
   public void shouldAllowMultiplePlatformFlavors() {
     assertTrue(
-        ((Flavored) description)
+        ((Flavored) descriptionFactory.get())
             .hasFlavors(
                 ImmutableSet.of(
                     InternalFlavor.of("iphoneos-i386"), InternalFlavor.of("iphoneos-x86_64"))));
@@ -127,11 +131,9 @@ public class MultiarchFileTest {
   public void descriptionWithMultiplePlatformArgsShouldGenerateMultiarchFile() {
     BuildTarget target =
         BuildTargetFactory.newInstance("//foo:thing#iphoneos-i386,iphoneos-x86_64");
-    BuildTarget sandboxTarget =
-        BuildTargetFactory.newInstance("//foo:thing#iphoneos-i386,iphoneos-x86_64,sandbox");
     ActionGraphBuilder graphBuilder =
         new TestActionGraphBuilder(
-            TargetGraphFactory.newInstance(new AppleLibraryBuilder(sandboxTarget).build()));
+            TargetGraphFactory.newInstance(new AppleLibraryBuilder(target).build()));
     SourcePathResolver pathResolver =
         DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
     ProjectFilesystem filesystem = new FakeProjectFilesystem();

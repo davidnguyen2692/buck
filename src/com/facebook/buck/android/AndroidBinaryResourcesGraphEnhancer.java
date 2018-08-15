@@ -94,6 +94,7 @@ class AndroidBinaryResourcesGraphEnhancer {
   private final boolean noVersionTransitionsResources;
   private final boolean noAutoAddOverlayResources;
   private final APKModuleGraph apkModuleGraph;
+  private final boolean useProtoFormat;
 
   public AndroidBinaryResourcesGraphEnhancer(
       BuildTarget buildTarget,
@@ -121,7 +122,8 @@ class AndroidBinaryResourcesGraphEnhancer {
       boolean noAutoVersionResources,
       boolean noVersionTransitionsResources,
       boolean noAutoAddOverlayResources,
-      APKModuleGraph apkModuleGraph) {
+      APKModuleGraph apkModuleGraph,
+      boolean useProtoFormat) {
     this.androidPlatformTarget = androidPlatformTarget;
     this.buildTarget = buildTarget;
     this.projectFilesystem = projectFilesystem;
@@ -149,6 +151,7 @@ class AndroidBinaryResourcesGraphEnhancer {
     this.noVersionTransitionsResources = noVersionTransitionsResources;
     this.noAutoAddOverlayResources = noAutoAddOverlayResources;
     this.apkModuleGraph = apkModuleGraph;
+    this.useProtoFormat = useProtoFormat;
   }
 
   @Value.Immutable
@@ -245,7 +248,8 @@ class AndroidBinaryResourcesGraphEnhancer {
                   resourceDetails,
                   needsResourceFiltering
                       ? Optional.of(filteredResourcesProvider)
-                      : Optional.empty());
+                      : Optional.empty(),
+                  true);
           graphBuilder.addToIndex(aapt2Link);
           aaptOutputInfo = aapt2Link.getAaptOutputInfo();
         }
@@ -315,6 +319,7 @@ class AndroidBinaryResourcesGraphEnhancer {
                       noAutoVersionResources,
                       noVersionTransitionsResources,
                       noAutoAddOverlayResources,
+                      useProtoFormat,
                       androidPlatformTarget);
               graphBuilder.addToIndex(aapt2ModuleLink);
               resultBuilder.putModuleResourceApkPaths(
@@ -326,6 +331,17 @@ class AndroidBinaryResourcesGraphEnhancer {
             throw new RuntimeException("Unexpected aaptMode: " + aaptMode);
         }
       }
+    }
+
+    if (aaptMode == AaptMode.AAPT2 && useProtoFormat) {
+      Aapt2Link aapt2Link =
+          createAapt2Link(
+              realManifest,
+              resourceDetails,
+              needsResourceFiltering ? Optional.of(filteredResourcesProvider) : Optional.empty(),
+              false);
+      graphBuilder.addToIndex(aapt2Link);
+      aaptOutputInfo = aapt2Link.getAaptOutputInfo();
     }
 
     Optional<PackageStringAssets> packageStringAssets = Optional.empty();
@@ -466,7 +482,8 @@ class AndroidBinaryResourcesGraphEnhancer {
   private Aapt2Link createAapt2Link(
       SourcePath realManifest,
       AndroidPackageableCollection.ResourceDetails resourceDetails,
-      Optional<FilteredResourcesProvider> filteredResourcesProvider) {
+      Optional<FilteredResourcesProvider> filteredResourcesProvider,
+      boolean linkBundleModules) {
     ImmutableList.Builder<Aapt2Compile> compileListBuilder = ImmutableList.builder();
     if (filteredResourcesProvider.isPresent()) {
       Optional<BuildRule> resourceFilterRule =
@@ -498,20 +515,39 @@ class AndroidBinaryResourcesGraphEnhancer {
                         AndroidResourceDescription.AAPT2_COMPILE_FLAVOR)));
       }
     }
-    return new Aapt2Link(
-        buildTarget.withAppendedFlavors(AAPT2_LINK_FLAVOR),
-        projectFilesystem,
-        ruleFinder,
-        compileListBuilder.build(),
-        getTargetsAsResourceDeps(resourceDetails.getResourcesWithNonEmptyResDir()),
-        realManifest,
-        manifestEntries,
-        ImmutableList.of(),
-        includesVectorDrawables,
-        noAutoVersionResources,
-        noVersionTransitionsResources,
-        noAutoAddOverlayResources,
-        androidPlatformTarget);
+    if (linkBundleModules && useProtoFormat) {
+      return new Aapt2Link(
+          buildTarget.withAppendedFlavors(InternalFlavor.of("aapt2_link_arsc")),
+          projectFilesystem,
+          ruleFinder,
+          compileListBuilder.build(),
+          getTargetsAsResourceDeps(resourceDetails.getResourcesWithNonEmptyResDir()),
+          realManifest,
+          manifestEntries,
+          ImmutableList.of(),
+          includesVectorDrawables,
+          noAutoVersionResources,
+          noVersionTransitionsResources,
+          noAutoAddOverlayResources,
+          false,
+          androidPlatformTarget);
+    } else {
+      return new Aapt2Link(
+          buildTarget.withAppendedFlavors(AAPT2_LINK_FLAVOR),
+          projectFilesystem,
+          ruleFinder,
+          compileListBuilder.build(),
+          getTargetsAsResourceDeps(resourceDetails.getResourcesWithNonEmptyResDir()),
+          realManifest,
+          manifestEntries,
+          ImmutableList.of(),
+          includesVectorDrawables,
+          noAutoVersionResources,
+          noVersionTransitionsResources,
+          noAutoAddOverlayResources,
+          useProtoFormat,
+          androidPlatformTarget);
+    }
   }
 
   private GenerateRDotJava createGenerateRDotJava(

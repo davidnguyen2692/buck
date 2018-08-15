@@ -27,7 +27,7 @@ regardless of which subcommand is being run.
   {param name: 'verbose' /}
   {param desc}
   <p>
-  Sets the verbosity level of the console output. For example:
+  Set the verbosity level of the console output. For example:
   </p>
 
 <p>
@@ -45,7 +45,7 @@ buck targets --verbose 10
   {param name: 'no-cache' /}
   {param desc}
   <p>
-  Disables the build artifact cache.
+  Disable the build artifact cache.
   </p>
   {/param}
 {/call}
@@ -55,8 +55,8 @@ buck targets --verbose 10
   {param desc}
 
   <p>
-  Overrides settings specified in {call buck.concept_buckconfig /}.
-  For example:
+  Specify configuration settings or override existing settings 
+  in {call buck.concept_buckconfig /}.  For example:
   </p>
 
 <p>
@@ -96,6 +96,37 @@ The preferred method of overriding values in <code>.buckconfig</code> is
 by using a <code>.buckconfig.local</code> file.
 Overriding values of <code>.buckconfig</code> from the command line makes 
 reproducing builds difficult. 
+</p>
+
+  {/param}
+{/call}
+
+{call buck.param}
+  {param name: 'config-file' /}
+  {param desc}
+
+<p>
+Specify build-configuration settings in a file that uses the same syntax 
+as {call buck.concept_buckconfig /}.
+</p>
+
+<p>
+<pre>
+{literal}
+buck build --config-file debug.buckconfig
+{/literal}
+</pre>
+</p>
+
+<p>
+This <code>--config-file</code> parameter provides functionality similar 
+to <code>--flagfile</code>, but with <code>.buckconfig</code> syntax 
+rather than command-line parameter syntax.
+</p>
+
+<p>
+Any values specified using <code>--config-file</code> override values
+specified in <code>.buckconfig</code> and <code>.buckconfig.local</code>.
 </p>
 
   {/param}
@@ -145,7 +176,7 @@ reproducing builds difficult.
   {param desc}
 
   <p>
-  Additional command-line arguments can be stored in external files
+  Specify additional command-line arguments in external files
   (<em>flag files</em>), one argument per line. The arguments in these 
   files can themselves be <code>--flagfile</code> or <code>@</code> arguments, 
   which would then include a second file's contents as arguments.
@@ -209,9 +240,15 @@ the <code>@</code> symbol as it is more self-describing.
 </p>
 
 <p>
+This <code>--config-file</code> parameter provides functionality similar 
+to <code>--flagfile</code>, but with <code>.buckconfig</code> syntax 
+rather than command-line parameter syntax.
+</p>
+
+<p>
 If Buck is regularly invoked with different sets of arguments, we
-recommend that you use flag files, as they can be stored in source
-control, making builds more reproducible.
+recommend that you use config files or flag files, as they can be stored
+in source control, making builds more reproducible.
 </p>
 
   {/param}

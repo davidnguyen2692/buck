@@ -16,18 +16,20 @@
 
 package com.facebook.buck.cli;
 
-import com.facebook.buck.config.BuckConfig;
-import com.facebook.buck.config.resources.ResourcesConfig;
 import com.facebook.buck.core.cell.CellConfig;
 import com.facebook.buck.core.cell.name.RelativeCellName;
 import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.targetgraph.TargetGraphAndBuildTargets;
+import com.facebook.buck.core.resources.ResourcesConfig;
 import com.facebook.buck.core.rulekey.RuleKey;
+import com.facebook.buck.core.rulekey.config.RuleKeyConfig;
 import com.facebook.buck.event.BuckEventListener;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.log.LogConfigSetup;
+import com.facebook.buck.log.Logger;
 import com.facebook.buck.parser.BuildTargetParser;
 import com.facebook.buck.parser.BuildTargetPatternParser;
 import com.facebook.buck.parser.BuildTargetPatternTargetNodeParser;
@@ -39,13 +41,18 @@ import com.facebook.buck.rules.keys.RuleKeyCacheScope;
 import com.facebook.buck.rules.keys.TrackedRuleKeyCache;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.ExecutorPool;
+import com.facebook.buck.support.cli.args.GlobalCliOptions;
+import com.facebook.buck.util.BuckCellArg;
 import com.facebook.buck.util.DefaultProcessExecutor;
 import com.facebook.buck.util.ExitCode;
 import com.facebook.buck.util.cache.InstrumentingCacheStatsTracker;
 import com.facebook.buck.util.concurrent.ConcurrencyLimit;
+import com.facebook.buck.util.config.Configs;
+import com.facebook.buck.util.types.Pair;
 import com.facebook.buck.versions.VersionException;
 import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.util.concurrent.ListeningExecutorService;
 import com.google.devtools.build.lib.clock.Clock;
@@ -63,7 +70,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.LocalDate;
-import java.util.LinkedHashMap;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -71,65 +78,51 @@ import java.util.concurrent.ScheduledExecutorService;
 import javax.annotation.Nullable;
 import org.kohsuke.args4j.CmdLineException;
 import org.kohsuke.args4j.CmdLineParser;
-import org.kohsuke.args4j.NamedOptionDef;
 import org.kohsuke.args4j.Option;
-import org.kohsuke.args4j.OptionDef;
-import org.kohsuke.args4j.spi.OptionHandler;
 
-public abstract class AbstractCommand implements Command {
-
-  private static final String HELP_LONG_ARG = "--help";
-  private static final String NO_CACHE_LONG_ARG = "--no-cache";
-  private static final String OUTPUT_TEST_EVENTS_TO_FILE_LONG_ARG = "--output-test-events-to-file";
-  private static final String PROFILE_PARSER_LONG_ARG = "--profile-buck-parser";
-  private static final String NUM_THREADS_LONG_ARG = "--num-threads";
-  private static final String CONFIG_LONG_ARG = "--config";
-  private static final String SKYLARK_PROFILE_LONG_ARG = "--skylark-profile-output";
-
-  /**
-   * Contains all options defined in this class. These options are considered global since they are
-   * known to all commands that inherit from this class.
-   *
-   * <p>The main purpose of having this list is to provide more structured help.
-   */
-  private static final ImmutableSet<String> GLOBAL_OPTIONS =
-      ImmutableSet.of(
-          HELP_LONG_ARG,
-          NO_CACHE_LONG_ARG,
-          OUTPUT_TEST_EVENTS_TO_FILE_LONG_ARG,
-          PROFILE_PARSER_LONG_ARG,
-          NUM_THREADS_LONG_ARG,
-          CONFIG_LONG_ARG,
-          VerbosityParser.VERBOSE_LONG_ARG,
-          SKYLARK_PROFILE_LONG_ARG);
-
+public abstract class AbstractCommand extends CommandWithPluginManager {
+  private static final Logger LOG = Logger.get(Configs.class);
+  List<Object> configOverrides = new ArrayList<>();
   /**
    * This value should never be read. {@link VerbosityParser} should be used instead. args4j
    * requires that all options that could be passed in are listed as fields, so we include this
    * field so that {@code --verbose} is universally available to all commands.
    */
   @Option(
-      name = VerbosityParser.VERBOSE_LONG_ARG,
-      aliases = {VerbosityParser.VERBOSE_SHORT_ARG},
+      name = GlobalCliOptions.VERBOSE_LONG_ARG,
+      aliases = {GlobalCliOptions.VERBOSE_SHORT_ARG},
       usage = "Specify a number between 0 and 8. '-v 1' is default, '-v 8' is most verbose.")
   @SuppressWarnings("PMD.UnusedPrivateField")
   private int verbosityLevel = -1;
 
   private volatile ExecutionContext executionContext;
 
-  @Option(name = NUM_THREADS_LONG_ARG, aliases = "-j", usage = "Default is 1.25 * num processors.")
+  @Option(
+      name = GlobalCliOptions.NUM_THREADS_LONG_ARG,
+      aliases = "-j",
+      usage = "Default is 1.25 * num processors.")
   @Nullable
   private Integer numThreads = null;
 
   @Option(
-      name = CONFIG_LONG_ARG,
+      name = GlobalCliOptions.CONFIG_LONG_ARG,
       aliases = {"-c"},
       usage = "Override .buckconfig option",
       metaVar = "section.option=value")
-  private Map<String, String> configOverrides = new LinkedHashMap<>();
+  void addConfigOverride(String configOverride) {
+    saveConfigOptionInOverrides(configOverride);
+  }
 
   @Option(
-      name = SKYLARK_PROFILE_LONG_ARG,
+      name = GlobalCliOptions.CONFIG_FILE_LONG_ARG,
+      usage = "Override options in .buckconfig using a file parameter",
+      metaVar = "PATH")
+  void addConfigFile(String filePath) {
+    configOverrides.add(filePath);
+  }
+
+  @Option(
+      name = GlobalCliOptions.SKYLARK_PROFILE_LONG_ARG,
       usage =
           "Experimental. Path to a file where Skylark profile information should be written into."
               + " The output is in Chrome Tracing format and can be viewed in chrome://tracing tab",
@@ -138,76 +131,18 @@ public abstract class AbstractCommand implements Command {
   private String skylarkProfile;
 
   @Override
-  public CellConfig getConfigOverrides() {
-    CellConfig.Builder builder = CellConfig.builder();
-
-    // Parse command-line config overrides.
-    for (Map.Entry<String, String> entry : configOverrides.entrySet()) {
-      List<String> key = Splitter.on("//").limit(2).splitToList(entry.getKey());
-      RelativeCellName cellName = RelativeCellName.ALL_CELLS_SPECIAL_NAME;
-      String configKey = key.get(0);
-      if (key.size() == 2) {
-        // Here we explicitly take the whole string as the cell name. We don't support transitive
-        // path overrides for cells.
-        if (key.get(0).length() == 0) {
-          cellName = RelativeCellName.ROOT_CELL_NAME;
-        } else {
-          cellName = RelativeCellName.of(ImmutableSet.of(key.get(0)));
-        }
-        configKey = key.get(1);
-      }
-      int separatorIndex = configKey.lastIndexOf('.');
-      if (separatorIndex < 0 || separatorIndex == configKey.length() - 1) {
-        throw new HumanReadableException(
-            "Invalid config override \"%s=%s\" Expected <section>.<field>=<value>.",
-            configKey, entry.getValue());
-      }
-      String value = entry.getValue();
-      // If the value is empty, un-set the config
-      if (value == null) {
-        value = "";
-      }
-
-      // Overrides for locations of transitive children of cells are weird as the order of overrides
-      // can affect the result (for example `-c a/b/c.k=v -c a/b//repositories.c=foo` causes an
-      // interesting problem as the a/b/c cell gets created as a side-effect of the first override,
-      // but the second override wants to change its identity).
-      // It's generally a better idea to use the .buckconfig.local mechanism when overriding
-      // repositories anyway, so here we simply disallow them.
-      String section = configKey.substring(0, separatorIndex);
-      if (section.equals("repositories")) {
-        throw new HumanReadableException(
-            "Overriding repository locations from the command line "
-                + "is not supported. Please place a .buckconfig.local in the appropriate location and "
-                + "use that instead.");
-      }
-      String field = configKey.substring(separatorIndex + 1);
-      builder.put(cellName, section, field, value);
-    }
-    if (numThreads != null) {
-      builder.put(
-          RelativeCellName.ALL_CELLS_SPECIAL_NAME, "build", "threads", String.valueOf(numThreads));
-    }
-    if (noCache) {
-      builder.put(RelativeCellName.ALL_CELLS_SPECIAL_NAME, "cache", "mode", "");
-    }
-
-    return builder.build();
-  }
-
-  @Override
   public LogConfigSetup getLogConfig() {
     return LogConfigSetup.DEFAULT_SETUP;
   }
 
   @Option(
-      name = NO_CACHE_LONG_ARG,
+      name = GlobalCliOptions.NO_CACHE_LONG_ARG,
       usage = "Whether to ignore the remote & local cache declared in .buckconfig.")
   private boolean noCache = false;
 
   @Nullable
   @Option(
-      name = OUTPUT_TEST_EVENTS_TO_FILE_LONG_ARG,
+      name = GlobalCliOptions.OUTPUT_TEST_EVENTS_TO_FILE_LONG_ARG,
       aliases = {"--output-events-to-file"},
       usage =
           "Serialize test-related event-bus events to the given file "
@@ -215,13 +150,13 @@ public abstract class AbstractCommand implements Command {
   private String eventsOutputPath = null;
 
   @Option(
-      name = PROFILE_PARSER_LONG_ARG,
+      name = GlobalCliOptions.PROFILE_PARSER_LONG_ARG,
       usage =
           "Enable profiling of buck.py internals (not the target being compiled) in the debug"
               + "log and trace.")
   private boolean enableParserProfiling = false;
 
-  @Option(name = HELP_LONG_ARG, usage = "Prints the available options and exits.")
+  @Option(name = GlobalCliOptions.HELP_LONG_ARG, usage = "Prints the available options and exits.")
   private boolean help = false;
 
   /** @return {code true} if the {@code [cache]} in {@code .buckconfig} should be ignored. */
@@ -257,27 +192,18 @@ public abstract class AbstractCommand implements Command {
   @Override
   public void printUsage(PrintStream stream) {
     CommandHelper.printShortDescription(this, stream);
-    CmdLineParser parser = new AdditionalOptionsCmdLineParser(this);
+    CmdLineParser parser = new AdditionalOptionsCmdLineParser(getPluginManager(), this);
 
     stream.println("Global options:");
-    parser.printUsage(new OutputStreamWriter(stream), null, AbstractCommand::isGlobalOption);
+    parser.printUsage(new OutputStreamWriter(stream), null, GlobalCliOptions::isGlobalOption);
     stream.println();
 
     stream.println("Options:");
     parser.printUsage(
         new OutputStreamWriter(stream),
         null,
-        optionHandler -> !AbstractCommand.isGlobalOption(optionHandler));
+        optionHandler -> !GlobalCliOptions.isGlobalOption(optionHandler));
     stream.println();
-  }
-
-  private static boolean isGlobalOption(OptionHandler<?> optionHandler) {
-    OptionDef option = optionHandler.option;
-    if (option instanceof NamedOptionDef) {
-      NamedOptionDef namedOption = (NamedOptionDef) option;
-      return GLOBAL_OPTIONS.contains(namedOption.name());
-    }
-    return false;
   }
 
   @Override
@@ -330,12 +256,12 @@ public abstract class AbstractCommand implements Command {
   }
 
   public ImmutableList<TargetNodeSpec> parseArgumentsAsTargetNodeSpecs(
-      BuckConfig config, Iterable<String> targetsAsArgs) {
+      CellPathResolver cellPathResolver, BuckConfig config, Iterable<String> targetsAsArgs) {
     ImmutableList.Builder<TargetNodeSpec> specs = ImmutableList.builder();
     CommandLineTargetNodeSpecParser parser =
         new CommandLineTargetNodeSpecParser(config, new BuildTargetPatternTargetNodeParser());
     for (String arg : targetsAsArgs) {
-      specs.addAll(parser.parse(config.getCellPathResolver(), arg));
+      specs.addAll(parser.parse(cellPathResolver, arg));
     }
     return specs.build();
   }
@@ -382,7 +308,8 @@ public abstract class AbstractCommand implements Command {
             .setDefaultTestTimeoutMillis(params.getBuckConfig().getDefaultTestTimeoutMillis())
             .setInclNoLocationClassesEnabled(
                 params.getBuckConfig().getBooleanValue("test", "incl_no_location_classes", false))
-            .setRuleKeyDiagnosticsMode(params.getBuckConfig().getRuleKeyDiagnosticsMode())
+            .setRuleKeyDiagnosticsMode(
+                params.getBuckConfig().getView(RuleKeyConfig.class).getRuleKeyDiagnosticsMode())
             .setConcurrencyLimit(getConcurrencyLimit(params.getBuckConfig()))
             .setPersistentWorkerPools(params.getPersistentWorkerPools())
             .setProjectFilesystemFactory(params.getProjectFilesystemFactory());
@@ -473,5 +400,135 @@ public abstract class AbstractCommand implements Command {
                     BuildTargetPatternParser.fullyQualified(),
                     params.getCell().getCellPathResolver()))
         .collect(ImmutableSet.toImmutableSet());
+  }
+
+  private void parseConfigOption(CellConfig.Builder builder, Pair<String, String> config) {
+    // Parse command-line config overrides.
+    List<String> key = Splitter.on("//").limit(2).splitToList(config.getFirst());
+    RelativeCellName cellName = RelativeCellName.ALL_CELLS_SPECIAL_NAME;
+    String configKey = key.get(0);
+    if (key.size() == 2) {
+      // Here we explicitly take the whole string as the cell name. We don't support transitive
+      // path overrides for cells.
+      if (key.get(0).length() == 0) {
+        cellName = RelativeCellName.ROOT_CELL_NAME;
+      } else {
+        cellName = RelativeCellName.of(ImmutableSet.of(key.get(0)));
+      }
+      configKey = key.get(1);
+    }
+    int separatorIndex = configKey.lastIndexOf('.');
+    if (separatorIndex < 0 || separatorIndex == configKey.length() - 1) {
+      throw new HumanReadableException(
+          "Invalid config override \"%s=%s\" Expected <section>.<field>=<value>.",
+          configKey, config.getSecond());
+    }
+    // Overrides for locations of transitive children of cells are weird as the order of overrides
+    // can affect the result (for example `-c a/b/c.k=v -c a/b//repositories.c=foo` causes an
+    // interesting problem as the a/b/c cell gets created as a side-effect of the first override,
+    // but the second override wants to change its identity).
+    // It's generally a better idea to use the .buckconfig.local mechanism when overriding
+    // repositories anyway, so here we simply disallow them.
+    String section = configKey.substring(0, separatorIndex);
+    if (section.equals("repositories")) {
+      throw new HumanReadableException(
+          "Overriding repository locations from the command line "
+              + "is not supported. Please place a .buckconfig.local in the appropriate location and "
+              + "use that instead.");
+    }
+    String value = config.getSecond();
+    String field = configKey.substring(separatorIndex + 1);
+    builder.put(cellName, section, field, value);
+  }
+
+  private void parseConfigFileOption(
+      ImmutableMap<RelativeCellName, Path> cellMapping,
+      CellConfig.Builder builder,
+      String filename) {
+    if (filename == null) {
+      return;
+    }
+    BuckCellArg filenameArg = BuckCellArg.of(filename);
+    RelativeCellName cellName;
+    if (!filenameArg.getCellName().isPresent() && filename.startsWith("//")) {
+      cellName = RelativeCellName.ROOT_CELL_NAME;
+    } else {
+      cellName =
+          filenameArg.getCellName().isPresent()
+              ? RelativeCellName.of(ImmutableSet.of(filenameArg.getCellName().get()))
+              : RelativeCellName.ALL_CELLS_SPECIAL_NAME;
+    }
+
+    filename = filenameArg.getArg();
+
+    Path projectRoot =
+        cellMapping.get(
+            cellName.equals(RelativeCellName.ALL_CELLS_SPECIAL_NAME)
+                ? RelativeCellName.ROOT_CELL_NAME
+                : cellName);
+    Path path = projectRoot.resolve(filename);
+    ImmutableMap<String, ImmutableMap<String, String>> sectionsToEntries;
+
+    try {
+      sectionsToEntries = Configs.parseConfigFile(path);
+    } catch (IOException e) {
+      throw new HumanReadableException(e, "File could not be read: %s", filename);
+    }
+
+    for (Map.Entry<String, ImmutableMap<String, String>> entry : sectionsToEntries.entrySet()) {
+      String section = entry.getKey();
+      for (Map.Entry<String, String> sectionEntry : entry.getValue().entrySet()) {
+        String field = sectionEntry.getKey();
+        String value = sectionEntry.getValue();
+        builder.put(cellName, section, field, value);
+      }
+    }
+    LOG.debug("Loaded a configuration file %s, %s", filename, sectionsToEntries.toString());
+  }
+
+  void saveConfigOptionInOverrides(String configOverride) {
+    if (configOverride.indexOf('=') == -1) {
+      throw new HumanReadableException(
+          "Invalid config configOverride \"%s\" Expected <section>.<field>=<value>.",
+          configOverride);
+    }
+
+    final String key;
+    Optional<String> maybeValue;
+
+    // Splitting off the key from the value
+    int index = configOverride.indexOf('=');
+    key = configOverride.substring(0, index);
+    maybeValue = Optional.of(configOverride.substring(index + 1));
+
+    if (key.length() == 0)
+      throw new HumanReadableException(
+          "Invalid config configOverride \"%s\" Expected <section>.<field>=<value>.",
+          configOverride);
+
+    maybeValue.ifPresent(value -> configOverrides.add(new Pair<String, String>(key, value)));
+  }
+
+  @Override
+  @SuppressWarnings("unchecked")
+  public CellConfig getConfigOverrides(ImmutableMap<RelativeCellName, Path> cellMapping) {
+    CellConfig.Builder builder = CellConfig.builder();
+
+    for (Object option : configOverrides) {
+      if (option instanceof String) {
+        parseConfigFileOption(cellMapping, builder, (String) option);
+      } else {
+        parseConfigOption(builder, (Pair<String, String>) option);
+      }
+    }
+    if (numThreads != null) {
+      builder.put(
+          RelativeCellName.ALL_CELLS_SPECIAL_NAME, "build", "threads", String.valueOf(numThreads));
+    }
+    if (noCache) {
+      builder.put(RelativeCellName.ALL_CELLS_SPECIAL_NAME, "cache", "mode", "");
+    }
+
+    return builder.build();
   }
 }

@@ -16,8 +16,8 @@
 
 package com.facebook.buck.jvm.java;
 
-import com.facebook.buck.config.BuckConfig;
-import com.facebook.buck.config.ConfigView;
+import com.facebook.buck.core.config.BuckConfig;
+import com.facebook.buck.core.config.ConfigView;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.sourcepath.PathSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
@@ -243,6 +243,10 @@ public class JavaBuckConfig implements ConfigView<BuckConfig> {
     return delegate
         .getEnum(SECTION, "unused_dependencies_action", UnusedDependenciesAction.class)
         .orElse(UnusedDependenciesAction.IGNORE);
+  }
+
+  public Optional<String> getJavaTempDir() {
+    return delegate.getValue("java", "test_temp_dir");
   }
 
   public Level getDuplicatesLogLevel() {

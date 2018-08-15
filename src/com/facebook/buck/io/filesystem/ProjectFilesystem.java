@@ -292,6 +292,9 @@ public interface ProjectFilesystem {
 
   void move(Path source, Path target, CopyOption... options) throws IOException;
 
+  /** Moves the children of {@code source} into {@code target}, merging the two directories. */
+  void mergeChildren(Path source, Path target, CopyOption... options) throws IOException;
+
   void copyFolder(Path source, Path target) throws IOException;
 
   void copyFile(Path source, Path target) throws IOException;
@@ -312,6 +315,17 @@ public interface ProjectFilesystem {
 
   Manifest getJarManifest(Path path) throws IOException;
 
+  /**
+   * getPosixFileMode returns a number corresponding to stat()'s ST_MODE, for use when constructing
+   * tar archives.
+   */
+  // TODO: the return value should fit in 'int'; prove it is so and change the return type to int.
+  long getPosixFileMode(Path path) throws IOException;
+
+  /**
+   * getFileAttributesForZipEntry is similar to getPosixFileMode, but returns a number adjusted for
+   * use in zip files.
+   */
   long getFileAttributesForZipEntry(Path path) throws IOException;
 
   BuckPaths getBuckPaths();

@@ -17,7 +17,6 @@
 package com.facebook.buck.command;
 
 import com.facebook.buck.artifact_cache.ArtifactCache;
-import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.core.build.context.BuildContext;
 import com.facebook.buck.core.build.engine.BuildEngine;
 import com.facebook.buck.core.build.engine.BuildEngineBuildContext;
@@ -25,6 +24,7 @@ import com.facebook.buck.core.build.engine.BuildEngineResult;
 import com.facebook.buck.core.build.engine.BuildResult;
 import com.facebook.buck.core.build.event.BuildEvent;
 import com.facebook.buck.core.cell.Cell;
+import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.exceptions.ExceptionWithHumanReadableMessage;
 import com.facebook.buck.core.exceptions.handler.HumanReadableExceptionAugmentor;
 import com.facebook.buck.core.model.BuildId;
@@ -50,6 +50,7 @@ import com.facebook.buck.util.ErrorLogger;
 import com.facebook.buck.util.ExitCode;
 import com.facebook.buck.util.Threads;
 import com.facebook.buck.util.environment.Platform;
+import com.facebook.buck.util.string.MoreStrings;
 import com.facebook.buck.util.timing.Clock;
 import com.google.common.base.Charsets;
 import com.google.common.base.Preconditions;
@@ -121,6 +122,7 @@ public class Build implements Closeable {
                 .setBuildCellRootPath(rootCell.getRoot())
                 .setJavaPackageFinder(javaPackageFinder)
                 .setEventBus(executionContext.getBuckEventBus())
+                .setShouldDeleteTemporaries(rootCell.getBuckConfig().getShouldDeleteTemporaries())
                 .build())
         .setClock(clock)
         .setArtifactCache(artifactCache)
@@ -204,7 +206,7 @@ public class Build implements Closeable {
   }
 
   /**
-   * * Converts given BuildTargets into BuildRules
+   * * Converts given BuildTargetPaths into BuildRules
    *
    * @param targetish
    * @return
@@ -365,7 +367,17 @@ public class Build implements Closeable {
               ? "Failure report is empty."
               :
               // Remove trailing newline from build report.
-              buildReportText.substring(0, buildReportText.length() - 1);
+              // Note: In error cases the buildReportText doesn't end with new-line character,
+              // but with '.'.
+              buildReportText.endsWith(System.lineSeparator())
+                  ? MoreStrings.withoutSuffix(buildReportText, System.lineSeparator())
+                  :
+                  // The error message always gets a '.' at the end, so, to avoid duplication
+                  // remove the trailing '.' if one is present.
+                  buildReportText.endsWith(".")
+                      ? MoreStrings.withoutSuffix(buildReportText, ".")
+                      : buildReportText;
+
       eventBus.post(ConsoleEvent.info(buildReportText));
       exitCode = buildExecutionResult.getFailures().isEmpty() ? 0 : 1;
       if (exitCode != 0) {
@@ -379,6 +391,7 @@ public class Build implements Closeable {
       // Note that pathToBuildReport is an absolute path that may exist outside of the project
       // root, so it is not appropriate to use ProjectFilesystem to write the output.
       String jsonBuildReport = buildReport.generateJsonBuildReport();
+      eventBus.post(BuildEvent.buildReport(jsonBuildReport));
       // TODO(cjhopman): The build report should use an ErrorLogger to extract good error
       // messages.
       try {
@@ -477,6 +490,7 @@ public class Build implements Closeable {
     BuildReport buildReport = new BuildReport(e.createBuildExecutionResult(), pathResolver);
     try {
       String jsonBuildReport = buildReport.generateJsonBuildReport();
+      eventBus.post(BuildEvent.buildReport(jsonBuildReport));
       Files.write(jsonBuildReport, pathToBuildReport.toFile(), Charsets.UTF_8);
     } catch (IOException writeException) {
       LOG.warn(writeException, "Failed to write the build report to %s", pathToBuildReport);

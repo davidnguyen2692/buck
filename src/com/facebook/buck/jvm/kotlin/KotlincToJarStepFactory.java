@@ -22,9 +22,9 @@ import static javax.xml.bind.DatatypeConverter.printBase64Binary;
 import com.facebook.buck.core.build.buildable.context.BuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
 import com.facebook.buck.core.rulekey.AddsToRuleKey;
-import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.io.BuildCellRelativePath;
@@ -38,7 +38,6 @@ import com.facebook.buck.jvm.java.JavacOptions;
 import com.facebook.buck.jvm.java.JavacPluginJsr199Fields;
 import com.facebook.buck.jvm.java.JavacToJarStepFactory;
 import com.facebook.buck.jvm.java.ResolvedJavacPluginProperties;
-import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.CopyStep;
 import com.facebook.buck.step.fs.CopyStep.DirectoryMode;
@@ -96,16 +95,12 @@ public class KotlincToJarStepFactory extends CompileToJarStepFactory implements 
   private final JavacOptions javacOptions;
 
   KotlincToJarStepFactory(
-      SourcePathResolver resolver,
-      SourcePathRuleFinder ruleFinder,
-      ProjectFilesystem projectFilesystem,
       Kotlinc kotlinc,
       ImmutableSortedSet<Path> kotlinHomeLibraries,
       ImmutableList<String> extraArguments,
       ExtraClasspathProvider extraClassPath,
       Javac javac,
       JavacOptions javacOptions) {
-    super(resolver, ruleFinder, projectFilesystem);
     this.kotlinc = kotlinc;
     this.kotlinHomeLibraries = kotlinHomeLibraries;
     this.extraArguments = extraArguments;
@@ -117,6 +112,7 @@ public class KotlincToJarStepFactory extends CompileToJarStepFactory implements 
   @Override
   public void createCompileStep(
       BuildContext buildContext,
+      ProjectFilesystem projectFilesystem,
       BuildTarget invokingRule,
       CompilerParameters parameters,
       /* output params */
@@ -125,25 +121,27 @@ public class KotlincToJarStepFactory extends CompileToJarStepFactory implements 
 
     ImmutableSortedSet<Path> declaredClasspathEntries = parameters.getClasspathEntries();
     ImmutableSortedSet<Path> sourceFilePaths = parameters.getSourceFilePaths();
-    Path outputDirectory = parameters.getOutputDirectory();
-    Path pathToSrcsList = parameters.getPathToSourcesList();
+    Path outputDirectory = parameters.getOutputPaths().getClassesDir();
+    Path pathToSrcsList = parameters.getOutputPaths().getPathToSourcesList();
 
     Path stubsOutput =
-        BuildTargets.getAnnotationPath(projectFilesystem, invokingRule, "__%s_stubs__");
+        BuildTargetPaths.getAnnotationPath(projectFilesystem, invokingRule, "__%s_stubs__");
     Path sourcesOutput =
-        BuildTargets.getAnnotationPath(projectFilesystem, invokingRule, "__%s_sources__");
+        BuildTargetPaths.getAnnotationPath(projectFilesystem, invokingRule, "__%s_sources__");
     Path classesOutput =
-        BuildTargets.getAnnotationPath(projectFilesystem, invokingRule, "__%s_classes__");
+        BuildTargetPaths.getAnnotationPath(projectFilesystem, invokingRule, "__%s_classes__");
     Path kaptGeneratedOutput =
-        BuildTargets.getAnnotationPath(projectFilesystem, invokingRule, "__%s_kapt_generated__");
+        BuildTargetPaths.getAnnotationPath(
+            projectFilesystem, invokingRule, "__%s_kapt_generated__");
     Path incrementalDataOutput =
-        BuildTargets.getAnnotationPath(projectFilesystem, invokingRule, "__%s_incremental_data__");
+        BuildTargetPaths.getAnnotationPath(
+            projectFilesystem, invokingRule, "__%s_incremental_data__");
     Path tmpFolder =
-        BuildTargets.getScratchPath(projectFilesystem, invokingRule, "__%s_gen_sources__");
+        BuildTargetPaths.getScratchPath(projectFilesystem, invokingRule, "__%s_gen_sources__");
     Path genOutputFolder =
-        BuildTargets.getGenPath(projectFilesystem, invokingRule, "__%s_gen_sources__");
+        BuildTargetPaths.getGenPath(projectFilesystem, invokingRule, "__%s_gen_sources__");
     Path genOutput =
-        BuildTargets.getGenPath(
+        BuildTargetPaths.getGenPath(
             projectFilesystem, invokingRule, "__%s_gen_sources__/generated" + SRC_ZIP);
     boolean generatingCode = !javacOptions.getAnnotationProcessingParams().isEmpty();
 
@@ -153,16 +151,13 @@ public class KotlincToJarStepFactory extends CompileToJarStepFactory implements 
           ImmutableSortedSet.<Path>naturalOrder().add(genOutput).addAll(sourceFilePaths).build();
 
       // Javac requires that the root directory for generated sources already exist.
-      addCreateFolderStep(steps, projectFilesystem, buildableContext, buildContext, stubsOutput);
-      addCreateFolderStep(steps, projectFilesystem, buildableContext, buildContext, classesOutput);
-      addCreateFolderStep(
-          steps, projectFilesystem, buildableContext, buildContext, kaptGeneratedOutput);
-      addCreateFolderStep(
-          steps, projectFilesystem, buildableContext, buildContext, incrementalDataOutput);
-      addCreateFolderStep(steps, projectFilesystem, buildableContext, buildContext, sourcesOutput);
-      addCreateFolderStep(steps, projectFilesystem, buildableContext, buildContext, tmpFolder);
-      addCreateFolderStep(
-          steps, projectFilesystem, buildableContext, buildContext, genOutputFolder);
+      addCreateFolderStep(steps, projectFilesystem, buildContext, stubsOutput);
+      addCreateFolderStep(steps, projectFilesystem, buildContext, classesOutput);
+      addCreateFolderStep(steps, projectFilesystem, buildContext, kaptGeneratedOutput);
+      addCreateFolderStep(steps, projectFilesystem, buildContext, incrementalDataOutput);
+      addCreateFolderStep(steps, projectFilesystem, buildContext, sourcesOutput);
+      addCreateFolderStep(steps, projectFilesystem, buildContext, tmpFolder);
+      addCreateFolderStep(steps, projectFilesystem, buildContext, genOutputFolder);
 
       ImmutableSortedSet<Path> allClasspaths =
           ImmutableSortedSet.<Path>naturalOrder()
@@ -189,8 +184,8 @@ public class KotlincToJarStepFactory extends CompileToJarStepFactory implements 
             incrementalDataOutput,
             classesOutput,
             sourcesOutput,
-            parameters.getWorkingDirectory(),
-            resolver);
+            parameters.getOutputPaths().getWorkingDirectory(),
+            buildContext.getSourcePathResolver());
       }
 
       steps.add(
@@ -230,7 +225,7 @@ public class KotlincToJarStepFactory extends CompileToJarStepFactory implements 
                   .add()
                   .build(),
               projectFilesystem,
-              Optional.of(parameters.getWorkingDirectory())));
+              Optional.of(parameters.getOutputPaths().getWorkingDirectory())));
     }
 
     ImmutableSortedSet.Builder<Path> sourceBuilder =
@@ -264,13 +259,16 @@ public class KotlincToJarStepFactory extends CompileToJarStepFactory implements 
             .build();
 
     new JavacToJarStepFactory(
-            resolver,
-            ruleFinder,
-            projectFilesystem,
             javac,
             javacOptions.withAnnotationProcessingParams(AnnotationProcessingParams.EMPTY),
             extraClassPath)
-        .createCompileStep(buildContext, invokingRule, javacParameters, steps, buildableContext);
+        .createCompileStep(
+            buildContext,
+            projectFilesystem,
+            invokingRule,
+            javacParameters,
+            steps,
+            buildableContext);
   }
 
   private void addAnnotationGenFolderStep(
@@ -393,14 +391,12 @@ public class KotlincToJarStepFactory extends CompileToJarStepFactory implements 
   private void addCreateFolderStep(
       ImmutableList.Builder<Step> steps,
       ProjectFilesystem filesystem,
-      BuildableContext buildableContext,
       BuildContext buildContext,
       Path location) {
     steps.addAll(
         MakeCleanDirectoryStep.of(
             BuildCellRelativePath.fromCellRelativePath(
                 buildContext.getBuildCellRootPath(), filesystem, location)));
-    buildableContext.recordArtifact(location);
   }
 
   private String encodeOptions(Map<String, String> options) {

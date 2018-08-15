@@ -39,6 +39,8 @@ import com.facebook.buck.android.toolchain.ndk.AndroidNdk;
 import com.facebook.buck.android.toolchain.ndk.NdkCxxPlatformsProvider;
 import com.facebook.buck.android.toolchain.ndk.impl.TestNdkCxxPlatformsProviderFactory;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.BuildTargetFactory;
+import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
@@ -47,10 +49,13 @@ import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.core.sourcepath.DefaultBuildTargetSourcePath;
+import com.facebook.buck.core.sourcepath.FakeSourcePath;
 import com.facebook.buck.core.sourcepath.PathSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
+import com.facebook.buck.core.toolchain.ToolchainProvider;
+import com.facebook.buck.core.toolchain.impl.ToolchainProviderBuilder;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.java.JavaLibraryBuilder;
@@ -58,12 +63,7 @@ import com.facebook.buck.jvm.java.KeystoreBuilder;
 import com.facebook.buck.jvm.java.PrebuiltJarBuilder;
 import com.facebook.buck.jvm.java.toolchain.JavaOptionsProvider;
 import com.facebook.buck.jvm.java.toolchain.JavacOptionsProvider;
-import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
-import com.facebook.buck.toolchain.ToolchainProvider;
-import com.facebook.buck.toolchain.impl.ToolchainProviderBuilder;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
@@ -88,18 +88,18 @@ public class AndroidPackageableCollectorTest {
     // Create an AndroidBinaryRule that transitively depends on two prebuilt JARs. One of the two
     // prebuilt JARs will be listed in the AndroidBinaryRule's no_dx list.
     BuildTarget guavaTarget = BuildTargetFactory.newInstance("//third_party/guava:guava");
-    TargetNode<?, ?> guava =
+    TargetNode<?> guava =
         PrebuiltJarBuilder.createBuilder(guavaTarget)
             .setBinaryJar(Paths.get("third_party/guava/guava-10.0.1.jar"))
             .build();
 
     BuildTarget jsr305Target = BuildTargetFactory.newInstance("//third_party/jsr-305:jsr-305");
-    TargetNode<?, ?> jsr =
+    TargetNode<?> jsr =
         PrebuiltJarBuilder.createBuilder(jsr305Target)
             .setBinaryJar(Paths.get("third_party/jsr-305/jsr305.jar"))
             .build();
 
-    TargetNode<?, ?> ndkLibrary =
+    TargetNode<?> ndkLibrary =
         new NdkLibraryBuilder(
                 BuildTargetFactory.newInstance("//java/com/facebook/native_library:library"),
                 projectFilesystem)
@@ -107,7 +107,7 @@ public class AndroidPackageableCollectorTest {
 
     BuildTarget prebuiltNativeLibraryTarget =
         BuildTargetFactory.newInstance("//java/com/facebook/prebuilt_native_library:library");
-    TargetNode<?, ?> prebuiltNativeLibraryBuild =
+    TargetNode<?> prebuiltNativeLibraryBuild =
         PrebuiltNativeLibraryBuilder.newBuilder(prebuiltNativeLibraryTarget, projectFilesystem)
             .setNativeLibs(prebuiltNativeLibraryPath)
             .setIsAsset(true)
@@ -115,7 +115,7 @@ public class AndroidPackageableCollectorTest {
 
     BuildTarget libraryRuleTarget =
         BuildTargetFactory.newInstance("//java/src/com/facebook:example");
-    TargetNode<?, ?> library =
+    TargetNode<?> library =
         JavaLibraryBuilder.createBuilder(libraryRuleTarget)
             .setProguardConfig(FakeSourcePath.of("debug.pro"))
             .addSrc(Paths.get("Example.java"))
@@ -126,7 +126,7 @@ public class AndroidPackageableCollectorTest {
             .build();
 
     BuildTarget manifestTarget = BuildTargetFactory.newInstance("//java/src/com/facebook:res");
-    TargetNode<?, ?> manifest =
+    TargetNode<?> manifest =
         AndroidResourceBuilder.createBuilder(manifestTarget)
             .setManifest(
                 FakeSourcePath.of(
@@ -135,7 +135,7 @@ public class AndroidPackageableCollectorTest {
             .build();
 
     BuildTarget keystoreTarget = BuildTargetFactory.newInstance("//keystore:debug");
-    TargetNode<?, ?> keystore =
+    TargetNode<?> keystore =
         KeystoreBuilder.createBuilder(keystoreTarget)
             .setStore(FakeSourcePath.of(projectFilesystem, "keystore/debug.keystore"))
             .setProperties(
@@ -145,7 +145,7 @@ public class AndroidPackageableCollectorTest {
     ImmutableSortedSet<BuildTarget> originalDepsTargets =
         ImmutableSortedSet.of(libraryRuleTarget, manifestTarget);
     BuildTarget binaryTarget = BuildTargetFactory.newInstance("//java/src/com/facebook:app");
-    TargetNode<?, ?> binary =
+    TargetNode<?> binary =
         AndroidBinaryBuilder.createBuilder(binaryTarget)
             .setOriginalDeps(originalDepsTargets)
             .setBuildTargetsToExcludeFromDex(
@@ -448,7 +448,7 @@ public class AndroidPackageableCollectorTest {
     assertEquals(
         "Classpath entries should include facebook/base but not keystore/base.",
         ImmutableSet.of(
-            BuildTargets.getGenPath(
+            BuildTargetPaths.getGenPath(
                     androidBinary.getProjectFilesystem(), androidLibraryTarget, "lib__%s__output/")
                 .resolve(androidLibraryTarget.getShortNameAndFlavorPostfix() + ".jar")),
         packageableCollection

@@ -64,12 +64,12 @@ public class ClientSideSlb implements HttpLoadBalancer {
   }
 
   // Use the Builder.
-  public ClientSideSlb(ClientSideSlbConfig config) {
+  public ClientSideSlb(ClientSideSlbConfig config, OkHttpClient.Builder clientBuilder) {
     this(
         config,
         Executors.newSingleThreadScheduledExecutor(
             new CommandThreadFactory("ClientSideSlb", Thread.MAX_PRIORITY)),
-        new OkHttpClient.Builder()
+        clientBuilder
             .dispatcher(
                 new Dispatcher(
                     Executors.newCachedThreadPool(
@@ -92,11 +92,13 @@ public class ClientSideSlb implements HttpLoadBalancer {
 
     this.healthManager =
         new ServerHealthManager(
+            config.getServerPoolName(),
             this.serverPool,
             config.getErrorCheckTimeRangeMillis(),
             config.getMaxErrorPercentage(),
             config.getLatencyCheckTimeRangeMillis(),
             config.getMaxAcceptableLatencyMillis(),
+            config.getMinSamplesToReportError(),
             config.getEventBus(),
             this.clock);
     this.pingClient = pingClient;

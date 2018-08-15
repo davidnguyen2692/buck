@@ -14,6 +14,31 @@ android_binary(
 )
 
 android_binary(
+    name = "app_with_d8",
+    dex_tool = "d8",
+    keystore = "//keystores:debug",
+    manifest = "AndroidManifest.xml",
+    primary_dex_patterns = [
+        "/MyApplication^",
+    ],
+    use_split_dex = True,
+    deps = [
+        "//java/com/sample/app:app",
+        "//java/com/sample/lib:lib",
+    ],
+)
+
+genrule(
+    name = "disassemble_app_with_d8",
+    out = "disassembled_d8.smali",
+    bash = " && ".join([
+        "unzip -p $(location :app_with_d8) classes2.dex > $TMP/classes2.dex",
+        "$(exe //third-party/smali:baksmali) d -o $TMP $TMP/classes2.dex",
+        "cat $TMP/secondary/*/Canary.smali > $OUT",
+    ]),
+)
+
+android_binary(
     name = "app_modular_debug",
     application_module_configs = {
         "small_with_no_resource_deps": ["//java/com/sample/small:small_with_no_resource_deps"],
@@ -144,6 +169,7 @@ android_binary(
     manifest = "AndroidManifest.xml",
     primary_dex_patterns = [
         "/MyApplication^",
+        "/R$",
     ],
     use_split_dex = True,
     deps = [
@@ -157,7 +183,7 @@ genrule(
     name = "disassemble_app_r_dot_java",
     out = "all_r_fields.smali",
     bash = " && ".join([
-        "$(exe //third-party/smali:baksmali) -o $TMP $(location :app)",
+        "$(exe //third-party/smali:baksmali) d -o $TMP $(location :app)",
         "cat $TMP/com/sample*/R*.smali | grep ^.field > $OUT",
     ]),
 )
@@ -415,3 +441,34 @@ android_binary(
         "//res/com/sample/base:base",
     ],
 )
+
+android_binary(
+    name = "app_with_big_r_dot_java",
+    allow_r_dot_java_in_secondary_dex = True,
+    keystore = "//keystores:debug",
+    manifest = "SimpleManifest.xml",
+    minimize_primary_dex_size = True,
+    primary_dex_patterns = [
+        "/primary/R$",
+    ],
+    trim_resource_ids = False,
+    use_split_dex = True,
+    deps = [
+        "//java/com/resourceref:resourceref",
+    ],
+)
+
+genrule(
+    name = "disassemble_big_r_dot_java_primary",
+    out = "big_r_dot_java_primary.txt",
+    bash = "$(exe //third-party/smali:baksmali) list classes " +
+           "$(location :app_with_big_r_dot_java)/classes.dex > $OUT",
+)
+
+for i in (2,3):
+    genrule(
+        name = "disassemble_big_r_dot_java_classes%d" % i,
+        out = "big_r_dot_java_secondary.txt",
+        bash = "$(exe //third-party/smali:baksmali) list classes " +
+               "$(location :app_with_big_r_dot_java)/classes%d.dex > $OUT" % i,
+    )

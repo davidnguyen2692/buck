@@ -22,11 +22,11 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 
-import com.facebook.buck.config.BuckConfig;
-import com.facebook.buck.config.FakeBuckConfig;
 import com.facebook.buck.core.cell.name.RelativeCellName;
+import com.facebook.buck.core.config.BuckConfig;
+import com.facebook.buck.core.config.FakeBuckConfig;
+import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.test.rule.TestRule;
-import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.FakeTestRule;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -42,7 +42,7 @@ public class TestCommandTest {
 
   private TestCommand getCommand(String... args) throws CmdLineException {
     TestCommand command = new TestCommand();
-    new AdditionalOptionsCmdLineParser(command).parseArgument(args);
+    CmdLineParserFactory.create(command).parseArgument(args);
     return command;
   }
 
@@ -231,7 +231,7 @@ public class TestCommandTest {
     assertThat(config.getDefaultRawExcludedLabelSelectors(), contains("e2e"));
     TestCommand command = new TestCommand();
 
-    new AdditionalOptionsCmdLineParser(command).parseArgument();
+    CmdLineParserFactory.create(command).parseArgument();
 
     assertFalse(command.isMatchedByLabelOptions(config, ImmutableSet.of("e2e")));
   }
@@ -246,7 +246,7 @@ public class TestCommandTest {
     assertThat(config.getDefaultRawExcludedLabelSelectors(), contains("e2e"));
     TestCommand command = new TestCommand();
 
-    new AdditionalOptionsCmdLineParser(command).parseArgument("--include", "e2e");
+    CmdLineParserFactory.create(command).parseArgument("--include", "e2e");
 
     assertTrue(command.isMatchedByLabelOptions(config, ImmutableSet.of("e2e")));
   }
@@ -261,7 +261,7 @@ public class TestCommandTest {
     assertThat(config.getDefaultRawExcludedLabelSelectors(), contains(excludedLabel));
     TestCommand command = new TestCommand();
 
-    new AdditionalOptionsCmdLineParser(command).parseArgument("//example:test");
+    CmdLineParserFactory.create(command).parseArgument("//example:test");
 
     FakeTestRule rule =
         new FakeTestRule(
@@ -287,7 +287,9 @@ public class TestCommandTest {
         command.getNumTestThreads(
             FakeBuckConfig.builder()
                 .setSections(
-                    command.getConfigOverrides().getForCell(RelativeCellName.ROOT_CELL_NAME))
+                    command
+                        .getConfigOverrides(ImmutableMap.of())
+                        .getForCell(RelativeCellName.ROOT_CELL_NAME))
                 .build()),
         Matchers.equalTo(15));
 
@@ -297,7 +299,9 @@ public class TestCommandTest {
         command.getNumTestThreads(
             FakeBuckConfig.builder()
                 .setSections(
-                    command.getConfigOverrides().getForCell(RelativeCellName.ROOT_CELL_NAME))
+                    command
+                        .getConfigOverrides(ImmutableMap.of())
+                        .getForCell(RelativeCellName.ROOT_CELL_NAME))
                 .build()),
         Matchers.equalTo(1));
   }

@@ -30,7 +30,7 @@ import java.util.function.Predicate;
 public class AppleResources {
 
   @VisibleForTesting
-  public static final Predicate<TargetNode<?, ?>> IS_APPLE_BUNDLE_RESOURCE_NODE =
+  public static final Predicate<TargetNode<?>> IS_APPLE_BUNDLE_RESOURCE_NODE =
       node -> node.getDescription() instanceof HasAppleBundleResourcesDescription;
 
   // Utility class, do not instantiate.
@@ -44,11 +44,13 @@ public class AppleResources {
    * @return The recursive resource buildables.
    */
   public static ImmutableSet<AppleResourceDescriptionArg> collectRecursiveResources(
+      XCodeDescriptions xcodeDescriptions,
       TargetGraph targetGraph,
       Optional<AppleDependenciesCache> cache,
-      TargetNode<?, ?> targetNode) {
+      TargetNode<?> targetNode) {
     return FluentIterable.from(
             AppleBuildRules.getRecursiveTargetNodeDependenciesOfTypes(
+                xcodeDescriptions,
                 targetGraph,
                 cache,
                 AppleBuildRules.RecursiveDependenciesMode.COPYING,
@@ -59,15 +61,17 @@ public class AppleResources {
   }
 
   public static <T> AppleBundleResources collectResourceDirsAndFiles(
+      XCodeDescriptions xcodeDescriptions,
       TargetGraph targetGraph,
       BuildRuleResolver resolver,
       Optional<AppleDependenciesCache> cache,
-      TargetNode<T, ?> targetNode,
+      TargetNode<T> targetNode,
       AppleCxxPlatform appleCxxPlatform) {
     AppleBundleResources.Builder builder = AppleBundleResources.builder();
 
-    Iterable<TargetNode<?, ?>> resourceNodes =
+    Iterable<TargetNode<?>> resourceNodes =
         AppleBuildRules.getRecursiveTargetNodeDependenciesOfTypes(
+            xcodeDescriptions,
             targetGraph,
             cache,
             AppleBuildRules.RecursiveDependenciesMode.COPYING,
@@ -76,9 +80,9 @@ public class AppleResources {
             Optional.of(appleCxxPlatform));
     ProjectFilesystem filesystem = targetNode.getFilesystem();
 
-    for (TargetNode<?, ?> resourceNode : resourceNodes) {
+    for (TargetNode<?> resourceNode : resourceNodes) {
       @SuppressWarnings("unchecked")
-      TargetNode<Object, ?> node = (TargetNode<Object, ?>) resourceNode;
+      TargetNode<Object> node = (TargetNode<Object>) resourceNode;
 
       @SuppressWarnings("unchecked")
       HasAppleBundleResourcesDescription<Object> description =
@@ -90,10 +94,10 @@ public class AppleResources {
   }
 
   public static ImmutableSet<AppleResourceDescriptionArg> collectDirectResources(
-      TargetGraph targetGraph, TargetNode<?, ?> targetNode) {
+      TargetGraph targetGraph, TargetNode<?> targetNode) {
     ImmutableSet.Builder<AppleResourceDescriptionArg> builder = ImmutableSet.builder();
-    Iterable<TargetNode<?, ?>> deps = targetGraph.getAll(targetNode.getBuildDeps());
-    for (TargetNode<?, ?> node : deps) {
+    Iterable<TargetNode<?>> deps = targetGraph.getAll(targetNode.getBuildDeps());
+    for (TargetNode<?> node : deps) {
       if (node.getDescription() instanceof AppleResourceDescription) {
         builder.add((AppleResourceDescriptionArg) node.getConstructorArg());
       }

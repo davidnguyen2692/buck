@@ -18,17 +18,17 @@ package com.facebook.buck.jvm.java;
 import static org.junit.Assert.assertEquals;
 
 import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.build.context.FakeBuildContext;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
+import com.facebook.buck.core.sourcepath.FakeSourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.core.JavaPackageFinder;
-import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.FakeBuildContext;
-import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.SymlinkFileStep;
@@ -65,15 +65,19 @@ public class CopyResourcesStepTest {
         new CopyResourcesStep(
             filesystem,
             buildContext,
-            ruleFinder,
             buildTarget,
             ResourcesParameters.builder()
                 .setResources(
-                    ImmutableSortedSet.of(
-                        FakeSourcePath.of(
-                            filesystem, "android/java/src/com/facebook/base/data.json"),
-                        FakeSourcePath.of(
-                            filesystem, "android/java/src/com/facebook/common/util/data.json")))
+                    ResourcesParameters.getNamedResources(
+                        resolver,
+                        ruleFinder,
+                        filesystem,
+                        ImmutableSortedSet.of(
+                            FakeSourcePath.of(
+                                filesystem, "android/java/src/com/facebook/base/data.json"),
+                            FakeSourcePath.of(
+                                filesystem,
+                                "android/java/src/com/facebook/common/util/data.json"))))
                 .setResourcesRoot(Optional.empty())
                 .build(),
             filesystem
@@ -124,23 +128,28 @@ public class CopyResourcesStepTest {
     ProjectFilesystem filesystem = FakeProjectFilesystem.createJavaOnlyFilesystem();
 
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(new TestActionGraphBuilder());
+    DefaultSourcePathResolver resolver = DefaultSourcePathResolver.from(ruleFinder);
     BuildContext buildContext =
-        FakeBuildContext.withSourcePathResolver(DefaultSourcePathResolver.from(ruleFinder))
+        FakeBuildContext.withSourcePathResolver(resolver)
             .withJavaPackageFinder(javaPackageFinder)
             .withBuildCellRootPath(filesystem.getRootPath());
     CopyResourcesStep step =
         new CopyResourcesStep(
             filesystem,
             buildContext,
-            ruleFinder,
             buildTarget,
             ResourcesParameters.builder()
                 .setResources(
-                    ImmutableSortedSet.of(
-                        FakeSourcePath.of(
-                            filesystem, "android/java/src/com/facebook/base/data.json"),
-                        FakeSourcePath.of(
-                            filesystem, "android/java/src/com/facebook/common/util/data.json")))
+                    ResourcesParameters.getNamedResources(
+                        resolver,
+                        ruleFinder,
+                        filesystem,
+                        ImmutableSortedSet.of(
+                            FakeSourcePath.of(
+                                filesystem, "android/java/src/com/facebook/base/data.json"),
+                            FakeSourcePath.of(
+                                filesystem,
+                                "android/java/src/com/facebook/common/util/data.json"))))
                 .setResourcesRoot(Optional.empty())
                 .build(),
             filesystem
@@ -192,8 +201,9 @@ public class CopyResourcesStepTest {
     ProjectFilesystem filesystem = FakeProjectFilesystem.createJavaOnlyFilesystem();
 
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(new TestActionGraphBuilder());
+    DefaultSourcePathResolver resolver = DefaultSourcePathResolver.from(ruleFinder);
     BuildContext buildContext =
-        FakeBuildContext.withSourcePathResolver(DefaultSourcePathResolver.from(ruleFinder))
+        FakeBuildContext.withSourcePathResolver(resolver)
             .withJavaPackageFinder(javaPackageFinder)
             .withBuildCellRootPath(filesystem.getRootPath());
 
@@ -201,15 +211,19 @@ public class CopyResourcesStepTest {
         new CopyResourcesStep(
             filesystem,
             buildContext,
-            ruleFinder,
             buildTarget,
             ResourcesParameters.builder()
                 .setResources(
-                    ImmutableSortedSet.of(
-                        FakeSourcePath.of(
-                            filesystem, "android/java/src/com/facebook/base/data.json"),
-                        FakeSourcePath.of(
-                            filesystem, "android/java/src/com/facebook/common/util/data.json")))
+                    ResourcesParameters.getNamedResources(
+                        resolver,
+                        ruleFinder,
+                        filesystem,
+                        ImmutableSortedSet.of(
+                            FakeSourcePath.of(
+                                filesystem, "android/java/src/com/facebook/base/data.json"),
+                            FakeSourcePath.of(
+                                filesystem,
+                                "android/java/src/com/facebook/common/util/data.json"))))
                 .setResourcesRoot(Optional.empty())
                 .build(),
             filesystem

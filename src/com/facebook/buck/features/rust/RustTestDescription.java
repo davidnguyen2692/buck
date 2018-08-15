@@ -17,14 +17,12 @@
 package com.facebook.buck.features.rust;
 
 import com.facebook.buck.core.cell.resolver.CellPathResolver;
-import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.description.arg.CommonDescriptionArg;
 import com.facebook.buck.core.description.arg.HasDeclaredDeps;
 import com.facebook.buck.core.description.arg.HasDefaultPlatform;
 import com.facebook.buck.core.description.arg.HasSrcs;
 import com.facebook.buck.core.description.attr.ImplicitDepsInferringDescription;
 import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.FlavorDomain;
 import com.facebook.buck.core.model.Flavored;
 import com.facebook.buck.core.model.InternalFlavor;
@@ -32,23 +30,25 @@ import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTarg
 import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.common.BuildableSupport;
 import com.facebook.buck.core.rules.tool.BinaryWrapperRule;
 import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.toolchain.ToolchainProvider;
 import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.cxx.CxxDeps;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
+import com.facebook.buck.features.rust.RustBinaryDescription.Type;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
-import com.facebook.buck.toolchain.ToolchainProvider;
 import com.facebook.buck.versions.VersionRoot;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
-import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.stream.Stream;
 import org.immutables.value.Value;
@@ -83,10 +83,11 @@ public class RustTestDescription
     CxxDeps allDeps =
         CxxDeps.builder().addDeps(args.getDeps()).addPlatformDeps(args.getPlatformDeps()).build();
 
-    Optional<Map.Entry<Flavor, RustBinaryDescription.Type>> type =
-        RustBinaryDescription.BINARY_TYPE.getFlavorAndValue(buildTarget);
-
-    boolean isCheck = type.map(t -> t.getValue().isCheck()).orElse(false);
+    RustBinaryDescription.Type type =
+        RustBinaryDescription.BINARY_TYPE
+            .getFlavorAndValue(buildTarget)
+            .map(Entry::getValue)
+            .orElse(Type.STATIC);
 
     ActionGraphBuilder graphBuilder = context.getActionGraphBuilder();
     RustPlatform rustPlatform =
@@ -118,7 +119,7 @@ public class RustTestDescription
                         args.getSrcs(),
                         args.getCrateRoot(),
                         ImmutableSet.of("lib.rs", "main.rs"),
-                        isCheck,
+                        type.getCrateType(),
                         allDeps.get(graphBuilder, rustPlatform.getCxxPlatform())));
 
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);

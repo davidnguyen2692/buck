@@ -17,7 +17,6 @@
 package com.facebook.buck.android;
 
 import com.facebook.buck.core.cell.resolver.CellPathResolver;
-import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.description.arg.HasDepsQuery;
 import com.facebook.buck.core.description.arg.HasProvidedDepsQuery;
 import com.facebook.buck.core.description.attr.ImplicitDepsInferringDescription;
@@ -27,11 +26,12 @@ import com.facebook.buck.core.model.Flavored;
 import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
 import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.core.rules.BuildRule;
-import com.facebook.buck.core.rules.type.BuildRuleType;
+import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.toolchain.ToolchainProvider;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.jvm.core.HasJavaAbi;
+import com.facebook.buck.jvm.core.JavaAbis;
 import com.facebook.buck.jvm.core.JavaLibrary;
 import com.facebook.buck.jvm.java.JavaBuckConfig;
 import com.facebook.buck.jvm.java.JavaLibraryDescription;
@@ -40,7 +40,6 @@ import com.facebook.buck.jvm.java.JavacFactory;
 import com.facebook.buck.jvm.java.JavacOptions;
 import com.facebook.buck.jvm.java.JavacOptionsFactory;
 import com.facebook.buck.jvm.java.toolchain.JavacOptionsProvider;
-import com.facebook.buck.toolchain.ToolchainProvider;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableSet;
@@ -52,7 +51,6 @@ public class AndroidLibraryDescription
         Flavored,
         ImplicitDepsInferringDescription<
             AndroidLibraryDescription.AbstractAndroidLibraryDescriptionArg> {
-  public static final BuildRuleType TYPE = BuildRuleType.of("android_library");
 
   private static final Flavor DUMMY_R_DOT_JAVA_FLAVOR =
       AndroidLibraryGraphEnhancer.DUMMY_R_DOT_JAVA_FLAVOR;
@@ -127,7 +125,7 @@ public class AndroidLibraryDescription
 
     if (hasDummyRDotJavaFlavor) {
       return androidLibraryBuilder.buildDummyRDotJava();
-    } else if (HasJavaAbi.isAbiTarget(buildTarget)) {
+    } else if (JavaAbis.isAbiTarget(buildTarget)) {
       return androidLibraryBuilder.buildAbi();
     }
     return androidLibraryBuilder.build();
@@ -138,10 +136,10 @@ public class AndroidLibraryDescription
     return flavors.isEmpty()
         || flavors.equals(ImmutableSet.of(JavaLibrary.SRC_JAR))
         || flavors.equals(ImmutableSet.of(DUMMY_R_DOT_JAVA_FLAVOR))
-        || flavors.equals(ImmutableSet.of(HasJavaAbi.CLASS_ABI_FLAVOR))
-        || flavors.equals(ImmutableSet.of(HasJavaAbi.SOURCE_ABI_FLAVOR))
-        || flavors.equals(ImmutableSet.of(HasJavaAbi.SOURCE_ONLY_ABI_FLAVOR))
-        || flavors.equals(ImmutableSet.of(HasJavaAbi.VERIFIED_SOURCE_ABI_FLAVOR));
+        || flavors.equals(ImmutableSet.of(JavaAbis.CLASS_ABI_FLAVOR))
+        || flavors.equals(ImmutableSet.of(JavaAbis.SOURCE_ABI_FLAVOR))
+        || flavors.equals(ImmutableSet.of(JavaAbis.SOURCE_ONLY_ABI_FLAVOR))
+        || flavors.equals(ImmutableSet.of(JavaAbis.VERIFIED_SOURCE_ABI_FLAVOR));
   }
 
   @Override

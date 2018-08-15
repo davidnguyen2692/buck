@@ -18,8 +18,6 @@ package com.facebook.buck.cli;
 
 import com.facebook.buck.android.exopackage.AndroidDevicesHelperFactory;
 import com.facebook.buck.command.Build;
-import com.facebook.buck.config.BuckConfig;
-import com.facebook.buck.config.resources.ResourcesConfig;
 import com.facebook.buck.core.build.context.BuildContext;
 import com.facebook.buck.core.build.distributed.synchronization.impl.NoOpRemoteBuildRuleCompletionWaiter;
 import com.facebook.buck.core.build.engine.BuildEngine;
@@ -28,12 +26,15 @@ import com.facebook.buck.core.build.engine.delegate.LocalCachingBuildEngineDeleg
 import com.facebook.buck.core.build.engine.impl.CachingBuildEngine;
 import com.facebook.buck.core.build.engine.impl.MetadataChecker;
 import com.facebook.buck.core.build.event.BuildEvent;
+import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.actiongraph.ActionGraphAndBuilder;
+import com.facebook.buck.core.model.actiongraph.computation.ActionGraphConfig;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraphAndBuildTargets;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
 import com.facebook.buck.core.model.targetgraph.impl.TargetNodes;
+import com.facebook.buck.core.resources.ResourcesConfig;
 import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
@@ -271,7 +272,8 @@ public class TestCommand extends BuildCommand {
             .setPathToJavaAgent(Optional.ofNullable(pathToJavaAgent))
             .setCoverageReportFormats(coverageFormats)
             .setCoverageReportTitle(coverageReportTitle)
-            .setEnvironmentOverrides(environmentOverrides);
+            .setEnvironmentOverrides(environmentOverrides)
+            .setJavaTempDir(params.getBuckConfig().getView(JavaBuckConfig.class).getJavaTempDir());
 
     Optional<ImmutableList<String>> coverageIncludes =
         params.getBuckConfig().getOptionalListWithoutComments("test", "coverageIncludes", ',');
@@ -504,12 +506,15 @@ public class TestCommand extends BuildCommand {
                       params.getCell(),
                       getEnableParserProfiling(),
                       pool.getListeningExecutorService(),
-                      parseArgumentsAsTargetNodeSpecs(params.getBuckConfig(), getArguments()),
+                      parseArgumentsAsTargetNodeSpecs(
+                          params.getCell().getCellPathResolver(),
+                          params.getBuckConfig(),
+                          getArguments()),
                       parserConfig.getDefaultFlavorsMode());
 
           LOG.debug("Got explicit build targets %s", targetGraphAndBuildTargets.getBuildTargets());
           ImmutableSet.Builder<BuildTarget> testTargetsBuilder = ImmutableSet.builder();
-          for (TargetNode<?, ?> node :
+          for (TargetNode<?> node :
               targetGraphAndBuildTargets
                   .getTargetGraph()
                   .getAll(targetGraphAndBuildTargets.getBuildTargets())) {
@@ -556,7 +561,7 @@ public class TestCommand extends BuildCommand {
                   params.getBuckEventBus(),
                   targetGraphAndBuildTargets.getTargetGraph(),
                   params.getCell().getCellProvider(),
-                  params.getBuckConfig(),
+                  params.getBuckConfig().getView(ActionGraphConfig.class),
                   params.getRuleKeyConfiguration(),
                   params.getPoolSupplier());
       // Look up all of the test rules in the action graph.
@@ -590,7 +595,7 @@ public class TestCommand extends BuildCommand {
                         params.getBuckConfig().getView(ModernBuildRuleConfig.class),
                         actionGraphAndBuilder.getActionGraphBuilder(),
                         params.getCell(),
-                        params.getBuckConfig().getCellPathResolver(),
+                        params.getCell().getCellPathResolver(),
                         localCachingBuildEngineDelegate.getFileHashCache(),
                         params.getBuckEventBus(),
                         params.getConsole()),
@@ -660,6 +665,7 @@ public class TestCommand extends BuildCommand {
                   .setBuildCellRootPath(params.getCell().getRoot())
                   .setJavaPackageFinder(params.getJavaPackageFinder())
                   .setEventBus(params.getBuckEventBus())
+                  .setShouldDeleteTemporaries(params.getBuckConfig().getShouldDeleteTemporaries())
                   .build();
 
           // Once all of the rules are built, then run the tests.
@@ -747,7 +753,7 @@ public class TestCommand extends BuildCommand {
     stream.println();
 
     stream.println("Options:");
-    new AdditionalOptionsCmdLineParser(this).printUsage(stream);
+    new AdditionalOptionsCmdLineParser(getPluginManager(), this).printUsage(stream);
     stream.println();
   }
 

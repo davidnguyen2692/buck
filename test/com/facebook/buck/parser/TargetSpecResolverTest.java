@@ -24,28 +24,24 @@ import static org.junit.Assert.assertThat;
 import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.cell.TestCellBuilder;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
-import com.facebook.buck.core.rules.knowntypes.DefaultKnownBuildRuleTypesFactory;
-import com.facebook.buck.core.rules.knowntypes.KnownBuildRuleTypesProvider;
+import com.facebook.buck.core.plugin.impl.BuckPluginManagerFactory;
+import com.facebook.buck.core.rules.knowntypes.KnownRuleTypesProvider;
+import com.facebook.buck.core.rules.knowntypes.TestKnownRuleTypesProvider;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventBusForTests;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
-import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.parser.TargetSpecResolver.FlavorEnhancer;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
-import com.facebook.buck.plugin.impl.BuckPluginManagerFactory;
 import com.facebook.buck.rules.coercer.ConstructorArgMarshaller;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
-import com.facebook.buck.sandbox.TestSandboxExecutionStrategyFactory;
 import com.facebook.buck.testutil.TemporaryPaths;
-import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TestDataHelper;
-import com.facebook.buck.util.DefaultProcessExecutor;
-import com.facebook.buck.util.ProcessExecutor;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.util.concurrent.ListeningExecutorService;
@@ -60,6 +56,7 @@ import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.ExpectedException;
+import org.pf4j.PluginManager;
 
 public class TargetSpecResolverTest {
 
@@ -76,10 +73,9 @@ public class TargetSpecResolverTest {
   private Parser parser;
   private ParserPythonInterpreterProvider parserPythonInterpreterProvider;
   private ConstructorArgMarshaller constructorArgMarshaller;
-  private KnownBuildRuleTypesProvider knownBuildRuleTypesProvider;
   private ListeningExecutorService executorService;
   private TargetSpecResolver targetNodeTargetSpecResolver;
-  private FlavorEnhancer<TargetNode<?, ?>> flavorEnhancer;
+  private FlavorEnhancer<TargetNode<?>> flavorEnhancer;
 
   @Before
   public void setUp() throws Exception {
@@ -90,29 +86,28 @@ public class TargetSpecResolverTest {
     filesystem = TestProjectFilesystems.createProjectFilesystem(cellRoot);
     cell = new TestCellBuilder().setFilesystem(filesystem).build();
     eventBus = BuckEventBusForTests.newInstance();
-    perBuildStateFactory = new PerBuildStateFactory();
-    ProcessExecutor processExecutor = new DefaultProcessExecutor(new TestConsole());
     typeCoercerFactory = new DefaultTypeCoercerFactory();
     constructorArgMarshaller = new ConstructorArgMarshaller(typeCoercerFactory);
-    knownBuildRuleTypesProvider =
-        KnownBuildRuleTypesProvider.of(
-            DefaultKnownBuildRuleTypesFactory.of(
-                processExecutor,
-                BuckPluginManagerFactory.createPluginManager(),
-                new TestSandboxExecutionStrategyFactory()));
+    PluginManager pluginManager = BuckPluginManagerFactory.createPluginManager();
+    KnownRuleTypesProvider knownRuleTypesProvider =
+        TestKnownRuleTypesProvider.create(pluginManager);
+    ParserConfig parserConfig = cell.getBuckConfig().getView(ParserConfig.class);
     ExecutableFinder executableFinder = new ExecutableFinder();
+    parserPythonInterpreterProvider =
+        new ParserPythonInterpreterProvider(parserConfig, executableFinder);
+    perBuildStateFactory =
+        new PerBuildStateFactory(
+            typeCoercerFactory,
+            constructorArgMarshaller,
+            knownRuleTypesProvider,
+            parserPythonInterpreterProvider);
     targetNodeTargetSpecResolver = new TargetSpecResolver();
     parser =
         new DefaultParser(
+            perBuildStateFactory,
             cell.getBuckConfig().getView(ParserConfig.class),
             typeCoercerFactory,
-            constructorArgMarshaller,
-            knownBuildRuleTypesProvider,
-            executableFinder,
             targetNodeTargetSpecResolver);
-    ParserConfig parserConfig = cell.getBuckConfig().getView(ParserConfig.class);
-    parserPythonInterpreterProvider =
-        new ParserPythonInterpreterProvider(parserConfig, executableFinder);
     flavorEnhancer = (target, targetNode, targetType) -> target;
     executorService = MoreExecutors.listeningDecorator(Executors.newFixedThreadPool(1));
   }
@@ -197,14 +192,10 @@ public class TargetSpecResolverTest {
       throws IOException, InterruptedException {
     PerBuildState state =
         perBuildStateFactory.create(
-            typeCoercerFactory,
             parser.getPermState(),
-            constructorArgMarshaller,
             eventBus,
-            parserPythonInterpreterProvider,
             executorService,
             cell,
-            knownBuildRuleTypesProvider,
             false,
             SpeculativeParsing.DISABLED);
     return targetNodeTargetSpecResolver.resolveTargetSpecs(

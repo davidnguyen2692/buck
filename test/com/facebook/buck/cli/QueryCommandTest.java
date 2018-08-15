@@ -19,9 +19,9 @@ package com.facebook.buck.cli;
 import com.facebook.buck.artifact_cache.ArtifactCache;
 import com.facebook.buck.artifact_cache.NoopArtifactCache;
 import com.facebook.buck.cli.OwnersReport.Builder;
-import com.facebook.buck.config.FakeBuckConfig;
 import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.cell.TestCellBuilder;
+import com.facebook.buck.core.config.FakeBuckConfig;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventBusForTests;
@@ -101,16 +101,16 @@ public class QueryCommandTest {
     ListeningExecutorService executorService = new FakeListeningExecutorService();
     TypeCoercerFactory typeCoercerFactory = new DefaultTypeCoercerFactory();
     PerBuildState perBuildState =
-        new PerBuildStateFactory()
-            .create(
+        new PerBuildStateFactory(
                 typeCoercerFactory,
-                params.getParser().getPermState(),
                 new ConstructorArgMarshaller(typeCoercerFactory),
+                params.getKnownRuleTypesProvider(),
+                new ParserPythonInterpreterProvider(cell.getBuckConfig(), new ExecutableFinder()))
+            .create(
+                params.getParser().getPermState(),
                 eventBus,
-                new ParserPythonInterpreterProvider(cell.getBuckConfig(), new ExecutableFinder()),
                 executorService,
                 cell,
-                params.getKnownBuildRuleTypesProvider(),
                 false,
                 SpeculativeParsing.ENABLED);
     env =

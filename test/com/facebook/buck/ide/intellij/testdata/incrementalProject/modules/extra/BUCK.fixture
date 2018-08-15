@@ -1,5 +1,0 @@
-java_library(
-    name = "extra",
-    srcs = ["Extra.java"],
-    visibility = ["PUBLIC"],
-)

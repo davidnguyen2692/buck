@@ -17,34 +17,33 @@
 package com.facebook.buck.android;
 
 import com.facebook.buck.android.toolchain.AndroidPlatformTarget;
-import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.description.arg.CommonDescriptionArg;
 import com.facebook.buck.core.description.arg.HasDeclaredDeps;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.Flavored;
 import com.facebook.buck.core.model.InternalFlavor;
+import com.facebook.buck.core.model.impl.ImmutableBuildTarget;
 import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
 import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
+import com.facebook.buck.core.toolchain.ToolchainProvider;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.jvm.core.HasJavaAbi;
+import com.facebook.buck.jvm.core.JavaAbis;
 import com.facebook.buck.jvm.java.CalculateClassAbi;
-import com.facebook.buck.jvm.java.JavaLibraryRules;
 import com.facebook.buck.jvm.java.JavacFactory;
 import com.facebook.buck.jvm.java.JavacToJarStepFactory;
 import com.facebook.buck.jvm.java.MaybeRequiredForSourceOnlyAbiArg;
 import com.facebook.buck.jvm.java.PrebuiltJar;
 import com.facebook.buck.jvm.java.toolchain.JavacOptionsProvider;
-import com.facebook.buck.model.ImmutableBuildTarget;
-import com.facebook.buck.toolchain.ToolchainProvider;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
@@ -119,7 +118,7 @@ public class AndroidPrebuiltAarDescription
         buildTarget);
     UnzipAar unzipAar = (UnzipAar) unzipAarRule;
 
-    if (HasJavaAbi.isClassAbiTarget(buildTarget)) {
+    if (JavaAbis.isClassAbiTarget(buildTarget)) {
       return CalculateClassAbi.of(
           buildTarget,
           ruleFinder,
@@ -202,7 +201,6 @@ public class AndroidPrebuiltAarDescription
         buildTarget,
         projectFilesystem,
         androidLibraryParams,
-        pathResolver,
         ruleFinder,
         /* proguardConfig */ ExplicitBuildTargetSourcePath.of(
             unzipAar.getBuildTarget(), unzipAar.getProguardConfig()),
@@ -211,17 +209,14 @@ public class AndroidPrebuiltAarDescription
         /* prebuiltJar */ prebuiltJar,
         /* unzipRule */ unzipAar,
         new JavacToJarStepFactory(
-            pathResolver,
-            ruleFinder,
-            projectFilesystem,
             JavacFactory.getDefault(toolchainProvider).create(ruleFinder, null),
             toolchainProvider
                 .getByName(JavacOptionsProvider.DEFAULT_NAME, JavacOptionsProvider.class)
                 .getJavacOptions(),
             new AndroidClasspathProvider(toolchainProvider)),
         /* exportedDeps */ javaDeps,
-        JavaLibraryRules.getAbiClasspath(graphBuilder, androidLibraryParams.getBuildDeps()),
-        args.getRequiredForSourceOnlyAbi());
+        args.getRequiredForSourceOnlyAbi(),
+        args.getMavenCoords());
   }
 
   @BuckStyleImmutable
@@ -233,6 +228,8 @@ public class AndroidPrebuiltAarDescription
     Optional<SourcePath> getSourceJar();
 
     Optional<String> getJavadocUrl();
+
+    Optional<String> getMavenCoords();
 
     @Override
     @Value.Default

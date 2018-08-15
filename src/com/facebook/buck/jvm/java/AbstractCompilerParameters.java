@@ -21,15 +21,11 @@ import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.jvm.core.HasJavaAbi;
 import com.facebook.buck.jvm.java.abi.AbiGenerationMode;
-import com.facebook.buck.jvm.java.abi.source.api.SourceOnlyAbiRuleInfo;
-import com.facebook.buck.model.BuildTargets;
-import com.google.common.base.Preconditions;
+import com.facebook.buck.jvm.java.abi.source.api.SourceOnlyAbiRuleInfoFactory;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Ordering;
 import java.nio.file.Path;
-import java.util.Optional;
 import javax.annotation.Nullable;
 import org.immutables.value.Value;
 
@@ -46,13 +42,7 @@ abstract class AbstractCompilerParameters {
     return ImmutableSortedSet.of();
   }
 
-  public abstract Path getOutputDirectory();
-
-  public abstract Path getGeneratedCodeDirectory();
-
-  public abstract Path getWorkingDirectory();
-
-  public abstract Path getPathToSourcesList();
+  public abstract CompilerOutputPaths getOutputPaths();
 
   @Value.Default
   public AbiGenerationMode getAbiGenerationMode() {
@@ -75,43 +65,14 @@ abstract class AbstractCompilerParameters {
   }
 
   @Nullable
-  public abstract SourceOnlyAbiRuleInfo getSourceOnlyAbiRuleInfo();
-
-  public static Path getDepFilePath(BuildTarget target, ProjectFilesystem filesystem) {
-    return getOutputJarDirPath(target, filesystem).resolve("used-classes.json");
-  }
-
-  public static Path getClassesDir(BuildTarget target, ProjectFilesystem filesystem) {
-    return BuildTargets.getScratchPath(filesystem, target, "lib__%s__classes");
-  }
-
-  public static Path getOutputJarDirPath(BuildTarget target, ProjectFilesystem filesystem) {
-    return BuildTargets.getGenPath(filesystem, target, "lib__%s__output");
-  }
-
-  public static Optional<Path> getAnnotationPath(ProjectFilesystem filesystem, BuildTarget target) {
-    return Optional.of(BuildTargets.getAnnotationPath(filesystem, target, "__%s_gen__"));
-  }
-
-  public static Path getAbiJarPath(BuildTarget buildTarget, ProjectFilesystem projectFilesystem) {
-    Preconditions.checkArgument(
-        HasJavaAbi.isSourceAbiTarget(buildTarget) || HasJavaAbi.isSourceOnlyAbiTarget(buildTarget));
-
-    return BuildTargets.getGenPath(projectFilesystem, buildTarget, "lib__%s__output")
-        .resolve(String.format("%s-abi.jar", buildTarget.getShortName()));
-  }
+  public abstract SourceOnlyAbiRuleInfoFactory getSourceOnlyAbiRuleInfoFactory();
 
   public abstract static class Builder {
     public CompilerParameters.Builder setScratchPaths(
         BuildTarget target, ProjectFilesystem projectFilesystem) {
+      CompilerOutputPaths paths = CompilerOutputPaths.of(target, projectFilesystem);
       CompilerParameters.Builder builder = (CompilerParameters.Builder) this;
-
-      return builder
-          .setWorkingDirectory(
-              BuildTargets.getGenPath(projectFilesystem, target, "lib__%s____working_directory"))
-          .setGeneratedCodeDirectory(getAnnotationPath(projectFilesystem, target).get())
-          .setPathToSourcesList(BuildTargets.getGenPath(projectFilesystem, target, "__%s__srcs"))
-          .setOutputDirectory(getClassesDir(target, projectFilesystem));
+      return builder.setOutputPaths(paths);
     }
 
     public CompilerParameters.Builder setSourceFileSourcePaths(

@@ -22,26 +22,28 @@ import com.facebook.buck.apple.toolchain.ApplePlatform;
 import com.facebook.buck.apple.toolchain.CodeSignIdentityStore;
 import com.facebook.buck.apple.toolchain.ProvisioningProfileStore;
 import com.facebook.buck.core.cell.resolver.CellPathResolver;
-import com.facebook.buck.core.description.BuildRuleParams;
-import com.facebook.buck.core.description.DescriptionCache;
 import com.facebook.buck.core.description.MetadataProvidingDescription;
 import com.facebook.buck.core.description.attr.ImplicitDepsInferringDescription;
 import com.facebook.buck.core.description.attr.ImplicitFlavorsInferringDescription;
+import com.facebook.buck.core.description.impl.DescriptionCache;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.FlavorDomain;
 import com.facebook.buck.core.model.Flavored;
 import com.facebook.buck.core.model.InternalFlavor;
+import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
 import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
+import com.facebook.buck.core.toolchain.ToolchainProvider;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.cxx.CxxBinaryDescription;
 import com.facebook.buck.cxx.CxxBinaryDescriptionArg;
@@ -59,10 +61,8 @@ import com.facebook.buck.cxx.toolchain.LinkerMapMode;
 import com.facebook.buck.cxx.toolchain.StripStyle;
 import com.facebook.buck.file.WriteFile;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.macros.StringWithMacros;
 import com.facebook.buck.swift.SwiftLibraryDescription;
-import com.facebook.buck.toolchain.ToolchainProvider;
 import com.facebook.buck.util.types.Either;
 import com.facebook.buck.versions.Version;
 import com.google.common.base.Joiner;
@@ -106,6 +106,7 @@ public class AppleBinaryDescription
           LinkerMapMode.NO_LINKER_MAP.getFlavor());
 
   private final ToolchainProvider toolchainProvider;
+  private final XCodeDescriptions xcodeDescriptions;
   private final Optional<SwiftLibraryDescription> swiftDelegate;
   private final AppleConfig appleConfig;
   private final CxxBinaryImplicitFlavors cxxBinaryImplicitFlavors;
@@ -115,6 +116,7 @@ public class AppleBinaryDescription
 
   public AppleBinaryDescription(
       ToolchainProvider toolchainProvider,
+      XCodeDescriptions xcodeDescriptions,
       SwiftLibraryDescription swiftDelegate,
       AppleConfig appleConfig,
       CxxBinaryImplicitFlavors cxxBinaryImplicitFlavors,
@@ -122,6 +124,7 @@ public class AppleBinaryDescription
       CxxBinaryMetadataFactory cxxBinaryMetadataFactory,
       CxxBinaryFlavored cxxBinaryFlavored) {
     this.toolchainProvider = toolchainProvider;
+    this.xcodeDescriptions = xcodeDescriptions;
     // TODO(T22135033): Make apple_binary not use a Swift delegate
     this.swiftDelegate = Optional.of(swiftDelegate);
     this.appleConfig = appleConfig;
@@ -356,6 +359,7 @@ public class AppleBinaryDescription
     }
     BuildTarget binaryTarget = buildTarget.withoutFlavors(APP_FLAVOR);
     return AppleDescriptions.createAppleBundle(
+        xcodeDescriptions,
         getCxxPlatformsProvider(),
         appleCxxPlatformsFlavorDomain,
         targetGraph,
@@ -491,7 +495,7 @@ public class AppleBinaryDescription
                   buildTarget,
                   projectFilesystem,
                   Files.readAllBytes(stubBinaryPath.get()),
-                  BuildTargets.getGenPath(projectFilesystem, buildTarget, "%s"),
+                  BuildTargetPaths.getGenPath(projectFilesystem, buildTarget, "%s"),
                   true);
             } catch (IOException e) {
               throw new HumanReadableException(
@@ -629,8 +633,8 @@ public class AppleBinaryDescription
     // Use defaults.apple_binary if present, but fall back to defaults.cxx_binary otherwise.
     return cxxBinaryImplicitFlavors.addImplicitFlavorsForRuleTypes(
         argDefaultFlavors,
-        DescriptionCache.getBuildRuleType(this),
-        DescriptionCache.getBuildRuleType(CxxBinaryDescription.class));
+        DescriptionCache.getRuleType(this),
+        DescriptionCache.getRuleType(CxxBinaryDescription.class));
   }
 
   @Override

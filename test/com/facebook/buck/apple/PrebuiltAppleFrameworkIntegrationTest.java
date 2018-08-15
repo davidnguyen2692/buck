@@ -27,10 +27,10 @@ import static org.junit.Assume.assumeTrue;
 
 import com.facebook.buck.apple.toolchain.ApplePlatform;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.BuildTargetFactory;
+import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
-import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.testutil.ProcessResult;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
@@ -68,7 +68,8 @@ public class PrebuiltAppleFrameworkIntegrationTest {
     ProcessResult result = workspace.runBuckCommand("build", target.getFullyQualifiedName());
     result.assertSuccess();
 
-    assertTrue(Files.exists(workspace.getPath(BuildTargets.getGenPath(filesystem, target, "%s"))));
+    assertTrue(
+        Files.exists(workspace.getPath(BuildTargetPaths.getGenPath(filesystem, target, "%s"))));
   }
 
   @Test
@@ -84,7 +85,7 @@ public class PrebuiltAppleFrameworkIntegrationTest {
     ProcessResult result = workspace.runBuckCommand("build", target.getFullyQualifiedName());
     result.assertSuccess();
 
-    Path testBinaryPath = workspace.getPath(BuildTargets.getGenPath(filesystem, target, "%s"));
+    Path testBinaryPath = workspace.getPath(BuildTargetPaths.getGenPath(filesystem, target, "%s"));
     assertTrue(Files.exists(testBinaryPath));
 
     ProcessExecutor.Result otoolResult =
@@ -111,7 +112,7 @@ public class PrebuiltAppleFrameworkIntegrationTest {
 
     Path includedFramework =
         workspace
-            .getPath(BuildTargets.getGenPath(filesystem, target, "%s"))
+            .getPath(BuildTargetPaths.getGenPath(filesystem, target, "%s"))
             .resolve("TestAppBundle.app")
             .resolve("Frameworks")
             .resolve("BuckTest.framework");
@@ -131,7 +132,7 @@ public class PrebuiltAppleFrameworkIntegrationTest {
     ProcessResult result = workspace.runBuckCommand("build", target.getFullyQualifiedName());
     result.assertSuccess();
 
-    Path testBinaryPath = workspace.getPath(BuildTargets.getGenPath(filesystem, target, "%s"));
+    Path testBinaryPath = workspace.getPath(BuildTargetPaths.getGenPath(filesystem, target, "%s"));
 
     ProcessExecutor.Result otoolResult =
         workspace.runCommand("otool", "-L", testBinaryPath.toString());
@@ -241,6 +242,67 @@ public class PrebuiltAppleFrameworkIntegrationTest {
               Pattern.compile(
                   ".*\\s+cmd LC_RPATH.*\\s+path @executable_path/Frameworks\\b.*",
                   Pattern.DOTALL)));
+      assertThat(
+          "App binary has load instruction for framework",
+          result.getStdout().get(),
+          matchesPattern(
+              Pattern.compile(
+                  ".*\\s+cmd LC_LOAD_DYLIB.*\\s+name @rpath/BuckTest.framework/BuckTest\\b.*",
+                  Pattern.DOTALL)));
+    }
+  }
+
+  @Test
+  public void testProjectGeneratorGeneratesWorkingProjectWithoutTestHost() throws Exception {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(
+            this, "prebuilt_apple_framework_links", tmp);
+    workspace.setUp();
+    workspace.runBuckCommand("project", "//test:workspace").assertSuccess();
+
+    {
+      ProcessExecutor.Result result =
+          workspace.runCommand(
+              "xcodebuild",
+
+              // "json" output.
+              "-json",
+
+              // Make sure the output stays in the temp folder.
+              "-derivedDataPath",
+              "xcode-out/",
+
+              // Build the project that we just generated
+              "-workspace",
+              "test/testworkspace.xcworkspace",
+              "-scheme",
+              "testworkspace",
+              "build-for-testing",
+
+              // Build for iphonesimulator
+              "-arch",
+              "x86_64",
+              "-sdk",
+              "iphonesimulator");
+      result.getStderr().ifPresent(System.err::print);
+      assertEquals("xcodebuild should succeed", 0, result.getExitCode());
+    }
+
+    Path appBundlePath =
+        tmp.getRoot().resolve("xcode-out/Build/Products/Debug-iphonesimulator/test.xctest");
+    assertTrue(
+        "Framework is copied into bundle.",
+        Files.isRegularFile(appBundlePath.resolve("Frameworks/BuckTest.framework/BuckTest")));
+
+    {
+      ProcessExecutor.Result result =
+          workspace.runCommand("otool", "-l", appBundlePath.resolve("test").toString());
+      assertThat(
+          "App binary adds Framework dir to rpath.",
+          result.getStdout().get(),
+          matchesPattern(
+              Pattern.compile(
+                  ".*\\s+cmd LC_RPATH.*\\s+path @loader_path/Frameworks\\b.*", Pattern.DOTALL)));
       assertThat(
           "App binary has load instruction for framework",
           result.getStdout().get(),
