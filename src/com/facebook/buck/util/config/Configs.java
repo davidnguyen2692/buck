@@ -140,8 +140,6 @@ public final class Configs {
     if (Files.isRegularFile(automaticConfigFile)) {
       configFileBuilder.add(automaticConfigFile);
     }
-    Path projectConfigDir = root.resolve(DEFAULT_BUCK_CONFIG_DIRECTORY_NAME);
-    configFileBuilder.addAll(listFiles(projectConfigDir));
     
     return configFileBuilder.build();
   }
