@@ -16,7 +16,7 @@
 
 package com.facebook.buck.features.rust;
 
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.description.arg.CommonDescriptionArg;
 import com.facebook.buck.core.description.arg.HasDeclaredDeps;
 import com.facebook.buck.core.description.arg.HasDefaultPlatform;
@@ -106,6 +106,7 @@ public class RustTestDescription
                         rustBuckConfig,
                         rustPlatform,
                         args.getCrate(),
+                        args.getEdition(),
                         args.getFeatures(),
                         Stream.of(
                                 args.isFramework() ? Stream.of("--test") : Stream.<String>empty(),
@@ -164,6 +165,8 @@ public class RustTestDescription
   interface AbstractRustTestDescriptionArg
       extends CommonDescriptionArg, HasDeclaredDeps, HasSrcs, HasDefaultPlatform {
     ImmutableSet<String> getContacts();
+
+    Optional<String> getEdition();
 
     @Value.NaturalOrder
     ImmutableSortedSet<String> getFeatures();

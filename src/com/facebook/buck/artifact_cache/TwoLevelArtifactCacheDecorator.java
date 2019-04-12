@@ -20,6 +20,7 @@ import com.facebook.buck.artifact_cache.config.CacheReadMode;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.rulekey.RuleKey;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.counters.CounterRegistry;
 import com.facebook.buck.counters.IntegerCounter;
 import com.facebook.buck.counters.SamplingCounter;
@@ -28,7 +29,6 @@ import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.io.file.BorrowablePath;
 import com.facebook.buck.io.file.LazyPath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.log.Logger;
 import com.facebook.buck.util.RichStream;
 import com.facebook.buck.util.types.Pair;
 import com.google.common.annotations.VisibleForTesting;
@@ -257,12 +257,18 @@ public class TwoLevelArtifactCacheDecorator implements ArtifactCache, CacheDecor
     // we end up with constant re-uploading and rebuilding flow. The following issue is
     // only in case when output hash changes between builds.
     Pair<ArtifactInfo, BorrowablePath> artifact =
-        new Pair<>(ArtifactInfo.builder().addRuleKeys(new RuleKey(hashCode)).build(), output);
+        new Pair<>(
+            ArtifactInfo.builder()
+                .addRuleKeys(new RuleKey(hashCode))
+                .setBuildTimeMs(info.getBuildTimeMs())
+                .build(),
+            output);
     Pair<ArtifactInfo, BorrowablePath> metadata =
         new Pair<>(
             ArtifactInfo.builder()
                 .setRuleKeys(info.getRuleKeys())
                 .setMetadata(metadataWithCacheKey)
+                .setBuildTimeMs(info.getBuildTimeMs())
                 .build(),
             BorrowablePath.notBorrowablePath(emptyFilePath));
 

@@ -21,13 +21,14 @@ import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.core.config.FakeBuckConfig;
+import com.facebook.buck.core.model.EmptyTargetConfiguration;
 import com.facebook.buck.core.rules.BuildRuleResolver;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.testutil.ProcessResult;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
@@ -51,7 +52,7 @@ public class PythonBuckConfigTest {
   @Rule public TemporaryPaths temporaryFolder2 = new TemporaryPaths();
 
   @Before
-  public void setUp() throws Exception {}
+  public void setUp() {}
 
   @Test
   public void testPathToPexExecuterUsesConfigSetting() throws IOException {
@@ -75,7 +76,10 @@ public class PythonBuckConfigTest {
                 .setFilesystem(projectFilesystem)
                 .build());
     assertThat(
-        config.getPexExecutor(resolver).get().getCommandPrefix(pathResolver),
+        config
+            .getPexExecutor(resolver, EmptyTargetConfiguration.INSTANCE)
+            .get()
+            .getCommandPrefix(pathResolver),
         Matchers.contains(projectDir.resolve(pexExecuter).toString()));
   }
 

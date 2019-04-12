@@ -16,10 +16,8 @@
 
 package com.facebook.buck.rules.macros;
 
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.util.immutables.BuckStyleTuple;
-import com.facebook.buck.parser.BuildTargetPattern;
-import com.facebook.buck.parser.BuildTargetPatternParser;
 import com.facebook.buck.util.RichStream;
 import com.facebook.buck.util.types.Either;
 import com.facebook.buck.versions.TargetNodeTranslator;
@@ -27,7 +25,6 @@ import com.facebook.buck.versions.TargetTranslatable;
 import com.google.common.collect.ImmutableList;
 import java.util.Optional;
 import java.util.function.Function;
-import java.util.stream.Collectors;
 import org.immutables.value.Value;
 
 /** A class representing a string containing ordered, embedded, strongly typed macros. */
@@ -59,7 +56,7 @@ abstract class AbstractStringWithMacros implements TargetTranslatable<StringWith
    *     embedded {@link Macro}s.
    */
   public String format(Function<? super MacroContainer, ? extends CharSequence> mapper) {
-    return map(s -> s, mapper).stream().collect(Collectors.joining());
+    return String.join("", map(s -> s, mapper));
   }
 
   /**
@@ -79,9 +76,7 @@ abstract class AbstractStringWithMacros implements TargetTranslatable<StringWith
 
   @Override
   public Optional<StringWithMacros> translateTargets(
-      CellPathResolver cellPathResolver,
-      BuildTargetPatternParser<BuildTargetPattern> pattern,
-      TargetNodeTranslator translator) {
+      CellPathResolver cellPathResolver, String targetBaseName, TargetNodeTranslator translator) {
     boolean modified = false;
     ImmutableList.Builder<Either<String, MacroContainer>> parts = ImmutableList.builder();
     for (Either<String, MacroContainer> part : getParts()) {
@@ -89,7 +84,7 @@ abstract class AbstractStringWithMacros implements TargetTranslatable<StringWith
         parts.add(part);
       } else {
         Optional<Macro> translated =
-            translator.translate(cellPathResolver, pattern, part.getRight().getMacro());
+            translator.translate(cellPathResolver, targetBaseName, part.getRight().getMacro());
         if (translated.isPresent()) {
           parts.add(Either.ofRight(part.getRight().withMacro(translated.get())));
           modified = true;

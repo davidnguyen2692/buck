@@ -16,8 +16,8 @@
 package com.facebook.buck.distributed.build_client;
 
 import com.facebook.buck.core.build.distributed.synchronization.RemoteBuildRuleCompletionNotifier;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.distributed.thrift.RuleKeyCalculatedEvent;
-import com.facebook.buck.log.Logger;
 import com.facebook.buck.util.timing.Clock;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
@@ -126,7 +126,7 @@ public class BuildRuleEventManager {
     }
 
     synchronized (this) {
-      if (pendingBuildRuleFinishedEvent.size() == 0) {
+      if (pendingBuildRuleFinishedEvent.isEmpty()) {
         return;
       }
     }
@@ -163,7 +163,7 @@ public class BuildRuleEventManager {
    */
   public void publishCacheSynchronizedBuildRuleFinishedEvents() {
     synchronized (this) {
-      if (pendingBuildRuleFinishedEvent.size() == 0) {
+      if (pendingBuildRuleFinishedEvent.isEmpty()) {
         return;
       }
     }

@@ -16,7 +16,7 @@
 
 package com.facebook.buck.util;
 
-import com.facebook.buck.log.Logger;
+import com.facebook.buck.core.util.log.Logger;
 import com.google.common.base.Throwables;
 import com.sun.jna.NativeLibrary;
 import com.sun.jna.Platform;
@@ -107,6 +107,7 @@ public class BgProcessKiller {
    * Use this method instead of {@link ProcessBuilder#start} in order to properly synchronize with
    * signal handling.
    */
+  @SuppressWarnings("PMD.BlacklistedDefaultProcessMethod")
   public static synchronized Process startProcess(ProcessBuilder pb) throws IOException {
     checkArmedStatus();
     return pb.start();

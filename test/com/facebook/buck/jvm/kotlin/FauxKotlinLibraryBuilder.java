@@ -25,9 +25,10 @@ import com.facebook.buck.core.sourcepath.PathSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.toolchain.impl.ToolchainProviderBuilder;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
+import com.facebook.buck.jvm.java.JavacSpec;
+import com.facebook.buck.jvm.java.toolchain.JavaToolchain;
 import com.facebook.buck.jvm.java.toolchain.JavacOptionsProvider;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
-import com.google.common.hash.HashCode;
 import java.nio.file.Path;
 
 public class FauxKotlinLibraryBuilder
@@ -39,25 +40,28 @@ public class FauxKotlinLibraryBuilder
 
   private final ProjectFilesystem projectFilesystem;
 
-  private FauxKotlinLibraryBuilder(
-      BuildTarget target, ProjectFilesystem projectFilesystem, HashCode hashCode) {
+  private FauxKotlinLibraryBuilder(BuildTarget target, ProjectFilesystem projectFilesystem) {
     super(
         new KotlinLibraryDescription(
             new ToolchainProviderBuilder()
                 .withToolchain(
                     JavacOptionsProvider.DEFAULT_NAME,
                     JavacOptionsProvider.of(DEFAULT_JAVAC_OPTIONS))
+                .withToolchain(
+                    JavaToolchain.DEFAULT_NAME,
+                    JavaToolchain.builder()
+                        .setJavacProvider(JavacSpec.builder().build().getJavacProvider())
+                        .build())
                 .build(),
             null,
             null),
         target,
-        projectFilesystem,
-        hashCode);
+        projectFilesystem);
     this.projectFilesystem = projectFilesystem;
   }
 
   public static FauxKotlinLibraryBuilder createBuilder(BuildTarget target) {
-    return new FauxKotlinLibraryBuilder(target, new FakeProjectFilesystem(), null);
+    return new FauxKotlinLibraryBuilder(target, new FakeProjectFilesystem());
   }
 
   public FauxKotlinLibraryBuilder addSrc(SourcePath path) {

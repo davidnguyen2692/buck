@@ -25,7 +25,6 @@ import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.maven.aether.AetherUtil;
 import com.facebook.buck.util.concurrent.MostExecutors;
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -141,14 +140,12 @@ public class Resolver {
     this.localRepo = new LocalRepository(Paths.get(config.mavenLocalRepo).toFile());
     this.session = newSession(repoSys, localRepo);
 
-    this.buckRepoRoot = Paths.get(Preconditions.checkNotNull(config.buckRepoRoot));
-    this.buckThirdPartyRelativePath = Paths.get(Preconditions.checkNotNull(config.thirdParty));
+    this.buckRepoRoot = Paths.get(Objects.requireNonNull(config.buckRepoRoot));
+    this.buckThirdPartyRelativePath = Paths.get(Objects.requireNonNull(config.thirdParty));
     this.visibility = config.visibility;
 
     this.repos =
-        config
-            .repositories
-            .stream()
+        config.repositories.stream()
             .map(AetherUtil::toRemoteRepository)
             .collect(ImmutableList.toImmutableList());
   }
@@ -204,9 +201,7 @@ public class Resolver {
         (List<ListenableFuture<Map.Entry<Path, Prebuilt>>>)
             (List<?>)
                 exec.invokeAll(
-                    graph
-                        .getNodes()
-                        .stream()
+                    graph.getNodes().stream()
                         .map(
                             artifact ->
                                 (Callable<Map.Entry<Path, Prebuilt>>)
@@ -379,7 +374,7 @@ public class Resolver {
         Files.delete(buckFile);
       }
 
-      ST st = Preconditions.checkNotNull(groups.getInstanceOf("/prebuilts"));
+      ST st = Objects.requireNonNull(groups.getInstanceOf("/prebuilts"));
       st.add("data", buckFilesData.get(key));
       Files.write(buckFile, st.render().getBytes(UTF_8));
     }
@@ -429,8 +424,7 @@ public class Resolver {
         //          continue;
         //        }
 
-        Preconditions.checkNotNull(
-            actualDep, key + " -> " + artifact + " in " + knownDeps.keySet());
+        Objects.requireNonNull(actualDep, key + " -> " + artifact + " in " + knownDeps.keySet());
         graph.addNode(actualDep);
         graph.addEdge(actualDep, artifact);
       }
@@ -465,9 +459,7 @@ public class Resolver {
   }
 
   private ImmutableList<RemoteRepository> getReposFromPom(Model model) {
-    return model
-        .getRepositories()
-        .stream()
+    return model.getRepositories().stream()
         .map(
             input ->
                 new RemoteRepository.Builder(input.getId(), input.getLayout(), input.getUrl())
@@ -487,9 +479,7 @@ public class Resolver {
   }
 
   private ImmutableList<Dependency> getDependenciesFromPom(Model model) {
-    return model
-        .getDependencies()
-        .stream()
+    return model.getDependencies().stream()
         .map(
             dep -> {
               ArtifactType stereotype = session.getArtifactTypeRegistry().get(dep.getType());

@@ -20,9 +20,9 @@ import com.facebook.buck.android.toolchain.AndroidSdkLocation;
 import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.toolchain.ToolchainProvider;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.file.downloader.Downloader;
-import com.facebook.buck.log.Logger;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -36,6 +36,7 @@ import java.net.URL;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalInt;
 
@@ -63,7 +64,7 @@ public class StackedDownloader implements Downloader {
     HttpDownloader httpDownloader = new HttpDownloader(proxy);
 
     for (Map.Entry<String, String> kv : downloadConfig.getAllMavenRepos().entrySet()) {
-      String repo = Preconditions.checkNotNull(kv.getValue());
+      String repo = Objects.requireNonNull(kv.getValue());
       // Check the type.
       if (repo.startsWith("http:") || repo.startsWith("https://")) {
         String repoName = kv.getKey();
@@ -72,7 +73,7 @@ public class StackedDownloader implements Downloader {
       } else if (repo.startsWith("file:")) {
         try {
           URL url = new URL(repo);
-          Preconditions.checkNotNull(url.getPath());
+          Objects.requireNonNull(url.getPath());
 
           downloaders.add(
               new OnDiskMavenDownloader(
@@ -93,7 +94,7 @@ public class StackedDownloader implements Downloader {
         try {
           downloaders.add(
               new OnDiskMavenDownloader(
-                  Preconditions.checkNotNull(
+                  Objects.requireNonNull(
                       config.resolvePathThatMayBeOutsideTheProjectFilesystem(Paths.get(repo)))));
         } catch (FileNotFoundException e) {
           throw new HumanReadableException(

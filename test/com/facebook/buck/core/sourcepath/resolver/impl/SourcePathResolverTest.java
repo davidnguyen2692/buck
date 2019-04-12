@@ -24,6 +24,7 @@ import static org.junit.Assert.fail;
 import com.facebook.buck.core.build.buildable.context.BuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
 import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.io.ArchiveMemberPath;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
@@ -32,6 +33,7 @@ import com.facebook.buck.core.rules.BuildRuleResolver;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.TestBuildRuleParams;
 import com.facebook.buck.core.rules.impl.AbstractBuildRule;
+import com.facebook.buck.core.rules.impl.FakeBuildRule;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.core.sourcepath.ArchiveMemberSourcePath;
 import com.facebook.buck.core.sourcepath.DefaultBuildTargetSourcePath;
@@ -41,13 +43,11 @@ import com.facebook.buck.core.sourcepath.ForwardingBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.PathSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
-import com.facebook.buck.io.ArchiveMemberPath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.rules.FakeBuildRule;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.shell.Genrule;
 import com.facebook.buck.shell.GenruleBuilder;
 import com.facebook.buck.step.Step;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.MoreAsserts;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
@@ -223,7 +223,7 @@ public class SourcePathResolverTest {
   }
 
   @Test
-  public void getSourcePathNameOnDefaultBuildTargetSourcePath() throws Exception {
+  public void getSourcePathNameOnDefaultBuildTargetSourcePath() {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     SourcePathResolver pathResolver =
         DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
@@ -257,7 +257,7 @@ public class SourcePathResolverTest {
   }
 
   @Test
-  public void getSourcePathNameOnExplicitBuildTargetSourcePath() throws Exception {
+  public void getSourcePathNameOnExplicitBuildTargetSourcePath() {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     SourcePathResolver pathResolver =
         DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
@@ -305,7 +305,7 @@ public class SourcePathResolverTest {
   }
 
   @Test
-  public void getSourcePathNameOnForwardingBuildTargetSourcePath() throws Exception {
+  public void getSourcePathNameOnForwardingBuildTargetSourcePath() {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     SourcePathResolver pathResolver =
         DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
@@ -349,7 +349,7 @@ public class SourcePathResolverTest {
   }
 
   @Test(expected = IllegalArgumentException.class)
-  public void getSourcePathNameOnArchiveMemberSourcePath() throws Exception {
+  public void getSourcePathNameOnArchiveMemberSourcePath() {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     SourcePathResolver pathResolver =
         DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
@@ -454,29 +454,6 @@ public class SourcePathResolverTest {
     ArchiveMemberPath relativePath = pathResolver.getRelativeArchiveMemberPath(path);
     assertEquals(archivePath, relativePath.getArchivePath());
     assertEquals(memberPath, relativePath.getMemberPath());
-  }
-
-  @Test
-  public void testGetAbsolutePathForArchiveMemberSourcePath() {
-    ProjectFilesystem filesystem = new FakeProjectFilesystem();
-    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
-    SourcePathResolver pathResolver =
-        DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
-
-    BuildRule rule =
-        graphBuilder.addToIndex(
-            new FakeBuildRule(BuildTargetFactory.newInstance("//foo:bar"), filesystem));
-    Path archivePath = filesystem.getBuckPaths().getGenDir().resolve("foo.jar");
-    Path archiveAbsolutePath = filesystem.resolve(archivePath);
-    SourcePath archiveSourcePath =
-        ExplicitBuildTargetSourcePath.of(rule.getBuildTarget(), archivePath);
-    Path memberPath = Paths.get("foo.class");
-
-    ArchiveMemberSourcePath path = ArchiveMemberSourcePath.of(archiveSourcePath, memberPath);
-
-    ArchiveMemberPath absolutePath = pathResolver.getAbsoluteArchiveMemberPath(path);
-    assertEquals(archiveAbsolutePath, absolutePath.getArchivePath());
-    assertEquals(memberPath, absolutePath.getMemberPath());
   }
 
   @Test

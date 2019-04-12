@@ -18,7 +18,8 @@ package com.facebook.buck.rules.tool.config;
 
 import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.config.ConfigView;
-import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.TargetConfiguration;
+import com.facebook.buck.core.model.UnconfiguredBuildTargetView;
 import com.facebook.buck.core.rules.BuildRuleResolver;
 import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.core.toolchain.tool.impl.HashedFileTool;
@@ -29,11 +30,16 @@ import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Optional;
+import java.util.function.Function;
 import org.immutables.value.Value;
 
 @Value.Immutable(builder = false, copy = false)
 @BuckStyleImmutable
 abstract class AbstractToolConfig implements ConfigView<BuckConfig> {
+
+  @Override
+  @Value.Parameter
+  public abstract BuckConfig getDelegate();
 
   /**
    * @return a {@link Tool} identified by a @{link BuildTarget} or {@link Path} reference by the
@@ -44,32 +50,49 @@ abstract class AbstractToolConfig implements ConfigView<BuckConfig> {
     if (!value.isPresent()) {
       return Optional.empty();
     }
-    Optional<BuildTarget> target = getDelegate().getMaybeBuildTarget(section, field);
+    Optional<UnconfiguredBuildTargetView> target =
+        getDelegate().getMaybeUnconfiguredBuildTarget(section, field);
     if (target.isPresent()) {
       return Optional.of(
           new BinaryBuildRuleToolProvider(target.get(), String.format("[%s] %s", section, field)));
     } else {
-      return Optional.of(
-          new ConstantToolProvider(
-              new HashedFileTool(
-                  () ->
-                      getDelegate()
-                          .getPathSourcePath(
-                              Paths.get(value.get()),
-                              String.format("Overridden %s:%s path not found", section, field)))));
+      return getPrebuiltTool(section, field, Paths::get).map(ConstantToolProvider::new);
     }
   }
 
-  public Optional<Tool> getTool(String section, String field, BuildRuleResolver resolver) {
+  /**
+   * @return a {@link Tool} identified by a {@link Path} reference by the given section:field, if
+   *     set. This does not allow the tool to be provided by a @{link BuildTarget}.
+   */
+  public Optional<Tool> getPrebuiltTool(
+      String section, String field, Function<String, Path> valueToPathMapper) {
+    return getDelegate()
+        .getValue(section, field)
+        .map(
+            value ->
+                new HashedFileTool(
+                    () ->
+                        getDelegate()
+                            .getPathSourcePath(
+                                valueToPathMapper.apply(value),
+                                String.format("Overridden %s:%s path not found", section, field))));
+  }
+
+  public Optional<Tool> getTool(
+      String section,
+      String field,
+      BuildRuleResolver resolver,
+      TargetConfiguration targetConfiguration) {
     Optional<ToolProvider> provider = getToolProvider(section, field);
-    if (!provider.isPresent()) {
-      return Optional.empty();
-    }
-    return Optional.of(provider.get().resolve(resolver));
+    return provider.map(toolProvider -> toolProvider.resolve(resolver, targetConfiguration));
   }
 
-  public Tool getRequiredTool(String section, String field, BuildRuleResolver resolver) {
-    Optional<Tool> path = getTool(section, field, resolver);
+  public Tool getRequiredTool(
+      String section,
+      String field,
+      BuildRuleResolver resolver,
+      TargetConfiguration targetConfiguration) {
+    Optional<Tool> path = getTool(section, field, resolver, targetConfiguration);
     return getDelegate().getOrThrow(section, field, path);
   }
 }

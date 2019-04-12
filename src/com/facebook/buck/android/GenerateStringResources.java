@@ -18,6 +18,7 @@ package com.facebook.buck.android;
 
 import com.facebook.buck.core.build.buildable.context.BuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
@@ -30,7 +31,6 @@ import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.step.AbstractExecutionStep;
-import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.step.StepExecutionResults;
@@ -50,7 +50,7 @@ import javax.annotation.Nullable;
 public class GenerateStringResources extends AbstractBuildRule {
   @AddToRuleKey private final ImmutableList<SourcePath> filteredResources;
 
-  private final FilteredResourcesProvider filteredResourcesProvider;
+  private final ImmutableList<FilteredResourcesProvider> filteredResourcesProviders;
   private final SourcePathRuleFinder ruleFinder;
 
   private static final String VALUES = "values";
@@ -63,11 +63,14 @@ public class GenerateStringResources extends AbstractBuildRule {
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
       SourcePathRuleFinder ruleFinder,
-      FilteredResourcesProvider filteredResourcesProvider) {
+      ImmutableList<FilteredResourcesProvider> filteredResourcesProviders) {
     super(buildTarget, projectFilesystem);
     this.ruleFinder = ruleFinder;
-    this.filteredResourcesProvider = filteredResourcesProvider;
-    this.filteredResources = filteredResourcesProvider.getResDirectories();
+    this.filteredResourcesProviders = filteredResourcesProviders;
+    this.filteredResources =
+        filteredResourcesProviders.stream()
+            .flatMap(provider -> provider.getResDirectories().stream())
+            .collect(ImmutableList.toImmutableList());
   }
 
   @Override
@@ -95,8 +98,14 @@ public class GenerateStringResources extends AbstractBuildRule {
             ProjectFilesystem fileSystem = getProjectFilesystem();
             int i = 0;
             for (Path resDir :
-                filteredResourcesProvider.getRelativeResDirectories(
-                    fileSystem, buildContext.getSourcePathResolver())) {
+                filteredResourcesProviders.stream()
+                    .flatMap(
+                        provider ->
+                            provider
+                                .getRelativeResDirectories(
+                                    fileSystem, buildContext.getSourcePathResolver())
+                                .stream())
+                    .collect(ImmutableList.toImmutableList())) {
               Path stringsFilePath = resDir.resolve(VALUES).resolve(STRINGS_XML);
               if (fileSystem.exists(stringsFilePath)) {
                 // create <output_dir>/<new_res_dir>/values

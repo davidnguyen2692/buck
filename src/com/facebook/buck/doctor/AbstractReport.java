@@ -17,13 +17,13 @@
 package com.facebook.buck.doctor;
 
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.doctor.config.BuildLogEntry;
 import com.facebook.buck.doctor.config.DoctorConfig;
 import com.facebook.buck.doctor.config.SourceControlInfo;
 import com.facebook.buck.doctor.config.UserLocalConfiguration;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.log.LogConfigPaths;
-import com.facebook.buck.log.Logger;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.Optionals;
 import com.facebook.buck.util.RichStream;
@@ -219,15 +219,12 @@ public abstract class AbstractReport {
     ImmutableList<Path> overrideFiles;
     try {
       overrideFiles =
-          Configs.getDefaultConfigurationFiles(rootPath)
-              .stream()
+          Configs.getDefaultConfigurationFiles(rootPath).stream()
               .filter(f -> !f.equals(Configs.getMainConfigurationFile(rootPath)))
               .filter(
                   config -> {
                     try {
-                      return Configs.parseConfigFile(rootPath.resolve(config))
-                              .values()
-                              .stream()
+                      return Configs.parseConfigFile(rootPath.resolve(config)).values().stream()
                               .mapToLong(Map::size)
                               .sum()
                           != 0;

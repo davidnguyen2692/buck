@@ -26,7 +26,6 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assume.assumeTrue;
 
 import com.facebook.buck.apple.toolchain.ApplePlatform;
-import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.model.InternalFlavor;
@@ -64,7 +63,7 @@ public class AppleTestIntegrationTest {
   private ProjectFilesystem filesystem;
 
   @Before
-  public void setUp() throws InterruptedException {
+  public void setUp() {
     filesystem = TestProjectFilesystems.createProjectFilesystem(tmp.getRoot());
     assumeTrue(Platform.detect() == Platform.MACOS);
     assumeTrue(AppleNativeIntegrationTestUtils.isApplePlatformAvailable(ApplePlatform.MACOSX));
@@ -305,12 +304,14 @@ public class AppleTestIntegrationTest {
         TestDataHelper.createProjectWorkspaceForScenario(this, "apple_test_xctest", tmp);
     workspace.setUp();
 
-    thrown.expect(HumanReadableException.class);
-    thrown.expectMessage(
+    ProcessResult processResult =
+        workspace.runBuckCommand("test", "//:foo", "--config", "apple.xctool_path=does/not/exist");
+    processResult.assertFailure();
+    assertThat(
+        processResult.getStderr(),
         containsString(
             "Set xctool_path = /path/to/xctool or xctool_zip_target = //path/to:xctool-zip in the "
                 + "[apple] section of .buckconfig to run this test"));
-    workspace.runBuckCommand("test", "//:foo", "--config", "apple.xctool_path=does/not/exist");
   }
 
   @Test

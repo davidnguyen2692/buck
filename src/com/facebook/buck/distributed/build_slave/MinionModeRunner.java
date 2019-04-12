@@ -21,6 +21,7 @@ import com.facebook.buck.core.build.engine.BuildEngineResult;
 import com.facebook.buck.core.build.engine.BuildResult;
 import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.distributed.DistBuildUtil;
 import com.facebook.buck.distributed.build_slave.HeartbeatService.HeartbeatCallback;
 import com.facebook.buck.distributed.thrift.BuildSlaveRunId;
@@ -28,10 +29,10 @@ import com.facebook.buck.distributed.thrift.GetWorkResponse;
 import com.facebook.buck.distributed.thrift.MinionType;
 import com.facebook.buck.distributed.thrift.StampedeId;
 import com.facebook.buck.event.BuckEventBus;
-import com.facebook.buck.log.CommandThreadFactory;
-import com.facebook.buck.log.Logger;
+import com.facebook.buck.log.GlobalStateManager;
 import com.facebook.buck.slb.ThriftException;
 import com.facebook.buck.util.ExitCode;
+import com.facebook.buck.util.concurrent.CommandThreadFactory;
 import com.facebook.buck.util.concurrent.MostExecutors;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
@@ -43,6 +44,7 @@ import com.google.common.util.concurrent.MoreExecutors;
 import java.io.Closeable;
 import java.io.IOException;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.concurrent.ExecutionException;
@@ -114,7 +116,8 @@ public class MinionModeRunner extends AbstractDistBuildModeRunner {
         minionPollLoopIntervalMillis,
         minionBuildProgressTracker,
         MostExecutors.newMultiThreadExecutor(
-            new CommandThreadFactory("MinionBuilderThread"),
+            new CommandThreadFactory(
+                "MinionBuilderThread", GlobalStateManager.singleton().getThreadToCommandRegister()),
             capacityTracker.getMaxAvailableCapacity()),
         eventBus);
   }
@@ -190,7 +193,7 @@ public class MinionModeRunner extends AbstractDistBuildModeRunner {
     buildExecutorService.shutdown();
     buildExecutorService.awaitTermination(30, TimeUnit.MINUTES);
 
-    Preconditions.checkNotNull(buildExecutor).shutdown();
+    Objects.requireNonNull(buildExecutor).shutdown();
 
     return exitCode.get();
   }
@@ -229,9 +232,7 @@ public class MinionModeRunner extends AbstractDistBuildModeRunner {
 
     // Try to reserve available capacity
     int reservedCapacity = buildTracker.reserveAllAvailableCapacity();
-    if (reservedCapacity == 0
-        && exitCode.get() == ExitCode.SUCCESS
-        && targetsToSignal.size() == 0) {
+    if (reservedCapacity == 0 && exitCode.get() == ExitCode.SUCCESS && targetsToSignal.isEmpty()) {
       return; // Making a request will not move the build forward, so wait a while and try again.
     }
 
@@ -271,10 +272,10 @@ public class MinionModeRunner extends AbstractDistBuildModeRunner {
         });
   }
 
-  private void performBuildOfWorkUnits(String minionId) throws IOException {
+  private void performBuildOfWorkUnits(String minionId) throws Exception {
     List<String> targetsToBuild = buildTracker.getTargetsToBuild();
 
-    if (targetsToBuild.size() == 0) {
+    if (targetsToBuild.isEmpty()) {
       return; // All outstanding targets have already been picked up by an earlier build thread.
     }
 
@@ -285,7 +286,7 @@ public class MinionModeRunner extends AbstractDistBuildModeRunner {
 
     // Start the build, and get futures representing the results.
     List<BuildEngineResult> resultFutures =
-        Preconditions.checkNotNull(buildExecutor).initializeBuild(targetsToBuild);
+        Objects.requireNonNull(buildExecutor).initializeBuild(targetsToBuild);
 
     // Register handlers that will ensure we free up cores as soon as a work unit is complete,
     // and signal built targets as soon as they are uploaded to the cache.
@@ -295,7 +296,7 @@ public class MinionModeRunner extends AbstractDistBuildModeRunner {
 
     // Wait for the targets to finish building and get the exit code.
     ExitCode lastExitCode =
-        Preconditions.checkNotNull(buildExecutor)
+        Objects.requireNonNull(buildExecutor)
             .waitForBuildToFinish(targetsToBuild, resultFutures, Optional.empty());
 
     LOG.info(
@@ -313,7 +314,7 @@ public class MinionModeRunner extends AbstractDistBuildModeRunner {
         new FutureCallback<BuildResult>() {
           @Override
           public void onSuccess(@Nullable BuildResult result) {
-            Preconditions.checkNotNull(result);
+            Objects.requireNonNull(result);
 
             String fullyQualifiedName = result.getRule().getFullyQualifiedName();
 
@@ -327,7 +328,7 @@ public class MinionModeRunner extends AbstractDistBuildModeRunner {
             }
 
             buildTracker.recordFinishedTarget(result);
-            registerUploadCompletionHandler(Preconditions.checkNotNull(result));
+            registerUploadCompletionHandler(Objects.requireNonNull(result));
           }
 
           @Override
@@ -366,7 +367,7 @@ public class MinionModeRunner extends AbstractDistBuildModeRunner {
   private void registerFailedUploadHandler(
       Throwable uploadThrowable, BuildRule buildRule, String fullyQualifiedName) {
     Futures.addCallback(
-        Preconditions.checkNotNull(buildExecutor)
+        Objects.requireNonNull(buildExecutor)
             .getCachingBuildEngine()
             .getRuleKeyCalculator()
             .calculate(eventBus, buildRule),

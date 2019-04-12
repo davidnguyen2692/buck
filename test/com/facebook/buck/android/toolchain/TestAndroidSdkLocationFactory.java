@@ -18,6 +18,7 @@ package com.facebook.buck.android.toolchain;
 
 import com.facebook.buck.android.toolchain.impl.AndroidSdkLocationFactory;
 import com.facebook.buck.core.config.FakeBuckConfig;
+import com.facebook.buck.core.model.EmptyTargetConfiguration;
 import com.facebook.buck.core.toolchain.ToolchainCreationContext;
 import com.facebook.buck.core.toolchain.impl.ToolchainProviderBuilder;
 import com.facebook.buck.io.ExecutableFinder;
@@ -25,23 +26,22 @@ import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.rules.keys.config.TestRuleKeyConfigurationFactory;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.util.DefaultProcessExecutor;
-import com.google.common.collect.ImmutableMap;
+import com.facebook.buck.util.environment.EnvVariablesProvider;
 
 public class TestAndroidSdkLocationFactory {
   public static AndroidSdkLocation create(ProjectFilesystem filesystem) {
     ToolchainCreationContext toolchainCreationContext =
         ToolchainCreationContext.of(
-            ImmutableMap.copyOf(System.getenv()),
+            EnvVariablesProvider.getSystemEnv(),
             FakeBuckConfig.builder().build(),
             filesystem,
             new DefaultProcessExecutor(new TestConsole()),
             new ExecutableFinder(),
-            TestRuleKeyConfigurationFactory.create());
+            TestRuleKeyConfigurationFactory.create(),
+            () -> EmptyTargetConfiguration.INSTANCE);
 
-    AndroidSdkLocation androidSdkLocation =
-        new AndroidSdkLocationFactory()
-            .createToolchain(new ToolchainProviderBuilder().build(), toolchainCreationContext)
-            .get();
-    return androidSdkLocation;
+    return new AndroidSdkLocationFactory()
+        .createToolchain(new ToolchainProviderBuilder().build(), toolchainCreationContext)
+        .get();
   }
 }

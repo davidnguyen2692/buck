@@ -17,7 +17,8 @@
 package com.facebook.buck.core.rules.config.impl;
 
 import com.facebook.buck.core.cell.Cell;
-import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.UnconfiguredBuildTargetView;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
 import com.facebook.buck.core.rules.config.ConfigurationRule;
 import com.facebook.buck.core.rules.config.ConfigurationRuleDescription;
@@ -26,51 +27,55 @@ import com.google.common.base.Preconditions;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.BiFunction;
 import java.util.function.Function;
+import javax.annotation.Nullable;
 
 /**
- * Provides a mechanism for mapping between a {@link BuildTarget} and the {@link ConfigurationRule}
- * it represents.
+ * Provides a mechanism for mapping between a {@link UnconfiguredBuildTargetView} and the {@link
+ * ConfigurationRule} it represents.
  *
  * <p>This resolver performs all computations on the same thread {@link #getRule} was called from.
  */
 public class SameThreadConfigurationRuleResolver implements ConfigurationRuleResolver {
 
-  private final Function<BuildTarget, Cell> cellProvider;
-  private final BiFunction<Cell, BuildTarget, TargetNode<?>> targetNodeSupplier;
-  private final ConcurrentHashMap<BuildTarget, ConfigurationRule> configurationRuleIndex;
+  private final Function<UnconfiguredBuildTargetView, Cell> cellProvider;
+  private final BiFunction<Cell, UnconfiguredBuildTargetView, TargetNode<?>> targetNodeSupplier;
+  private final ConcurrentHashMap<UnconfiguredBuildTargetView, ConfigurationRule>
+      configurationRuleIndex;
 
   public SameThreadConfigurationRuleResolver(
-      Function<BuildTarget, Cell> cellProvider,
-      BiFunction<Cell, BuildTarget, TargetNode<?>> targetNodeSupplier) {
+      Function<UnconfiguredBuildTargetView, Cell> cellProvider,
+      BiFunction<Cell, UnconfiguredBuildTargetView, TargetNode<?>> targetNodeSupplier) {
     this.cellProvider = cellProvider;
     this.targetNodeSupplier = targetNodeSupplier;
     this.configurationRuleIndex = new ConcurrentHashMap<>();
   }
 
   private ConfigurationRule computeIfAbsent(
-      BuildTarget target, Function<BuildTarget, ConfigurationRule> mappingFunction) {
-    ConfigurationRule configurationRule = configurationRuleIndex.get(target);
+      UnconfiguredBuildTargetView target,
+      Function<UnconfiguredBuildTargetView, ConfigurationRule> mappingFunction) {
+    @Nullable ConfigurationRule configurationRule = configurationRuleIndex.get(target);
     if (configurationRule != null) {
       return configurationRule;
     }
     configurationRule = mappingFunction.apply(target);
-    configurationRuleIndex.put(target, configurationRule);
-    return configurationRule;
+    ConfigurationRule previousRule = configurationRuleIndex.putIfAbsent(target, configurationRule);
+    return previousRule == null ? configurationRule : previousRule;
   }
 
   @Override
-  public synchronized ConfigurationRule getRule(BuildTarget buildTarget) {
-    return computeIfAbsent(buildTarget, ignored -> createConfigurationRule(buildTarget));
+  public ConfigurationRule getRule(UnconfiguredBuildTargetView buildTarget) {
+    return computeIfAbsent(buildTarget, this::createConfigurationRule);
   }
 
-  private <T> ConfigurationRule createConfigurationRule(BuildTarget buildTarget) {
+  private <T> ConfigurationRule createConfigurationRule(UnconfiguredBuildTargetView buildTarget) {
     Cell cell = cellProvider.apply(buildTarget);
     @SuppressWarnings("unchecked")
     TargetNode<T> targetNode = (TargetNode<T>) targetNodeSupplier.apply(cell, buildTarget);
-    Preconditions.checkState(
-        targetNode.getDescription() instanceof ConfigurationRuleDescription,
-        "Invalid type of target node description: %s",
-        targetNode.getDescription().getClass());
+    if (!(targetNode.getDescription() instanceof ConfigurationRuleDescription)) {
+      throw new HumanReadableException(
+          "%s was used to resolve configurable attribute but it is not a configuration rule",
+          buildTarget);
+    }
     ConfigurationRuleDescription<T> configurationRuleDescription =
         (ConfigurationRuleDescription<T>) targetNode.getDescription();
     ConfigurationRule configurationRule =

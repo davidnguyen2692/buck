@@ -46,7 +46,7 @@ public class AuditModulesCommandTest {
   private BuckModuleManager moduleManager;
 
   @Before
-  public void setUp() throws IOException, InterruptedException {
+  public void setUp() {
     console = new TestConsole();
 
     ImmutableMap.Builder<String, ModuleInformation> modules = ImmutableMap.builder();
@@ -77,8 +77,7 @@ public class AuditModulesCommandTest {
   public void testBuildInfoPrintedInPlainFormat() throws IOException {
     AuditModulesCommand.collectAndDumpModuleInformation(console, moduleManager, false);
     List<String> output =
-        MoreStrings.lines(console.getTextWrittenToStdOut())
-            .stream()
+        MoreStrings.lines(console.getTextWrittenToStdOut()).stream()
             .map(String::trim)
             .map(MoreStringsForTests::normalizeNewlines)
             .collect(Collectors.toList());

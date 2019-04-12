@@ -20,12 +20,14 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.android.FilterResourcesSteps.ResourceFilter;
+import com.facebook.buck.android.apkmodule.APKModuleGraph;
 import com.facebook.buck.android.packageable.AndroidPackageableCollection;
 import com.facebook.buck.core.build.buildable.context.FakeBuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
 import com.facebook.buck.core.build.context.FakeBuildContext;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
+import com.facebook.buck.core.model.InternalFlavor;
 import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
@@ -36,6 +38,7 @@ import com.facebook.buck.core.sourcepath.PathSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.jvm.java.FakeJavaLibrary;
 import com.facebook.buck.jvm.java.JavaCompilationConstants;
 import com.facebook.buck.jvm.java.Keystore;
@@ -46,7 +49,6 @@ import com.facebook.buck.rules.macros.StringWithMacrosUtils;
 import com.facebook.buck.shell.BashStep;
 import com.facebook.buck.shell.GenruleBuilder;
 import com.facebook.buck.step.Step;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.MoreAsserts;
 import com.google.common.base.Strings;
 import com.google.common.base.Suppliers;
@@ -71,7 +73,7 @@ import org.junit.Test;
 public class AndroidBinaryTest {
 
   @Test
-  public void testAndroidBinaryNoDx() throws Exception {
+  public void testAndroidBinaryNoDx() {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     SourcePathResolver pathResolver =
         DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
@@ -122,9 +124,7 @@ public class AndroidBinaryTest {
         .getDexMergeRule()
         .getRight()
         .addProguardCommands(
-            packageableCollection
-                .getClasspathEntriesToDex()
-                .stream()
+            packageableCollection.getClasspathEntriesToDex().stream()
                 .map(pathResolver::getRelativePath)
                 .collect(ImmutableSet.toImmutableSet()),
             pathResolver.getAllAbsolutePaths(packageableCollection.getProguardConfigs()),
@@ -134,7 +134,9 @@ public class AndroidBinaryTest {
             buildContext);
 
     BuildTarget aaptPackageTarget =
-        binaryBuildTarget.withFlavors(AndroidBinaryResourcesGraphEnhancer.AAPT_PACKAGE_FLAVOR);
+        binaryBuildTarget.withFlavors(
+            AndroidBinaryResourcesGraphEnhancer.AAPT_PACKAGE_FLAVOR,
+            InternalFlavor.of(APKModuleGraph.ROOT_APKMODULE_NAME));
     Path aaptProguardDir =
         BuildTargetPaths.getGenPath(
             androidBinary.getProjectFilesystem(), aaptPackageTarget, "%s/proguard/");
@@ -249,7 +251,7 @@ public class AndroidBinaryTest {
   }
 
   @Test
-  public void testGetUnsignedApkPath() throws Exception {
+  public void testGetUnsignedApkPath() {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     SourcePathResolver pathResolver =
         DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
@@ -280,7 +282,7 @@ public class AndroidBinaryTest {
   }
 
   @Test
-  public void testGetProguardOutputFromInputClasspath() throws Exception {
+  public void testGetProguardOutputFromInputClasspath() {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
 
     BuildTarget target = BuildTargetFactory.newInstance("//:fbandroid_with_dash_debug_fbsign");
@@ -311,8 +313,7 @@ public class AndroidBinaryTest {
 
   private void assertCommandsInOrder(List<Step> steps, List<Class<?>> expectedCommands) {
     List<Class<?>> filteredObservedCommands =
-        steps
-            .stream()
+        steps.stream()
             .map(((Function<Step, Class<?>>) Step::getClass))
             .filter(Sets.newHashSet(expectedCommands)::contains)
             .collect(Collectors.toList());
@@ -320,7 +321,7 @@ public class AndroidBinaryTest {
   }
 
   @Test
-  public void testDexingCommand() throws Exception {
+  public void testDexingCommand() {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     AndroidBinary splitDexRule =
         AndroidBinaryBuilder.createBuilder(
@@ -371,7 +372,7 @@ public class AndroidBinaryTest {
   }
 
   @Test
-  public void testDexingCommandWithIntraDexReorder() throws Exception {
+  public void testDexingCommandWithIntraDexReorder() {
     SourcePath reorderTool = FakeSourcePath.of("/tools#reorder_tool");
     SourcePath reorderData = FakeSourcePath.of("/tools#reorder_data");
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
@@ -425,7 +426,7 @@ public class AndroidBinaryTest {
   }
 
   @Test
-  public void testAddPostFilterCommandSteps() throws Exception {
+  public void testAddPostFilterCommandSteps() {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     SourcePathResolver pathResolver =
         DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
@@ -440,7 +441,7 @@ public class AndroidBinaryTest {
     AndroidBinary androidBinary = builder.build(graphBuilder);
 
     BuildRule aaptPackageRule =
-        graphBuilder.getRule(BuildTargetFactory.newInstance("//:target#aapt_package"));
+        graphBuilder.getRule(BuildTargetFactory.newInstance("//:target#aapt_package,dex"));
     ResourcesFilter resourcesFilter =
         (ResourcesFilter) ((AaptPackageResources) aaptPackageRule).getFilteredResourcesProvider();
     ImmutableList.Builder<Step> stepsBuilder = new ImmutableList.Builder<>();
@@ -461,7 +462,7 @@ public class AndroidBinaryTest {
   }
 
   @Test
-  public void noDxParametersAreHintsAndNotHardDependencies() throws Exception {
+  public void noDxParametersAreHintsAndNotHardDependencies() {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     BuildRule keystoreRule = addKeystoreRule(graphBuilder);
 
@@ -474,7 +475,7 @@ public class AndroidBinaryTest {
   }
 
   @Test
-  public void transitivePrebuiltJarsAreFirstOrderDeps() throws Exception {
+  public void transitivePrebuiltJarsAreFirstOrderDeps() {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     BuildRule keystoreRule = addKeystoreRule(graphBuilder);
 

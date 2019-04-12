@@ -18,6 +18,7 @@ package com.facebook.buck.cxx;
 
 import com.facebook.buck.core.build.buildable.context.BuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
@@ -34,7 +35,6 @@ import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.rules.args.Arg;
-import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.TouchStep;
@@ -62,9 +62,9 @@ import java.util.stream.Stream;
 public abstract class CxxTest extends AbstractBuildRuleWithDeclaredAndExtraDeps
     implements TestRule, HasRuntimeDeps, BinaryBuildRule {
 
-  @AddToRuleKey private final ImmutableMap<String, Arg> env;
-  @AddToRuleKey private final ImmutableList<Arg> args;
-  @AddToRuleKey private final Tool executable;
+  private final ImmutableMap<String, Arg> env;
+  private final ImmutableList<Arg> args;
+  private final Tool executable;
 
   @AddToRuleKey
   @SuppressWarnings("PMD.UnusedPrivateField")
@@ -262,9 +262,7 @@ public abstract class CxxTest extends AbstractBuildRuleWithDeclaredAndExtraDeps
 
   @Override
   public Stream<BuildTarget> getRuntimeDeps(SourcePathRuleFinder ruleFinder) {
-    return additionalDeps
-        .get(() -> additionalDepsSupplier.apply(ruleFinder))
-        .stream()
+    return additionalDeps.get(() -> additionalDepsSupplier.apply(ruleFinder)).stream()
         .map(BuildRule::getBuildTarget);
   }
 

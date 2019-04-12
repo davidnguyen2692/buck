@@ -18,7 +18,7 @@ package com.facebook.buck.cxx;
 
 import com.facebook.buck.core.build.buildable.context.BuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.impl.BuildTargetPaths;
@@ -216,7 +216,8 @@ class CxxPrecompiledHeader extends AbstractBuildRule
 
   @Override
   public Predicate<SourcePath> getCoveredByDepFilePredicate(SourcePathResolver pathResolver) {
-    return preprocessorDelegate.getCoveredByDepFilePredicate();
+    return Depfiles.getCoveredByDepFilePredicate(
+        Optional.of(preprocessorDelegate), Optional.empty());
   }
 
   @Override
@@ -231,7 +232,6 @@ class CxxPrecompiledHeader extends AbstractBuildRule
       return ImmutableList.<SourcePath>builder()
           .addAll(
               preprocessorDelegate.getInputsAfterBuildingLocally(getDependencies(context), context))
-          .add(input)
           .build();
     } catch (Depfiles.HeaderVerificationException e) {
       throw new HumanReadableException(e);
@@ -263,7 +263,8 @@ class CxxPrecompiledHeader extends AbstractBuildRule
                   // file
                   getRelativeInputPath(context.getSourcePathResolver()),
                   output,
-                  compilerDelegate.getDependencyTrackingMode()));
+                  compilerDelegate.getDependencyTrackingMode(),
+                  compilerDelegate.getCompiler().getUseUnixPathSeparator()));
     } catch (ExecutionException e) {
       // Unwrap and re-throw the loader's Exception.
       Throwables.throwIfInstanceOf(e.getCause(), IOException.class);
@@ -320,5 +321,10 @@ class CxxPrecompiledHeader extends AbstractBuildRule
         new NonHashableSourcePathContainer(getIncludeFileSourcePath()),
         getInput(),
         canPrecompileFlag);
+  }
+
+  @VisibleForTesting
+  public PreprocessorDelegate getPreprocessorDelegate() {
+    return preprocessorDelegate;
   }
 }

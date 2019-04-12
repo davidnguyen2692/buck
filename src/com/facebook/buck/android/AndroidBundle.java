@@ -142,6 +142,7 @@ public class AndroidBundle extends AbstractBuildRule
       OptionalInt xzCompressionLevel,
       boolean packageAssetLibraries,
       boolean compressAssetLibraries,
+      Optional<CompressionAlgorithm> assetCompressionAlgorithm,
       ManifestEntries manifestEntries,
       Tool javaRuntimeLauncher,
       boolean isCacheable,
@@ -150,8 +151,7 @@ public class AndroidBundle extends AbstractBuildRule
       NativeFilesInfo nativeFilesInfo,
       ResourceFilesInfo resourceFilesInfo,
       ImmutableSortedSet<APKModule> apkModules,
-      Optional<ExopackageInfo> exopackageInfo,
-      int apkCompressionLevel) {
+      Optional<ExopackageInfo> exopackageInfo) {
     super(buildTarget, projectFilesystem);
     Preconditions.checkArgument(params.getExtraDeps().get().isEmpty());
     this.ruleFinder = ruleFinder;
@@ -214,6 +214,7 @@ public class AndroidBundle extends AbstractBuildRule
             xzCompressionLevel,
             packageAssetLibraries,
             compressAssetLibraries,
+            assetCompressionAlgorithm,
             javaRuntimeLauncher,
             enhancementResult.getAndroidManifestPath(),
             resourceCompressionMode.isCompressResources(),
@@ -222,7 +223,6 @@ public class AndroidBundle extends AbstractBuildRule
             resourceFilesInfo,
             apkModules,
             enhancementResult.getModuleResourceApkPaths(),
-            apkCompressionLevel,
             false);
     this.exopackageInfo = exopackageInfo;
 
@@ -365,9 +365,7 @@ public class AndroidBundle extends AbstractBuildRule
   @Override
   public ImmutableSet<JavaLibrary> getTransitiveClasspathDeps() {
     return JavaLibraryClasspathProvider.getClasspathDeps(
-        enhancementResult
-            .getClasspathEntriesToDex()
-            .stream()
+        enhancementResult.getClasspathEntriesToDex().stream()
             .flatMap(ruleFinder.FILTER_BUILD_RULE_INPUTS)
             .collect(ImmutableSet.toImmutableSet()));
   }

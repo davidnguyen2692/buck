@@ -31,11 +31,11 @@ import com.facebook.buck.core.model.BuildId;
 import com.facebook.buck.core.rulekey.BuildRuleKeys;
 import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.impl.FakeBuildRule;
 import com.facebook.buck.event.ParsingEvent;
 import com.facebook.buck.event.WatchmanStatusEvent;
 import com.facebook.buck.log.PerfTimesStats;
 import com.facebook.buck.log.views.JsonViews;
-import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.testutil.JsonMatcher;
 import com.facebook.buck.util.json.ObjectMappers;
 import com.facebook.buck.util.timing.Clock;
@@ -45,6 +45,7 @@ import com.fasterxml.jackson.databind.ObjectWriter;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.hash.HashCode;
 import java.io.IOException;
+import java.nio.file.Paths;
 import java.util.Optional;
 import java.util.Random;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -58,7 +59,7 @@ public class MachineReadableLogJsonViewTest {
           .configure(MapperFeature.DEFAULT_VIEW_INCLUSION, false)
           .writerWithView(JsonViews.MachineReadableLog.class);
 
-  private long timestamp;
+  private long timestampMillis;
   private long nanoTime;
   private long threadUserNanoTime;
   private long threadId;
@@ -68,7 +69,7 @@ public class MachineReadableLogJsonViewTest {
   @Before
   public void setUp() {
     Clock clock = new DefaultClock();
-    timestamp = clock.currentTimeMillis();
+    timestampMillis = clock.currentTimeMillis();
     nanoTime = clock.nanoTime();
     // Not using real value as not all JVMs will support thread user time.
     threadUserNanoTime = new Random().nextLong();
@@ -81,12 +82,13 @@ public class MachineReadableLogJsonViewTest {
   public void testWatchmanEvents() throws Exception {
     WatchmanStatusEvent createEvent = WatchmanStatusEvent.fileCreation("filename_new");
     WatchmanStatusEvent deleteEvent = WatchmanStatusEvent.fileDeletion("filename_del");
-    WatchmanStatusEvent overflowEvent = WatchmanStatusEvent.overflow("reason");
+    WatchmanStatusEvent overflowEvent =
+        WatchmanStatusEvent.overflow("reason", Paths.get("/some/path"));
 
     // Configure the events so timestamps etc are there.
-    createEvent.configure(timestamp, nanoTime, threadUserNanoTime, threadId, buildId);
-    deleteEvent.configure(timestamp, nanoTime, threadUserNanoTime, threadId, buildId);
-    overflowEvent.configure(timestamp, nanoTime, threadUserNanoTime, threadId, buildId);
+    createEvent.configure(timestampMillis, nanoTime, threadUserNanoTime, threadId, buildId);
+    deleteEvent.configure(timestampMillis, nanoTime, threadUserNanoTime, threadId, buildId);
+    overflowEvent.configure(timestampMillis, nanoTime, threadUserNanoTime, threadId, buildId);
 
     assertJsonEquals("{%s,\"filename\":\"filename_new\"}", WRITER.writeValueAsString(createEvent));
     assertJsonEquals("{%s,\"filename\":\"filename_del\"}", WRITER.writeValueAsString(deleteEvent));
@@ -98,8 +100,8 @@ public class MachineReadableLogJsonViewTest {
     ParsingEvent symlink = ParsingEvent.symlinkInvalidation("target");
     ParsingEvent envChange = ParsingEvent.environmentalChange("diff");
 
-    symlink.configure(timestamp, nanoTime, threadUserNanoTime, threadId, buildId);
-    envChange.configure(timestamp, nanoTime, threadUserNanoTime, threadId, buildId);
+    symlink.configure(timestampMillis, nanoTime, threadUserNanoTime, threadId, buildId);
+    envChange.configure(timestampMillis, nanoTime, threadUserNanoTime, threadId, buildId);
 
     assertJsonEquals("{%s,\"path\":\"target\"}", WRITER.writeValueAsString(symlink));
     assertJsonEquals("{%s,\"diff\":\"diff\"}", WRITER.writeValueAsString(envChange));
@@ -113,7 +115,7 @@ public class MachineReadableLogJsonViewTest {
 
     BuildRuleEvent.Started started = BuildRuleEvent.started(rule, durationTracker);
     started.configure(
-        timestamp - durationMillis,
+        timestampMillis - durationMillis,
         nanoTime - durationNanos,
         threadUserNanoTime - durationNanos,
         threadId,
@@ -146,7 +148,7 @@ public class MachineReadableLogJsonViewTest {
             Optional.empty(),
             Optional.empty(),
             Optional.empty());
-    event.configure(timestamp, nanoTime, threadUserNanoTime, threadId, buildId);
+    event.configure(timestampMillis, nanoTime, threadUserNanoTime, threadId, buildId);
     String message = WRITER.writeValueAsString(event);
     assertJsonEquals(
         "{%s,\"status\":\"SUCCESS\",\"cacheResult\":{\"type\":\"MISS\","
@@ -175,7 +177,7 @@ public class MachineReadableLogJsonViewTest {
                 .setBuildTimeMs(23L)
                 .setInstallTimeMs(42L)
                 .build());
-    event.configure(timestamp, nanoTime, threadUserNanoTime, threadId, buildId);
+    event.configure(timestampMillis, nanoTime, threadUserNanoTime, threadId, buildId);
 
     String message = WRITER.writeValueAsString(event);
     assertJsonEquals(
@@ -227,7 +229,7 @@ public class MachineReadableLogJsonViewTest {
   }
 
   private void assertJsonEquals(String expected, String actual) {
-    String commonHeader = String.format("\"timestamp\":%d", timestamp);
+    String commonHeader = String.format("\"timestampMillis\":%d", timestampMillis);
     assertThat(actual, new JsonMatcher(String.format(expected, commonHeader)));
   }
 }

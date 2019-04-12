@@ -72,7 +72,7 @@ public class PrebuiltJar extends AbstractBuildRuleWithDeclaredAndExtraDeps
         SupportsInputBasedRuleKey {
 
   @AddToRuleKey private final SourcePath binaryJar;
-  private final DefaultJavaAbiInfo javaAbiInfo;
+  private final JavaAbiInfo javaAbiInfo;
   private final Path copiedBinaryJar;
   @AddToRuleKey private final Optional<SourcePath> sourceJar;
 
@@ -137,7 +137,7 @@ public class PrebuiltJar extends AbstractBuildRuleWithDeclaredAndExtraDeps
     copiedBinaryJar =
         BuildTargetPaths.getGenPath(
             getProjectFilesystem(), getBuildTarget(), "__%s__/" + fileNameWithJarExtension);
-    this.javaAbiInfo = new DefaultJavaAbiInfo(getBuildTarget(), getSourcePathToOutput());
+    this.javaAbiInfo = new DefaultJavaAbiInfo(getSourcePathToOutput());
 
     buildOutputInitializer = new BuildOutputInitializer<>(buildTarget, this);
   }
@@ -153,6 +153,16 @@ public class PrebuiltJar extends AbstractBuildRuleWithDeclaredAndExtraDeps
 
   public Optional<String> getJavadocUrl() {
     return javadocUrl;
+  }
+
+  @Override
+  public boolean isDesugarEnabled() {
+    return true;
+  }
+
+  @Override
+  public boolean isInterfaceMethodsDesugarEnabled() {
+    return false;
   }
 
   @Override
@@ -222,6 +232,11 @@ public class PrebuiltJar extends AbstractBuildRuleWithDeclaredAndExtraDeps
   }
 
   @Override
+  public Optional<String> getResourcesRoot() {
+    return Optional.empty();
+  }
+
+  @Override
   public SortedSet<BuildRule> getExportedDeps() {
     return getDeclaredDeps();
   }
@@ -232,8 +247,13 @@ public class PrebuiltJar extends AbstractBuildRuleWithDeclaredAndExtraDeps
   }
 
   @Override
-  public Optional<Path> getGeneratedSourcePath() {
+  public Optional<SourcePath> getGeneratedAnnotationSourcePath() {
     return Optional.empty();
+  }
+
+  @Override
+  public boolean hasAnnotationProcessing() {
+    return false;
   }
 
   @Override

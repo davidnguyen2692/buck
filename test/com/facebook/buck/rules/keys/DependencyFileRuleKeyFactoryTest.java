@@ -21,24 +21,24 @@ import static org.junit.Assert.assertThat;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
-import com.facebook.buck.core.rulekey.RuleKeyAppendable;
-import com.facebook.buck.core.rulekey.RuleKeyObjectSink;
+import com.facebook.buck.core.rulekey.AddsToRuleKey;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRuleResolver;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.impl.FakeBuildRule;
+import com.facebook.buck.core.rules.impl.FakeDepFileBuildRule;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.core.sourcepath.ArchiveMemberSourcePath;
 import com.facebook.buck.core.sourcepath.DefaultBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.PathSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.sourcepath.SourcePathFactoryForTests;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.rules.FakeBuildRule;
-import com.facebook.buck.rules.FakeDepFileBuildRule;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.rules.keys.config.TestRuleKeyConfigurationFactory;
 import com.facebook.buck.testutil.FakeFileHashCache;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -133,10 +133,20 @@ public class DependencyFileRuleKeyFactoryTest {
         unusedSourcePath,
         noncoveredSourcePath,
         interestingSourcePath,
-        Paths.get(pathResolver.getAbsoluteArchiveMemberPath(usedSourcePath).toString()),
-        Paths.get(pathResolver.getAbsoluteArchiveMemberPath(unusedSourcePath).toString()),
-        Paths.get(pathResolver.getAbsoluteArchiveMemberPath(noncoveredSourcePath).toString()),
-        Paths.get(pathResolver.getAbsoluteArchiveMemberPath(interestingSourcePath).toString()),
+        Paths.get(
+            SourcePathFactoryForTests.toAbsoluteArchiveMemberPath(pathResolver, usedSourcePath)
+                .toString()),
+        Paths.get(
+            SourcePathFactoryForTests.toAbsoluteArchiveMemberPath(pathResolver, unusedSourcePath)
+                .toString()),
+        Paths.get(
+            SourcePathFactoryForTests.toAbsoluteArchiveMemberPath(
+                    pathResolver, noncoveredSourcePath)
+                .toString()),
+        Paths.get(
+            SourcePathFactoryForTests.toAbsoluteArchiveMemberPath(
+                    pathResolver, interestingSourcePath)
+                .toString()),
         DependencyFileEntry.fromSourcePath(usedSourcePath, pathResolver));
   }
 
@@ -469,7 +479,7 @@ public class DependencyFileRuleKeyFactoryTest {
     }
   }
 
-  /** Tests SourcePaths both directly, and when wrapped with a RuleKeyAppendable. */
+  /** Tests SourcePaths both directly, and when wrapped with a AddsToRuleKey. */
   private void testDepFileRuleKey(
       SourcePathRuleFinder ruleFinder,
       SourcePathResolver pathResolver,
@@ -525,12 +535,12 @@ public class DependencyFileRuleKeyFactoryTest {
         expectSameKeys,
         expectedDepFileInputsAfter,
         failureMessage);
-    // make sure the behavior is same if wrapped with RuleKeyAppendable
+    // make sure the behavior is same if wrapped with AddsToRuleKey
     testDepFileRuleKeyImpl(
         ruleFinder,
         pathResolver,
-        new RuleKeyAppendableWrapped(fieldValueBefore),
-        new RuleKeyAppendableWrapped(fieldValueAfter),
+        new AddsToRuleKeyWrapped(fieldValueBefore),
+        new AddsToRuleKeyWrapped(fieldValueAfter),
         hashesBefore,
         hashesAfter,
         coveredInputPaths,
@@ -768,7 +778,7 @@ public class DependencyFileRuleKeyFactoryTest {
         "Manifest key should change when a mandatory input is added/removed.");
   }
 
-  /** Tests SourcePaths both directly, and when wrapped with a RuleKeyAppendable. */
+  /** Tests SourcePaths both directly, and when wrapped with a AddsToRuleKey. */
   private void testManifestKey(
       SourcePathRuleFinder ruleFinder,
       SourcePathResolver pathResolver,
@@ -820,12 +830,12 @@ public class DependencyFileRuleKeyFactoryTest {
         expectSameKeys,
         expectedDepFileInputsAfter,
         failureMessage);
-    // make sure the behavior is same if wrapped with RuleKeyAppendable
+    // make sure the behavior is same if wrapped with AddsToRuleKey
     testManifestKeyImpl(
         ruleFinder,
         pathResolver,
-        new RuleKeyAppendableWrapped(fieldValueBefore),
-        new RuleKeyAppendableWrapped(fieldValueAfter),
+        new AddsToRuleKeyWrapped(fieldValueBefore),
+        new AddsToRuleKeyWrapped(fieldValueAfter),
         hashesBefore,
         hashesAfter,
         coveredInputPaths,
@@ -921,17 +931,12 @@ public class DependencyFileRuleKeyFactoryTest {
     assertThat(res2.getInputs(), Matchers.equalTo(ImmutableSet.of(sourcePath)));
   }
 
-  private static class RuleKeyAppendableWrapped implements RuleKeyAppendable {
+  private static class AddsToRuleKeyWrapped implements AddsToRuleKey {
 
-    private final Object field;
+    @AddToRuleKey private final Object field;
 
-    public RuleKeyAppendableWrapped(Object field) {
+    public AddsToRuleKeyWrapped(Object field) {
       this.field = field;
-    }
-
-    @Override
-    public void appendToRuleKey(RuleKeyObjectSink sink) {
-      sink.setReflectively("field", field);
     }
   }
 

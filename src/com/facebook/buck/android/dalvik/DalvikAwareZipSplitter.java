@@ -18,14 +18,13 @@ package com.facebook.buck.android.dalvik;
 
 import com.facebook.buck.android.apkmodule.APKModule;
 import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.java.classes.AbstractFileLike;
 import com.facebook.buck.jvm.java.classes.ClasspathTraversal;
 import com.facebook.buck.jvm.java.classes.ClasspathTraverser;
 import com.facebook.buck.jvm.java.classes.DefaultClasspathTraverser;
 import com.facebook.buck.jvm.java.classes.FileLike;
-import com.facebook.buck.log.Logger;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableMultimap;
@@ -40,6 +39,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.function.Predicate;
 import javax.annotation.Nullable;
@@ -98,7 +98,6 @@ public class DalvikAwareZipSplitter implements ZipSplitter {
       ImmutableMultimap<APKModule, String> additionalDexStoreSets,
       APKModule rootAPKModule,
       DexSplitStrategy dexSplitStrategy,
-      CanaryStrategy canaryStrategy,
       Path reportDir) {
     if (linearAllocLimit <= 0) {
       throw new HumanReadableException("linear_alloc_hard_limit must be greater than zero.");
@@ -107,7 +106,7 @@ public class DalvikAwareZipSplitter implements ZipSplitter {
     this.inFiles = ImmutableSet.copyOf(inFiles);
     this.outPrimary = outPrimary;
     this.secondaryDexWriter =
-        new MySecondaryDexHelper("secondary", outSecondaryDir, secondaryPattern, canaryStrategy);
+        new MySecondaryDexHelper("secondary", outSecondaryDir, secondaryPattern);
     this.additionalDexWriters = new HashMap<>();
     this.requiredInPrimaryZip = requiredInPrimaryZip;
     this.wantedInPrimaryZip = ImmutableSet.copyOf(wantedInPrimaryZip);
@@ -121,8 +120,7 @@ public class DalvikAwareZipSplitter implements ZipSplitter {
             new MySecondaryDexHelper(
                 dexStore.getCanaryClassName(),
                 outDexStoresDir.resolve(dexStore.getName()),
-                secondaryPattern,
-                CanaryStrategy.INCLUDE_CANARIES));
+                secondaryPattern));
       }
     }
     this.rootModule = rootAPKModule;
@@ -147,7 +145,6 @@ public class DalvikAwareZipSplitter implements ZipSplitter {
       ImmutableMultimap<APKModule, String> additionalDexStoreSets,
       APKModule rootAPKModule,
       DexSplitStrategy dexSplitStrategy,
-      CanaryStrategy canaryStrategy,
       Path reportDir) {
     return new DalvikAwareZipSplitter(
         filesystem,
@@ -164,7 +161,6 @@ public class DalvikAwareZipSplitter implements ZipSplitter {
         additionalDexStoreSets,
         rootAPKModule,
         dexSplitStrategy,
-        canaryStrategy,
         reportDir);
   }
 
@@ -197,8 +193,8 @@ public class DalvikAwareZipSplitter implements ZipSplitter {
             }
             String classPath = relativePath.replaceAll("\\.class$", "");
 
-            Preconditions.checkNotNull(primaryOut);
-            Preconditions.checkNotNull(classPathToDexStore);
+            Objects.requireNonNull(primaryOut);
+            Objects.requireNonNull(classPathToDexStore);
 
             if (requiredInPrimaryZip.test(relativePath)) {
               primaryOut.putEntry(entry);
@@ -220,7 +216,7 @@ public class DalvikAwareZipSplitter implements ZipSplitter {
                 APKModule dexStore = containingModule.iterator().next();
                 if (!dexStore.equals(rootModule)) {
                   MySecondaryDexHelper dexHelper = additionalDexWriters.get(dexStore);
-                  Preconditions.checkNotNull(dexHelper);
+                  Objects.requireNonNull(dexHelper);
                   dexHelper.getOutputToWriteTo(entry).putEntry(entry);
                   additionalDexStoreEntries.add(relativePath);
                 }
@@ -255,7 +251,7 @@ public class DalvikAwareZipSplitter implements ZipSplitter {
         new ClasspathTraversal(inFiles, filesystem) {
           @Override
           public void visit(FileLike entry) throws IOException {
-            Preconditions.checkNotNull(primaryOut);
+            Objects.requireNonNull(primaryOut);
             String relativePath = entry.getRelativePath();
 
             // skip if it is the primary dex, is part of a modular dex store, or is not a class file
@@ -315,12 +311,8 @@ public class DalvikAwareZipSplitter implements ZipSplitter {
 
   private class MySecondaryDexHelper extends SecondaryDexHelper<DalvikAwareOutputStreamHelper> {
 
-    MySecondaryDexHelper(
-        String storeName,
-        Path outSecondaryDir,
-        String secondaryPattern,
-        CanaryStrategy canaryStrategy) {
-      super(storeName, outSecondaryDir, secondaryPattern, canaryStrategy);
+    MySecondaryDexHelper(String storeName, Path outSecondaryDir, String secondaryPattern) {
+      super(storeName, outSecondaryDir, secondaryPattern);
     }
 
     @Override

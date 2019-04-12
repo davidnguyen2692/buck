@@ -16,6 +16,7 @@
 
 package com.facebook.buck.slb;
 
+import com.facebook.buck.core.util.log.Logger;
 import com.google.common.base.Preconditions;
 import com.google.common.io.ByteStreams;
 import com.google.common.util.concurrent.ListenableFuture;
@@ -25,6 +26,8 @@ import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.util.Objects;
+import java.util.concurrent.TimeUnit;
 import okhttp3.MediaType;
 import okhttp3.Request.Builder;
 import okhttp3.RequestBody;
@@ -41,13 +44,16 @@ public class HybridThriftOverHttpServiceImpl<
     implements HybridThriftOverHttpService<ThriftRequest, ThriftResponse> {
 
   public static final MediaType HYBRID_THRIFT_STREAM_CONTENT_TYPE =
-      Preconditions.checkNotNull(MediaType.parse("application/x-hybrid-thrift-binary"));
+      Objects.requireNonNull(MediaType.parse("application/x-hybrid-thrift-binary"));
   public static final String PROTOCOL_HEADER = "X-Thrift-Protocol";
 
-  private final HybridThriftOverHttpServiceArgs args;
+  private static final Logger LOG = Logger.get(HybridThriftOverHttpServiceImpl.class);
+  private static final long EXECUTOR_SHUTDOWN_TIMEOUT_MILLIS = 1000;
+
+  private final HybridThriftOverHttpServiceImplArgs args;
 
   /** New instances. */
-  public HybridThriftOverHttpServiceImpl(HybridThriftOverHttpServiceArgs args) {
+  public HybridThriftOverHttpServiceImpl(HybridThriftOverHttpServiceImplArgs args) {
     this.args = args;
   }
 
@@ -153,9 +159,29 @@ public class HybridThriftOverHttpServiceImpl<
   private static InputStream nonCloseableStream(InputStream streamToWrap) {
     return new FilterInputStream(streamToWrap) {
       @Override
-      public void close() throws IOException {
+      public void close() {
         // Do not close the underlying stream.
       }
     };
+  }
+
+  @Override
+  public void makeRequest(ThriftRequest thriftRequest, ThriftResponse thriftResponse)
+      throws IOException {
+    makeRequestSync(
+        HybridThriftRequestHandler.createWithoutPayloads(thriftRequest),
+        HybridThriftResponseHandler.createNoPayloadHandler(thriftResponse));
+  }
+
+  @Override
+  public void close() {
+    args.getExecutor().shutdown();
+    try {
+      args.getExecutor().awaitTermination(EXECUTOR_SHUTDOWN_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS);
+    } catch (InterruptedException e) {
+      LOG.error(e, "Failed to shutdown %s listening executor.", this.getClass());
+      Thread.currentThread().interrupt();
+    }
+    args.getService().close();
   }
 }

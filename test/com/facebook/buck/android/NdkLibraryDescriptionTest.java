@@ -20,20 +20,20 @@ import static org.hamcrest.junit.MatcherAssert.assertThat;
 
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
+import com.facebook.buck.core.model.TargetConfiguration;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.BuildRuleResolver;
+import com.facebook.buck.core.rules.impl.FakeBuildRule;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableInput;
-import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSet;
 import org.hamcrest.Matchers;
 import org.junit.Test;
 
@@ -63,14 +63,13 @@ public class NdkLibraryDescriptionTest {
         CxxPlatform cxxPlatform,
         Linker.LinkableDepType type,
         boolean forceLinkWhole,
-        ImmutableSet<NativeLinkable.LanguageExtensions> languageExtensions,
-        ActionGraphBuilder graphBuilder) {
+        ActionGraphBuilder graphBuilder,
+        TargetConfiguration targetConfiguration) {
       return NativeLinkableInput.builder().addArgs(SourcePathArg.of(input)).build();
     }
 
     @Override
-    public NativeLinkable.Linkage getPreferredLinkage(
-        CxxPlatform cxxPlatform, ActionGraphBuilder graphBuilder) {
+    public NativeLinkable.Linkage getPreferredLinkage(CxxPlatform cxxPlatform) {
       return Linkage.ANY;
     }
 
@@ -82,7 +81,7 @@ public class NdkLibraryDescriptionTest {
   }
 
   @Test
-  public void transitiveCxxLibraryDepsBecomeFirstOrderDepsOfNdkBuildRule() throws Exception {
+  public void transitiveCxxLibraryDepsBecomeFirstOrderDepsOfNdkBuildRule() {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
 
     FakeBuildRule transitiveInput =

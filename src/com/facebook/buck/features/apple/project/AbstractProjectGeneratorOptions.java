@@ -35,6 +35,12 @@ interface AbstractProjectGeneratorOptions {
     return false;
   }
 
+  /** Create schemes for each project's contained build and test targets. */
+  @Value.Default
+  default boolean shouldGenerateProjectSchemes() {
+    return false;
+  }
+
   /** Generate read-only project files */
   @Value.Default
   default boolean shouldGenerateReadOnlyFiles() {
@@ -57,6 +63,12 @@ interface AbstractProjectGeneratorOptions {
   @Value.Default
   default boolean shouldUseHeaderMaps() {
     return true;
+  }
+
+  /** Use absolute header map paths in .xcconfig files */
+  @Value.Default
+  default boolean shouldUseAbsoluteHeaderMapPaths() {
+    return false;
   }
 
   /**

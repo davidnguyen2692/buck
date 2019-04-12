@@ -20,7 +20,7 @@ import com.facebook.buck.artifact_cache.CacheResultType;
 import com.facebook.buck.core.build.distributed.synchronization.RemoteBuildRuleCompletionNotifier;
 import com.facebook.buck.core.build.distributed.synchronization.RemoteBuildRuleCompletionWaiter;
 import com.facebook.buck.core.rules.BuildRule;
-import com.facebook.buck.log.Logger;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.util.timing.Clock;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
@@ -35,6 +35,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
@@ -122,7 +123,7 @@ public class RemoteBuildRuleSynchronizer
 
   private void triggerCacheChecksForBackedOffBuildRulesWithSyncedCache() {
     synchronized (this) {
-      if (backedOffBuildRulesWaitingForCacheSync.size() == 0) {
+      if (backedOffBuildRulesWaitingForCacheSync.isEmpty()) {
         return;
       }
     }
@@ -356,7 +357,7 @@ public class RemoteBuildRuleSynchronizer
       completionFuturesByBuildTarget.put(buildTarget, SettableFuture.create());
     }
 
-    return Preconditions.checkNotNull(completionFuturesByBuildTarget.get(buildTarget));
+    return Objects.requireNonNull(completionFuturesByBuildTarget.get(buildTarget));
   }
 
   public synchronized void switchToAlwaysWaitingMode() {

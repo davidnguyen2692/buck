@@ -16,7 +16,7 @@
 
 package com.facebook.buck.features.go;
 
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.description.MetadataProvidingDescription;
 import com.facebook.buck.core.description.arg.CommonDescriptionArg;
 import com.facebook.buck.core.description.arg.HasDeclaredDeps;
@@ -36,7 +36,7 @@ import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.toolchain.ToolchainProvider;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.cxx.toolchain.CxxPlatforms;
-import com.facebook.buck.features.go.GoListStep.FileType;
+import com.facebook.buck.features.go.GoListStep.ListType;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.versions.Version;
 import com.facebook.buck.versions.VersionPropagator;
@@ -48,7 +48,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
 import java.nio.file.Paths;
-import java.util.Arrays;
+import java.util.Collections;
 import java.util.Optional;
 import org.immutables.value.Value;
 
@@ -148,7 +148,7 @@ public class GoLibraryDescription
               .addAll(args.getExportedDeps())
               .build(),
           ImmutableList.of(),
-          Arrays.asList(FileType.GoFiles));
+          Collections.singletonList(ListType.GoFiles));
     }
 
     return new NoopBuildRuleWithDeclaredAndExtraDeps(buildTarget, projectFilesystem, params);
@@ -168,7 +168,8 @@ public class GoLibraryDescription
         .ifPresent(
             platform ->
                 targetGraphOnlyDepsBuilder.addAll(
-                    CxxPlatforms.getParseTimeDeps(platform.getCxxPlatform())));
+                    CxxPlatforms.getParseTimeDeps(
+                        buildTarget.getTargetConfiguration(), platform.getCxxPlatform())));
   }
 
   private GoToolchain getGoToolchain() {

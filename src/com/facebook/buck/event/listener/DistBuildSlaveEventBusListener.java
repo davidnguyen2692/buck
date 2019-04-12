@@ -17,6 +17,7 @@ package com.facebook.buck.event.listener;
 
 import com.facebook.buck.artifact_cache.HttpArtifactCacheEvent;
 import com.facebook.buck.core.build.event.BuildRuleEvent;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.distributed.DistBuildMode;
 import com.facebook.buck.distributed.DistBuildService;
 import com.facebook.buck.distributed.DistBuildUtil;
@@ -41,7 +42,8 @@ import com.facebook.buck.distributed.thrift.StampedeId;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventListener;
 import com.facebook.buck.event.ConsoleEvent;
-import com.facebook.buck.log.Logger;
+import com.facebook.buck.event.listener.stats.cache.CacheRateStatsKeeper;
+import com.facebook.buck.event.listener.stats.cache.RemoteCacheUploadStats;
 import com.facebook.buck.log.TimedLogger;
 import com.facebook.buck.util.network.hostname.HostnameFetching;
 import com.facebook.buck.util.timing.Clock;
@@ -173,7 +175,7 @@ public class DistBuildSlaveEventBusListener
   }
 
   @Override
-  public void close() throws IOException {
+  public void close() {
     stopScheduledUpdates();
   }
 
@@ -283,7 +285,7 @@ public class DistBuildSlaveEventBusListener
         slaveEvents = new ArrayList<>(pendingSlaveEvents);
       }
       createCoordinatorBuildProgressEvent().ifPresent(slaveEvents::add);
-      if (slaveEvents.size() == 0) {
+      if (slaveEvents.isEmpty()) {
         return;
       }
 
@@ -374,7 +376,7 @@ public class DistBuildSlaveEventBusListener
     // For calculating the cache rate, total rule count = rules that were processed. So we increment
     // for started and resumed events, and decrement for suspended event. We do not decrement for a
     // finished event.
-    cacheRateStatsKeeper.ruleCount.incrementAndGet();
+    cacheRateStatsKeeper.getRuleCount().incrementAndGet();
   }
 
   @Subscribe
@@ -397,14 +399,14 @@ public class DistBuildSlaveEventBusListener
   @Subscribe
   public void buildRuleResumed(BuildRuleEvent.Resumed resumed) {
     buildRulesBuildingCount.incrementAndGet();
-    cacheRateStatsKeeper.ruleCount.incrementAndGet();
+    cacheRateStatsKeeper.getRuleCount().incrementAndGet();
   }
 
   @SuppressWarnings("unused")
   @Subscribe
   public void buildRuleSuspended(BuildRuleEvent.Suspended suspended) {
     buildRulesBuildingCount.decrementAndGet();
-    cacheRateStatsKeeper.ruleCount.decrementAndGet();
+    cacheRateStatsKeeper.getRuleCount().decrementAndGet();
   }
 
   @Subscribe
@@ -429,7 +431,7 @@ public class DistBuildSlaveEventBusListener
 
   @Override
   public void createBuildRuleStartedEvents(ImmutableList<String> startedTargets) {
-    if (startedTargets.size() == 0) {
+    if (startedTargets.isEmpty()) {
       return;
     }
     List<BuildSlaveEvent> ruleStartedEvents = new LinkedList<>();
@@ -452,7 +454,7 @@ public class DistBuildSlaveEventBusListener
 
   @Override
   public void createBuildRuleCompletionEvents(ImmutableList<String> finishedTargets) {
-    if (finishedTargets.size() == 0) {
+    if (finishedTargets.isEmpty()) {
       return;
     }
     List<BuildSlaveEvent> ruleCompletionEvents = new LinkedList<>();
@@ -475,7 +477,7 @@ public class DistBuildSlaveEventBusListener
 
   @Override
   public void createBuildRuleUnlockedEvents(ImmutableList<String> unlockedTargets) {
-    if (unlockedTargets.size() == 0) {
+    if (unlockedTargets.isEmpty()) {
       return;
     }
     List<BuildSlaveEvent> ruleUnlockedEvents = new LinkedList<>();

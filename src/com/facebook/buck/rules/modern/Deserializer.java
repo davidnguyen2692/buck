@@ -17,6 +17,10 @@
 package com.facebook.buck.rules.modern;
 
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.EmptyTargetConfiguration;
+import com.facebook.buck.core.model.TargetConfiguration;
+import com.facebook.buck.core.model.UnconfiguredBuildTargetView;
+import com.facebook.buck.core.model.impl.ImmutableDefaultTargetConfiguration;
 import com.facebook.buck.core.rulekey.AddsToRuleKey;
 import com.facebook.buck.core.rules.modern.annotations.CustomClassBehaviorTag;
 import com.facebook.buck.core.rules.modern.annotations.CustomFieldBehavior;
@@ -25,14 +29,18 @@ import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.PathSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.toolchain.ToolchainProvider;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.rules.modern.impl.DefaultClassInfoFactory;
+import com.facebook.buck.rules.modern.impl.UnconfiguredBuildTargetTypeInfo;
 import com.facebook.buck.rules.modern.impl.ValueTypeInfoFactory;
 import com.facebook.buck.util.exceptions.BuckUncheckedExecutionException;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.hash.HashCode;
@@ -87,14 +95,17 @@ public class Deserializer {
   private final Function<Optional<String>, ProjectFilesystem> cellMap;
   private final ClassFinder classFinder;
   private final Supplier<SourcePathResolver> pathResolver;
+  private final ToolchainProvider toolchainProvider;
 
   public Deserializer(
       Function<Optional<String>, ProjectFilesystem> cellMap,
       ClassFinder classFinder,
-      Supplier<SourcePathResolver> pathResolver) {
+      Supplier<SourcePathResolver> pathResolver,
+      ToolchainProvider toolchainProvider) {
     this.cellMap = cellMap;
     this.classFinder = classFinder;
     this.pathResolver = pathResolver;
+    this.toolchainProvider = toolchainProvider;
   }
 
   public <T extends AddsToRuleKey> T deserialize(DataProvider provider, Class<T> clazz)
@@ -119,6 +130,10 @@ public class Deserializer {
         Preconditions.checkState(args.length == 0);
         @SuppressWarnings("unchecked")
         T value = (T) pathResolver.get();
+        return value;
+      } else if (valueClass.equals(ToolchainProvider.class)) {
+        @SuppressWarnings("unchecked")
+        T value = (T) toolchainProvider;
         return value;
       }
       throw new IllegalArgumentException();
@@ -164,7 +179,18 @@ public class Deserializer {
     }
 
     @Override
-    public <T> ImmutableSortedSet<T> createSet(ValueTypeInfo<T> innerType) throws IOException {
+    public <T> ImmutableSet<T> createSet(ValueTypeInfo<T> innerType) throws IOException {
+      int size = stream.readInt();
+      ImmutableSet.Builder<T> builder = ImmutableSet.builderWithExpectedSize(size);
+      for (int i = 0; i < size; i++) {
+        builder.add(innerType.createNotNull(this));
+      }
+      return builder.build();
+    }
+
+    @Override
+    public <T> ImmutableSortedSet<T> createSortedSet(ValueTypeInfo<T> innerType)
+        throws IOException {
       int size = stream.readInt();
       @SuppressWarnings("unchecked")
       ImmutableSortedSet.Builder<T> builder =
@@ -363,7 +389,18 @@ public class Deserializer {
     }
 
     @Override
-    public <K, V> ImmutableSortedMap<K, V> createMap(
+    public <K, V> ImmutableMap<K, V> createMap(ValueTypeInfo<K> keyType, ValueTypeInfo<V> valueType)
+        throws IOException {
+      int size = stream.readInt();
+      ImmutableMap.Builder<K, V> builder = ImmutableMap.builderWithExpectedSize(size);
+      for (int i = 0; i < size; i++) {
+        builder.put(keyType.createNotNull(this), valueType.createNotNull(this));
+      }
+      return builder.build();
+    }
+
+    @Override
+    public <K, V> ImmutableSortedMap<K, V> createSortedMap(
         ValueTypeInfo<K> keyType, ValueTypeInfo<V> valueType) throws IOException {
       int size = stream.readInt();
       @SuppressWarnings("unchecked")
@@ -373,6 +410,16 @@ public class Deserializer {
         builder.put(keyType.createNotNull(this), valueType.createNotNull(this));
       }
       return builder.build();
+    }
+
+    @Override
+    public TargetConfiguration createTargetConfiguration() throws IOException {
+      if (stream.readBoolean()) {
+        return EmptyTargetConfiguration.INSTANCE;
+      }
+      UnconfiguredBuildTargetView targetPlatform =
+          UnconfiguredBuildTargetTypeInfo.INSTANCE.createNotNull(this);
+      return ImmutableDefaultTargetConfiguration.of(targetPlatform);
     }
   }
 }

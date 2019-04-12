@@ -17,12 +17,10 @@
 package com.facebook.buck.core.cell.impl;
 
 import com.facebook.buck.core.cell.AbstractCellPathResolver;
-import com.facebook.buck.core.cell.name.RelativeCellName;
+import com.facebook.buck.core.cell.CellName;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.io.file.MorePaths;
-import com.facebook.buck.log.Logger;
 import com.facebook.buck.util.config.Config;
-import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Maps;
@@ -31,6 +29,7 @@ import java.nio.file.Path;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.function.BinaryOperator;
 import java.util.stream.Collectors;
@@ -52,9 +51,7 @@ public abstract class DefaultCellPathResolver extends AbstractCellPathResolver {
 
   @Value.Lazy
   public ImmutableMap<Path, String> getCanonicalNames() {
-    return getCellPaths()
-        .entrySet()
-        .stream()
+    return getCellPaths().entrySet().stream()
         .collect(
             Collectors.collectingAndThen(
                 Collectors.toMap(
@@ -65,7 +62,7 @@ public abstract class DefaultCellPathResolver extends AbstractCellPathResolver {
   }
 
   @Value.Lazy
-  public ImmutableMap<RelativeCellName, Path> getPathMapping() {
+  public ImmutableMap<CellName, Path> getPathMapping() {
     return bootstrapPathMapping(getRoot(), getCellPaths());
   }
 
@@ -77,9 +74,7 @@ public abstract class DefaultCellPathResolver extends AbstractCellPathResolver {
 
   private static ImmutableMap<String, ? extends Path> sortCellPaths(
       Map<String, ? extends Path> cellPaths) {
-    return cellPaths
-        .entrySet()
-        .stream()
+    return cellPaths.entrySet().stream()
         .sorted(Comparator.comparing(Map.Entry::getValue))
         .collect(ImmutableMap.toImmutableMap(Map.Entry::getKey, Map.Entry::getValue));
   }
@@ -106,22 +101,22 @@ public abstract class DefaultCellPathResolver extends AbstractCellPathResolver {
   }
 
   /**
-   * Helper function to precompute the {@link RelativeCellName} to Path mapping
+   * Helper function to precompute the {@link CellName} to Path mapping
    *
    * @return Map of cell name to path.
    */
-  private static ImmutableMap<RelativeCellName, Path> bootstrapPathMapping(
+  private static ImmutableMap<CellName, Path> bootstrapPathMapping(
       Path root, ImmutableMap<String, Path> cellPaths) {
-    ImmutableMap.Builder<RelativeCellName, Path> builder = ImmutableMap.builder();
+    ImmutableMap.Builder<CellName, Path> builder = ImmutableMap.builder();
     // Add the implicit empty root cell
-    builder.put(RelativeCellName.of(ImmutableList.of()), root);
+    builder.put(CellName.ROOT_CELL_NAME, root);
     HashSet<Path> seenPaths = new HashSet<>();
 
     ImmutableSortedSet<String> sortedCellNames =
         ImmutableSortedSet.<String>naturalOrder().addAll(cellPaths.keySet()).build();
     for (String cellName : sortedCellNames) {
       Path cellRoot =
-          Preconditions.checkNotNull(
+          Objects.requireNonNull(
               cellPaths.get(cellName),
               "cellName is derived from the map, get() should always return a value.");
       try {
@@ -132,14 +127,13 @@ public abstract class DefaultCellPathResolver extends AbstractCellPathResolver {
       if (seenPaths.contains(cellRoot)) {
         continue;
       }
-      builder.put(RelativeCellName.of(ImmutableList.of(cellName)), cellRoot);
+      builder.put(CellName.of(cellName), cellRoot);
       seenPaths.add(cellRoot);
     }
     return builder.build();
   }
 
-  public static ImmutableMap<RelativeCellName, Path> bootstrapPathMapping(
-      Path root, Config config) {
+  public static ImmutableMap<CellName, Path> bootstrapPathMapping(Path root, Config config) {
     return bootstrapPathMapping(
         root, getCellPathsFromConfigRepositoriesSection(root, config.get(REPOSITORIES_SECTION)));
   }

@@ -1,7 +1,9 @@
 # Copyright 2016 Facebook. All Rights Reserved.
 #
-# To refresh the protocol run the following command:
-#   /usr/local/bin/thrift --gen java -out src-gen/ src/com/facebook/buck/artifact_cache/thrift/buckcache.thrift
+# To refresh the protocol, make sure you have public version of Thrift installed:
+#   brew install thrift
+# and run the following command:
+#   /usr/local/bin/thrift --gen java:generated_annotations=undated  -out src-gen/ src/com/facebook/buck/artifact_cache/thrift/buckcache.thrift
 #
 # This .thrift file contains the protocol required by the buck client to
 # communicate with the buck-cache server.
@@ -18,6 +20,10 @@ enum BuckCacheRequestType {
   // `DELETE` is a define somewhere inside glibc
   DELETE_REQUEST = 105,
   CONTAINS = 107,
+  MANIFEST_APPEND = 108,
+  MANIFEST_FETCH = 109,
+  MANIFEST_DELETE = 110,
+  MANIFEST_SET = 111,
 }
 
 struct RuleKey {
@@ -33,6 +39,15 @@ struct ArtifactMetadata {
   6: optional string scheduleType;
   7: optional string artifactPayloadMd5;
   8: optional bool distributedBuildModeEnabled;
+  // Free-form identifier of a service that produced the artifact
+  9: optional string producerId;
+  // How long it took to build this artifact, in milliseconds
+  10: optional i64 buildTimeMs;
+  // Hostname of a machine that produced the artifact
+  11: optional string producerHostname;
+  // Size of the content in bytes
+  12: optional i64 sizeBytes;
+  13: optional string configuration;
 }
 
 enum ContainsResultType {
@@ -88,6 +103,8 @@ struct BuckCacheFetchRequest {
   2: optional string repository;
   3: optional string scheduleType;
   4: optional bool distributedBuildModeEnabled;
+  // The fully qualified target name associated with the ruleKey
+  5: optional string buildTarget;
 }
 
 struct BuckCacheFetchResponse {
@@ -150,6 +167,12 @@ struct BuckCacheMultiFetchRequest {
   2: optional string repository;
   3: optional string scheduleType;
   4: optional bool distributedBuildModeEnabled;
+  // Fully qualified target names associated with the rulekeys. There should
+  // always be the same number of these as ruleKeys, and the entries should
+  // match 1:1 (aka buildTargets[2] is associated with ruleKeys[2]).
+  // RuleKeys that don't have an associated build target (for whatever reason)
+  // will have an entry of "" (aka empty string).
+  5: optional list<string> buildTargets;
 }
 
 struct BuckCacheMultiFetchResponse {
@@ -175,6 +198,40 @@ struct BuckCacheDeleteResponse {
   1: optional DeleteDebugInfo debugInfo;
 }
 
+struct Manifest {
+  1: optional string key;
+  2: optional list<binary> values;
+}
+
+struct ManifestAppendRequest {
+  1: optional Manifest manifest;
+}
+
+struct ManifestAppendResponse {
+}
+
+struct ManifestFetchRequest {
+  1: optional string manifestKey;
+}
+
+struct ManifestFetchResponse {
+  1: optional Manifest manifest;
+}
+
+struct ManifestDeleteRequest {
+  1: optional string manifestKey;
+}
+
+struct ManifestDeleteResponse {
+}
+
+struct ManifestSetRequest {
+  1: optional Manifest manifest;
+}
+
+struct ManifestSetResponse {
+}
+
 struct BuckCacheRequest {
   1: optional BuckCacheRequestType type = BuckCacheRequestType.UNKNOWN;
 
@@ -188,6 +245,10 @@ struct BuckCacheRequest {
   103: optional BuckCacheMultiFetchRequest multiFetchRequest;
   105: optional BuckCacheDeleteRequest deleteRequest;
   107: optional BuckCacheMultiContainsRequest multiContainsRequest;
+  108: optional ManifestAppendRequest manifestAppendRequest;
+  109: optional ManifestFetchRequest manifestFetchRequest;
+  110: optional ManifestDeleteRequest manifestDeleteRequest;
+  111: optional ManifestSetRequest manifestSetRequest;
 }
 
 struct BuckCacheResponse {
@@ -196,10 +257,20 @@ struct BuckCacheResponse {
 
   10: optional BuckCacheRequestType type = BuckCacheRequestType.UNKNOWN;
 
+  // 30: DEPRECATED.
+
+  // Human-readable single-line server info.
+  // Can be used only for debugging.
+  31: optional string diagnosticServerInfo;
+
   100: optional list<PayloadInfo> payloads;
   101: optional BuckCacheFetchResponse fetchResponse;
   102: optional BuckCacheStoreResponse storeResponse;
   103: optional BuckCacheMultiFetchResponse multiFetchResponse;
   105: optional BuckCacheDeleteResponse deleteResponse;
   107: optional BuckCacheMultiContainsResponse multiContainsResponse;
+  108: optional ManifestAppendResponse manifestAppendResponse;
+  109: optional ManifestFetchResponse manifestFetchResponse;
+  110: optional ManifestDeleteResponse manifestDeleteResponse;
+  111: optional ManifestSetResponse manifestSetResponse;
 }

@@ -15,13 +15,14 @@
  */
 package com.facebook.buck.worker;
 
-import com.facebook.buck.testutil.FakeProjectFilesystem;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.util.FakeProcessExecutor;
 import com.facebook.buck.util.ProcessExecutorParams;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Paths;
 
 public class FakeWorkerProcess extends WorkerProcess {
@@ -35,6 +36,7 @@ public class FakeWorkerProcess extends WorkerProcess {
         new FakeProcessExecutor(),
         ProcessExecutorParams.builder().setCommand(ImmutableList.of()).build(),
         new FakeProjectFilesystem(),
+        Files.createTempFile("buck-worker-", "-stderr.log"),
         Paths.get("tmp").toAbsolutePath().normalize());
     this.jobArgsToJobResultMap = jobArgsToJobResultMap;
     this.isAlive = false;

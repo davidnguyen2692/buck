@@ -18,24 +18,23 @@ package com.facebook.buck.jvm.java;
 
 import com.facebook.buck.core.rulekey.AddToRuleKey;
 import com.facebook.buck.core.rulekey.AddsToRuleKey;
+import com.facebook.buck.core.rules.modern.annotations.CustomFieldBehavior;
+import com.facebook.buck.core.rules.modern.annotations.DefaultFieldSerialization;
+import com.facebook.buck.core.sourcepath.PathSourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.google.common.annotations.VisibleForTesting;
+import com.facebook.buck.rules.modern.DefaultFieldInputs;
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
 import java.io.File;
 import java.io.IOException;
 import java.io.UncheckedIOException;
-import java.net.URISyntaxException;
 import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.immutables.value.Value;
@@ -47,9 +46,6 @@ import org.immutables.value.Value;
 @Value.Immutable(copy = true)
 @BuckStyleImmutable
 abstract class AbstractJavacOptions implements AddsToRuleKey {
-
-  // Default combined source and target level.
-  public static final String TARGETED_JAVA_VERSION = "7";
 
   /** The method in which the compiler output is spooled. */
   public enum SpoolMode {
@@ -76,45 +72,46 @@ abstract class AbstractJavacOptions implements AddsToRuleKey {
   }
 
   @Value.Default
+  @AddToRuleKey
   protected boolean isProductionBuild() {
     return false;
   }
 
   @Value.Default
+  @CustomFieldBehavior(DefaultFieldSerialization.class)
   protected boolean isVerbose() {
     return false;
   }
 
   @Value.Default
   @AddToRuleKey
-  public String getSourceLevel() {
-    return TARGETED_JAVA_VERSION;
-  }
-
-  @VisibleForTesting
-  @Value.Default
-  @AddToRuleKey
-  public String getTargetLevel() {
-    return TARGETED_JAVA_VERSION;
+  public JavacLanguageLevelOptions getLanguageLevelOptions() {
+    return JavacLanguageLevelOptions.DEFAULT;
   }
 
   @Value.Default
   @AddToRuleKey
-  public AnnotationProcessingParams getAnnotationProcessingParams() {
-    return AnnotationProcessingParams.EMPTY;
+  public JavacPluginParams getJavaAnnotationProcessorParams() {
+    return JavacPluginParams.EMPTY;
   }
 
-  // TODO(cjhopman): Should this be added to the rulekey?
-  public abstract Set<String> getSafeAnnotationProcessors();
+  @Value.Default
+  @AddToRuleKey
+  public JavacPluginParams getStandardJavacPluginParams() {
+    return JavacPluginParams.EMPTY;
+  }
 
   @AddToRuleKey
   public abstract List<String> getExtraArguments();
 
+  // TODO(cjhopman): This should use SourcePaths
   @AddToRuleKey
   protected abstract Optional<String> getBootclasspath();
 
+  // TODO(cjhopman): This should be resolved to the appropriate source.
   // TODO(cjhopman): Should this be added to the rulekey?
-  protected abstract Map<String, String> getSourceToBootclasspath();
+  @CustomFieldBehavior({DefaultFieldInputs.class, DefaultFieldSerialization.class})
+  protected abstract Map<String, ImmutableList<PathSourcePath>> getSourceToBootclasspath();
 
   @AddToRuleKey
   protected boolean isDebug() {
@@ -128,6 +125,7 @@ abstract class AbstractJavacOptions implements AddsToRuleKey {
   }
 
   @Value.Default
+  @CustomFieldBehavior(DefaultFieldSerialization.class)
   protected boolean trackJavacPhaseEvents() {
     return false;
   }
@@ -164,8 +162,8 @@ abstract class AbstractJavacOptions implements AddsToRuleKey {
       ProjectFilesystem filesystem) {
 
     // Add some standard options.
-    optionsConsumer.addOptionValue("source", getSourceLevel());
-    optionsConsumer.addOptionValue("target", getTargetLevel());
+    optionsConsumer.addOptionValue("source", getLanguageLevelOptions().getSourceLevel());
+    optionsConsumer.addOptionValue("target", getLanguageLevelOptions().getTargetLevel());
 
     // Set the sourcepath to stop us reading source files out of jars by mistake.
     optionsConsumer.addOptionValue("sourcepath", "");
@@ -182,43 +180,32 @@ abstract class AbstractJavacOptions implements AddsToRuleKey {
     if (getBootclasspath().isPresent()) {
       optionsConsumer.addOptionValue("bootclasspath", getBootclasspath().get());
     } else {
-      String bcp = getSourceToBootclasspath().get(getSourceLevel());
-      if (bcp != null) {
+      ImmutableList<PathSourcePath> bootclasspath =
+          getSourceToBootclasspath().get(getLanguageLevelOptions().getSourceLevel());
+      if (bootclasspath != null) {
+        String bcp =
+            bootclasspath.stream()
+                .map(pathResolver::getAbsolutePath)
+                .map(filesystem::relativize)
+                .map(Path::toString)
+                .collect(Collectors.joining(File.pathSeparator));
         optionsConsumer.addOptionValue("bootclasspath", bcp);
       }
     }
 
+    ImmutableList.Builder<ResolvedJavacPluginProperties> allPluginsBuilder =
+        ImmutableList.builder();
     // Add annotation processors.
-    AnnotationProcessingParams annotationProcessingParams = getAnnotationProcessingParams();
+    JavacPluginParams annotationProcessingParams = getJavaAnnotationProcessorParams();
     if (!annotationProcessingParams.isEmpty()) {
       ImmutableList<ResolvedJavacPluginProperties> annotationProcessors =
-          annotationProcessingParams.getAnnotationProcessors(filesystem, pathResolver);
-
-      // Specify processorpath to search for processors.
-      optionsConsumer.addOptionValue(
-          "processorpath",
-          annotationProcessors
-              .stream()
-              .map(ResolvedJavacPluginProperties::getClasspath)
-              .flatMap(Arrays::stream)
-              .distinct()
-              .map(
-                  url -> {
-                    try {
-                      return url.toURI();
-                    } catch (URISyntaxException e) {
-                      throw new RuntimeException(e);
-                    }
-                  })
-              .map(Paths::get)
-              .map(Path::toString)
-              .collect(Collectors.joining(File.pathSeparator)));
+          annotationProcessingParams.getPluginProperties();
+      allPluginsBuilder.addAll(annotationProcessors);
 
       // Specify names of processors.
       optionsConsumer.addOptionValue(
           "processor",
-          annotationProcessors
-              .stream()
+          annotationProcessors.stream()
               .map(ResolvedJavacPluginProperties::getProcessorNames)
               .flatMap(Collection::stream)
               .collect(Collectors.joining(",")));
@@ -234,6 +221,28 @@ abstract class AbstractJavacOptions implements AddsToRuleKey {
     } else {
       // Disable automatic annotation processor lookup
       optionsConsumer.addFlag("proc:none");
+    }
+
+    JavacPluginParams standardJavacPluginParams = getStandardJavacPluginParams();
+    if (!standardJavacPluginParams.isEmpty()) {
+      ImmutableList<ResolvedJavacPluginProperties> javacPlugins =
+          standardJavacPluginParams.getPluginProperties();
+      allPluginsBuilder.addAll(javacPlugins);
+
+      for (ResolvedJavacPluginProperties properties : javacPlugins) {
+        optionsConsumer.addFlag("Xplugin:" + properties.getProcessorNames().first());
+      }
+
+      // Add plugin parameters.
+      optionsConsumer.addExtras(standardJavacPluginParams.getParameters());
+    }
+
+    // Specify classpath to include javac plugins and annotation processors.
+    ImmutableList<ResolvedJavacPluginProperties> allPlugins = allPluginsBuilder.build();
+    if (!allPlugins.isEmpty()) {
+      optionsConsumer.addOptionValue(
+          "processorpath",
+          ResolvedJavacPluginProperties.getJoinedClasspath(pathResolver, filesystem, allPlugins));
     }
 
     // Add extra arguments.

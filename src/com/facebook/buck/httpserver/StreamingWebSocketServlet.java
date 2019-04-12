@@ -100,18 +100,16 @@ public class StreamingWebSocketServlet extends WebSocketServlet {
 
       Map<String, List<String>> params = session.getUpgradeRequest().getParameterMap();
       List<String> events = params.get("event");
-      if (events == null || events.size() == 0) {
+      if (events == null || events.isEmpty()) {
         // Return empty set meaning subscribe to all events.
         return;
       }
 
       // Filter out empty strings and split comma separated parameters.
-      events
-          .stream()
-          .forEach(
-              e ->
-                  subscribedEvents.addAll(
-                      Splitter.on(',').trimResults().omitEmptyStrings().splitToList(e)));
+      events.forEach(
+          e ->
+              subscribedEvents.addAll(
+                  Splitter.on(',').trimResults().omitEmptyStrings().splitToList(e)));
     }
 
     @Override

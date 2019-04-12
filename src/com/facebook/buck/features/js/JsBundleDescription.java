@@ -182,8 +182,7 @@ public class JsBundleDescription
             .copyAppendingExtraDeps(
                 Stream.concat(flavoredLibraryDeps.stream(), generatedDeps)::iterator);
     ImmutableSortedSet<SourcePath> libraries =
-        flavoredLibraryDeps
-            .stream()
+        flavoredLibraryDeps.stream()
             .map(JsLibrary::getSourcePathToOutput)
             .collect(ImmutableSortedSet.toImmutableSortedSet(Ordering.natural()));
     ImmutableSet<String> entryPoints =
@@ -332,10 +331,15 @@ public class JsBundleDescription
     addAppleBundleResources(builder, bundle);
   }
 
+  static void addAppleBundleResourcesJSOutputOnly(
+      AppleBundleResources.Builder builder, JsBundleOutputs bundle) {
+    builder.addDirsContainingResourceDirs(bundle.getSourcePathToOutput());
+  }
+
   static void addAppleBundleResources(
       AppleBundleResources.Builder builder, JsBundleOutputs bundle) {
-    builder.addDirsContainingResourceDirs(
-        bundle.getSourcePathToOutput(), bundle.getSourcePathToResources());
+    addAppleBundleResourcesJSOutputOnly(builder, bundle);
+    builder.addDirsContainingResourceDirs(bundle.getSourcePathToResources());
   }
 
   @BuckStyleImmutable
@@ -368,12 +372,10 @@ public class JsBundleDescription
 
       ImmutableSortedSet<Flavor> bundleFlavors = bundleTarget.getFlavors();
       extraFlavors =
-          bundleFlavors
-              .stream()
+          bundleFlavors.stream()
               .filter(
                   flavor ->
-                      JsLibraryDescription.FLAVOR_DOMAINS
-                          .stream()
+                      JsLibraryDescription.FLAVOR_DOMAINS.stream()
                           .anyMatch(domain -> domain.contains(flavor)))
               .collect(ImmutableSortedSet.toImmutableSortedSet(Ordering.natural()));
     }

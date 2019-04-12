@@ -20,10 +20,12 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.impl.FakeBuildRule;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.core.sourcepath.PathSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
@@ -31,12 +33,10 @@ import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.jvm.java.Javac.Invocation;
 import com.facebook.buck.jvm.java.abi.AbiGenerationMode;
-import com.facebook.buck.rules.FakeBuildRule;
-import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.TestExecutionContext;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.util.MockClassLoader;
 import com.google.common.base.Charsets;
@@ -88,15 +88,15 @@ public class Jsr199JavacIntegrationTest {
     assertEquals(
         String.format(
             "javac -source %s -target %s -g " + "-d %s " + "-classpath '' " + "@" + pathToSrcsList,
-            JavacOptions.TARGETED_JAVA_VERSION,
-            JavacOptions.TARGETED_JAVA_VERSION,
+            AbstractJavacLanguageLevelOptions.TARGETED_JAVA_VERSION,
+            AbstractJavacLanguageLevelOptions.TARGETED_JAVA_VERSION,
             pathToOutputDir),
         javac.getDescription(
             ImmutableList.of(
                 "-source",
-                JavacOptions.TARGETED_JAVA_VERSION,
+                AbstractJavacLanguageLevelOptions.TARGETED_JAVA_VERSION,
                 "-target",
-                JavacOptions.TARGETED_JAVA_VERSION,
+                AbstractJavacLanguageLevelOptions.TARGETED_JAVA_VERSION,
                 "-g",
                 "-d",
                 pathToOutputDir,
@@ -264,7 +264,7 @@ public class Jsr199JavacIntegrationTest {
         new MockClassLoader(
             ClassLoader.getSystemClassLoader(),
             ImmutableMap.of(
-                ExternalJavacFactory.COM_SUN_TOOLS_JAVAC_API_JAVAC_TOOL, MockJavac.class));
+                ExternalJavacProvider.COM_SUN_TOOLS_JAVAC_API_JAVAC_TOOL, MockJavac.class));
     executionContext
         .getClassLoaderCache()
         .injectClassLoader(
@@ -336,7 +336,7 @@ public class Jsr199JavacIntegrationTest {
     Optional<SourcePath> jar = javacJar.map(p -> PathSourcePath.of(new FakeProjectFilesystem(), p));
     if (jar.isPresent()) {
       return new JarBackedJavac(
-          ExternalJavacFactory.COM_SUN_TOOLS_JAVAC_API_JAVAC_TOOL, ImmutableSet.of(jar.get()));
+          ExternalJavacProvider.COM_SUN_TOOLS_JAVAC_API_JAVAC_TOOL, ImmutableSet.of(jar.get()));
     }
 
     return new JdkProvidedInMemoryJavac();
@@ -364,7 +364,7 @@ public class Jsr199JavacIntegrationTest {
 
   @Test
   @SuppressWarnings("PMD.EmptyCatchBlock")
-  public void jdkNotFound() throws Exception {
+  public void jdkNotFound() {
     Jsr199Javac javac = new JdkNotFoundJavac();
     ExecutionContext executionContext = TestExecutionContext.newInstance();
     JavacExecutionContext javacExecutionContext =

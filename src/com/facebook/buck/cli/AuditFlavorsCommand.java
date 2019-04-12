@@ -16,7 +16,6 @@
 
 package com.facebook.buck.cli;
 
-import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.description.BaseDescription;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.FlavorDomain;
@@ -24,8 +23,8 @@ import com.facebook.buck.core.model.Flavored;
 import com.facebook.buck.core.model.UserFlavor;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
 import com.facebook.buck.event.ConsoleEvent;
-import com.facebook.buck.parser.BuildTargetParser;
-import com.facebook.buck.parser.BuildTargetPatternParser;
+import com.facebook.buck.parser.PerBuildState;
+import com.facebook.buck.parser.SpeculativeParsing;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
 import com.facebook.buck.util.CommandLineException;
 import com.facebook.buck.util.DirtyPrintStreamDecorator;
@@ -67,23 +66,9 @@ public class AuditFlavorsCommand extends AbstractCommand {
     return arguments;
   }
 
-  private ImmutableList<String> getArgumentsFormattedAsBuildTargets(BuckConfig buckConfig) {
-    return getCommandLineBuildTargetNormalizer(buckConfig).normalizeAll(getArguments());
-  }
-
   @Override
-  public ExitCode runWithoutHelp(CommandRunnerParams params)
-      throws IOException, InterruptedException {
-    ImmutableSet<BuildTarget> targets =
-        getArgumentsFormattedAsBuildTargets(params.getBuckConfig())
-            .stream()
-            .map(
-                input ->
-                    BuildTargetParser.INSTANCE.parse(
-                        input,
-                        BuildTargetPatternParser.fullyQualified(),
-                        params.getCell().getCellPathResolver()))
-            .collect(ImmutableSet.toImmutableSet());
+  public ExitCode runWithoutHelp(CommandRunnerParams params) throws Exception {
+    ImmutableSet<BuildTarget> targets = convertArgumentsToBuildTargets(params, getArguments());
 
     if (targets.isEmpty()) {
       throw new CommandLineException("must specify at least one build target");
@@ -91,17 +76,20 @@ public class AuditFlavorsCommand extends AbstractCommand {
 
     ImmutableList.Builder<TargetNode<?>> builder = ImmutableList.builder();
     try (CommandThreadManager pool =
-        new CommandThreadManager("Audit", getConcurrencyLimit(params.getBuckConfig()))) {
-      for (BuildTarget target : targets) {
-        TargetNode<?> targetNode =
+            new CommandThreadManager("Audit", getConcurrencyLimit(params.getBuckConfig()));
+        PerBuildState parserState =
             params
                 .getParser()
-                .getTargetNode(
-                    params.getBuckEventBus(),
-                    params.getCell(),
-                    getEnableParserProfiling(),
-                    pool.getListeningExecutorService(),
-                    target);
+                .getPerBuildStateFactory()
+                .create(
+                    createParsingContext(params.getCell(), pool.getListeningExecutorService())
+                        .withSpeculativeParsing(SpeculativeParsing.ENABLED)
+                        .withExcludeUnsupportedTargets(false),
+                    params.getParser().getPermState(),
+                    getTargetPlatforms())) {
+
+      for (BuildTarget target : targets) {
+        TargetNode<?> targetNode = params.getParser().getTargetNode(parserState, target);
         builder.add(targetNode);
       }
     } catch (BuildFileParseException e) {
@@ -184,8 +172,7 @@ public class AuditFlavorsCommand extends AbstractCommand {
               continue;
             }
             SortedMap<String, String> flavorsJson =
-                userFlavors
-                    .stream()
+                userFlavors.stream()
                     .collect(
                         ImmutableSortedMap.toImmutableSortedMap(
                             Ordering.natural(), UserFlavor::getName, UserFlavor::getDescription));

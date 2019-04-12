@@ -1,6 +1,19 @@
+# Copyright 2018-present Facebook, Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License"); you may
+# not use this file except in compliance with the License. You may obtain
+# a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+# WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+# License for the specific language governing permissions and limitations
+# under the License.
+
 from __future__ import absolute_import, division, print_function, with_statement
 
-import copy
 import unittest
 
 from . import struct
@@ -25,22 +38,8 @@ class StructTest(unittest.TestCase):
         )
 
     def testCannotMutateAField(self):
-        with self.assertRaisesRegexp(
-            AttributeError, "Mutation of struct attributes \('foo'\) is not allowed."
-        ):
+        with self.assertRaisesRegexp(AttributeError, "can't set attribute"):
             struct.struct(foo="foo").foo = "bar"
-
-    def testCanCopy(self):
-        original = struct.struct(foo="bar")
-        copied = copy.copy(original)
-        self.assertEqual(original, copied)
-        self.assertIsNot(original, copied)
-
-    def testCanDeepCopy(self):
-        original = struct.struct(foo="bar")
-        deepcopied = copy.deepcopy(original)
-        self.assertEqual(original, deepcopied)
-        self.assertIsNot(original, deepcopied)
 
     def testInequality(self):
         x = struct.struct(foo="bar")
@@ -70,9 +69,35 @@ class StructTest(unittest.TestCase):
 
     def testRepr(self):
         x = struct.struct(foo="bar", bar="baz")
-        self.assertEqual("struct(foo='bar',bar='baz')", repr(x))
+        self.assertEqual("struct(foo='bar', bar='baz')", repr(x))
 
     def testNestedRepr(self):
         x = struct.struct(foo="bar")
         y = struct.struct(x=x)
         self.assertEqual("struct(x=struct(foo='bar'))", repr(y))
+
+    def testDotsAreNotAllowedInFieldNames(self):
+        with self.assertRaisesRegexp(
+            ValueError,
+            "Field names can only contain alphanumeric characters and underscores: 'foo.bar'",
+        ):
+            struct.struct(**{"foo.bar": "foo"})
+
+    def testDashesAreNotAllowedInFieldNames(self):
+        with self.assertRaisesRegexp(
+            ValueError,
+            "Field names can only contain alphanumeric characters and underscores: 'foo-bar'",
+        ):
+            struct.struct(**{"foo-bar": "foo"})
+
+    def testDigitsAreNotAllowedInFieldNameStarts(self):
+        with self.assertRaisesRegexp(
+            ValueError, "Field names cannot start with a number: '2foo'"
+        ):
+            struct.struct(**{"2foo": "foo"})
+
+    def testKeywordsAreNotAllowedAsFieldNames(self):
+        with self.assertRaisesRegexp(
+            ValueError, "Field names cannot be a keyword: 'try'"
+        ):
+            struct.struct(**{"try": "foo"})

@@ -18,17 +18,15 @@ package com.facebook.buck.parser;
 
 import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.TargetConfiguration;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraphAndBuildTargets;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
-import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
 import com.facebook.buck.parser.exceptions.BuildTargetException;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.eventbus.EventBus;
 import com.google.common.util.concurrent.ListenableFuture;
-import com.google.common.util.concurrent.ListeningExecutorService;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.SortedMap;
@@ -37,26 +35,26 @@ import javax.annotation.Nullable;
 /**
  * High-level build file parsing machinery. Primarily responsible for producing a {@link
  * TargetGraph} based on a set of targets. Caches build rules to minimise the number of calls to
- * python and processes filesystem WatchEvents to invalidate the cache as files change.
+ * build file interpreter and processes filesystem events to invalidate the cache as files change.
  */
 public interface Parser {
 
   DaemonicParserState getPermState();
 
-  ImmutableSet<TargetNode<?>> getAllTargetNodes(
-      BuckEventBus eventBus,
-      Cell cell,
-      boolean enableProfiling,
-      ListeningExecutorService executor,
-      Path buildFile)
+  PerBuildStateFactory getPerBuildStateFactory();
+
+  TargetNode<?> getTargetNode(ParsingContext parsingContext, BuildTarget target)
       throws BuildFileParseException;
 
-  TargetNode<?> getTargetNode(
-      BuckEventBus eventBus,
+  ImmutableList<TargetNode<?>> getAllTargetNodes(
+      PerBuildState perBuildState,
       Cell cell,
-      boolean enableProfiling,
-      ListeningExecutorService executor,
-      BuildTarget target)
+      Path buildFile,
+      TargetConfiguration targetConfiguration)
+      throws BuildFileParseException;
+
+  ImmutableList<TargetNode<?>> getAllTargetNodesWithTargetCompatibilityFiltering(
+      PerBuildState state, Cell cell, Path buildFile, TargetConfiguration targetConfiguration)
       throws BuildFileParseException;
 
   TargetNode<?> getTargetNode(PerBuildState perBuildState, BuildTarget target)
@@ -69,6 +67,9 @@ public interface Parser {
   SortedMap<String, Object> getTargetNodeRawAttributes(
       PerBuildState state, Cell cell, TargetNode<?> targetNode) throws BuildFileParseException;
 
+  ListenableFuture<SortedMap<String, Object>> getTargetNodeRawAttributesJob(
+      PerBuildState state, Cell cell, TargetNode<?> targetNode) throws BuildFileParseException;
+
   /**
    * @deprecated Prefer {@link #getTargetNodeRawAttributes(PerBuildState, Cell, TargetNode)} and
    *     reusing a PerBuildState instance, especially when calling in a loop.
@@ -76,57 +77,34 @@ public interface Parser {
   @Nullable
   @Deprecated
   SortedMap<String, Object> getTargetNodeRawAttributes(
-      BuckEventBus eventBus,
-      Cell cell,
-      boolean enableProfiling,
-      ListeningExecutorService executor,
-      TargetNode<?> targetNode)
-      throws BuildFileParseException;
+      ParsingContext parsingContext, TargetNode<?> targetNode) throws BuildFileParseException;
 
-  TargetGraph buildTargetGraph(
-      BuckEventBus eventBus,
-      Cell rootCell,
-      boolean enableProfiling,
-      ListeningExecutorService executor,
-      Iterable<BuildTarget> toExplore)
+  TargetGraph buildTargetGraph(ParsingContext parsingContext, Iterable<BuildTarget> toExplore)
       throws IOException, InterruptedException, BuildFileParseException;
 
   /**
-   * @param eventBus used to log events while parsing.
    * @param targetNodeSpecs the specs representing the build targets to generate a target graph for.
    * @return the target graph containing the build targets and their related targets.
    */
-  TargetGraphAndBuildTargets buildTargetGraphForTargetNodeSpecs(
-      BuckEventBus eventBus,
-      Cell rootCell,
-      boolean enableProfiling,
-      ListeningExecutorService executor,
-      Iterable<? extends TargetNodeSpec> targetNodeSpecs)
+  TargetGraphAndBuildTargets buildTargetGraphWithoutConfigurationTargets(
+      ParsingContext parsingContext,
+      Iterable<? extends TargetNodeSpec> targetNodeSpecs,
+      TargetConfiguration targetConfiguration)
       throws BuildFileParseException, IOException, InterruptedException;
 
   /**
-   * @param eventBus used to log events while parsing.
    * @param targetNodeSpecs the specs representing the build targets to generate a target graph for.
    * @return the target graph containing the build targets and their related targets.
    */
-  TargetGraphAndBuildTargets buildTargetGraphForTargetNodeSpecs(
-      BuckEventBus eventBus,
-      Cell rootCell,
-      boolean enableProfiling,
-      ListeningExecutorService executor,
+  TargetGraphAndBuildTargets buildTargetGraphWithConfigurationTargets(
+      ParsingContext parsingContext,
       Iterable<? extends TargetNodeSpec> targetNodeSpecs,
-      ParserConfig.ApplyDefaultFlavorsMode applyDefaultFlavorsMode)
+      TargetConfiguration targetConfiguration)
       throws BuildFileParseException, IOException, InterruptedException;
 
   ImmutableList<ImmutableSet<BuildTarget>> resolveTargetSpecs(
-      BuckEventBus eventBus,
-      Cell rootCell,
-      boolean enableProfiling,
-      ListeningExecutorService executor,
+      ParsingContext parsingContext,
       Iterable<? extends TargetNodeSpec> specs,
-      SpeculativeParsing speculativeParsing,
-      ParserConfig.ApplyDefaultFlavorsMode applyDefaultFlavorsMode)
-      throws BuildFileParseException, InterruptedException, IOException;
-
-  void register(EventBus eventBus);
+      TargetConfiguration targetConfiguration)
+      throws BuildFileParseException, InterruptedException;
 }

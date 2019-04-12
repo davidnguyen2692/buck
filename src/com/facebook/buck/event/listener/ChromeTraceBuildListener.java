@@ -22,8 +22,10 @@ import com.facebook.buck.core.build.event.BuildEvent;
 import com.facebook.buck.core.build.event.BuildRuleEvent;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildId;
+import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.test.event.TestSummaryEvent;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.event.ActionGraphEvent;
 import com.facebook.buck.event.ArtifactCompressionEvent;
 import com.facebook.buck.event.BuckEvent;
@@ -36,27 +38,29 @@ import com.facebook.buck.event.RuleKeyCalculationEvent;
 import com.facebook.buck.event.SimplePerfEvent;
 import com.facebook.buck.event.StartActivityEvent;
 import com.facebook.buck.event.UninstallEvent;
+import com.facebook.buck.event.WatchmanStatusEvent;
 import com.facebook.buck.event.chrome_trace.ChromeTraceBuckConfig;
 import com.facebook.buck.event.chrome_trace.ChromeTraceEvent;
 import com.facebook.buck.event.chrome_trace.ChromeTraceEvent.Phase;
 import com.facebook.buck.event.chrome_trace.ChromeTraceWriter;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.io.watchman.WatchmanOverflowEvent;
 import com.facebook.buck.jvm.java.AnnotationProcessingEvent;
 import com.facebook.buck.jvm.java.tracing.JavacPhaseEvent;
-import com.facebook.buck.log.CommandThreadFactory;
+import com.facebook.buck.log.GlobalStateManager;
 import com.facebook.buck.log.InvocationInfo;
-import com.facebook.buck.log.Logger;
 import com.facebook.buck.parser.ParseEvent;
 import com.facebook.buck.parser.events.ParseBuckFileEvent;
+import com.facebook.buck.remoteexecution.event.RemoteExecutionSessionEvent;
+import com.facebook.buck.remoteexecution.event.RemoteExecutionStatsProvider;
 import com.facebook.buck.step.StepEvent;
 import com.facebook.buck.support.bgtasks.BackgroundTask;
-import com.facebook.buck.support.bgtasks.BackgroundTaskManager;
 import com.facebook.buck.support.bgtasks.ImmutableBackgroundTask;
+import com.facebook.buck.support.bgtasks.TaskManagerScope;
 import com.facebook.buck.test.external.ExternalTestRunEvent;
 import com.facebook.buck.test.external.ExternalTestSpecCalculationEvent;
 import com.facebook.buck.util.Optionals;
 import com.facebook.buck.util.ProcessResourceConsumption;
+import com.facebook.buck.util.concurrent.CommandThreadFactory;
 import com.facebook.buck.util.concurrent.MostExecutors;
 import com.facebook.buck.util.perf.PerfStatsTracking;
 import com.facebook.buck.util.perf.ProcessTracker;
@@ -122,16 +126,19 @@ public class ChromeTraceBuildListener implements BuckEventListener {
   private final ThreadMXBean threadMXBean;
 
   private final ExecutorService outputExecutor;
-  private final BackgroundTaskManager bgTaskManager;
+  private final TaskManagerScope managerScope;
 
   private final BuildId buildId;
+
+  private final Optional<RemoteExecutionStatsProvider> reStatsProvider;
 
   public ChromeTraceBuildListener(
       ProjectFilesystem projectFilesystem,
       InvocationInfo invocationInfo,
       Clock clock,
       ChromeTraceBuckConfig config,
-      BackgroundTaskManager bgTaskManager)
+      TaskManagerScope managerScope,
+      Optional<RemoteExecutionStatsProvider> reStatsProvider)
       throws IOException {
     this(
         projectFilesystem,
@@ -141,7 +148,8 @@ public class ChromeTraceBuildListener implements BuckEventListener {
         TimeZone.getDefault(),
         ManagementFactory.getThreadMXBean(),
         config,
-        bgTaskManager);
+        managerScope,
+        reStatsProvider);
   }
 
   @VisibleForTesting
@@ -153,12 +161,14 @@ public class ChromeTraceBuildListener implements BuckEventListener {
       TimeZone timeZone,
       ThreadMXBean threadMXBean,
       ChromeTraceBuckConfig config,
-      BackgroundTaskManager bgTaskManager)
+      TaskManagerScope managerScope,
+      Optional<RemoteExecutionStatsProvider> reStatsProvider)
       throws IOException {
     this.logDirectoryPath = invocationInfo.getLogDirectoryPath();
     this.projectFilesystem = projectFilesystem;
     this.clock = clock;
     this.buildId = invocationInfo.getBuildId();
+    this.reStatsProvider = reStatsProvider;
     this.dateFormat =
         new ThreadLocal<SimpleDateFormat>() {
           @Override
@@ -170,9 +180,11 @@ public class ChromeTraceBuildListener implements BuckEventListener {
         };
     this.threadMXBean = threadMXBean;
     this.config = config;
-    this.bgTaskManager = bgTaskManager;
+    this.managerScope = managerScope;
     this.outputExecutor =
-        MostExecutors.newSingleThreadExecutor(new CommandThreadFactory(getClass().getName()));
+        MostExecutors.newSingleThreadExecutor(
+            new CommandThreadFactory(
+                getClass().getName(), GlobalStateManager.singleton().getThreadToCommandRegister()));
     TracePathAndStream tracePathAndStream = createPathAndStream(invocationInfo.getBuildId());
     this.tracePath = tracePathAndStream.getPath();
     this.traceStream = tracePathAndStream.getStream();
@@ -249,9 +261,10 @@ public class ChromeTraceBuildListener implements BuckEventListener {
         ImmutableBackgroundTask.<ChromeTraceBuildListenerCloseArgs>builder()
             .setAction(closeAction)
             .setActionArgs(args)
+            .setName("ChromeTraceBuildListener_close")
             .build();
 
-    bgTaskManager.schedule(task, "ChromeTraceBuildListener_close");
+    managerScope.schedule(task);
   }
 
   @Subscribe
@@ -371,6 +384,10 @@ public class ChromeTraceBuildListener implements BuckEventListener {
   // step-like things can subscribe to.
   @Subscribe
   public void simpleLeafEventStarted(LeafEvents.SimpleLeafEvent.Started started) {
+    if (!started.isLogToChromeTrace()) {
+      return;
+    }
+
     writeChromeTraceEvent(
         "buck",
         started.getEventName(),
@@ -381,6 +398,10 @@ public class ChromeTraceBuildListener implements BuckEventListener {
 
   @Subscribe
   public void simpleLeafEventFinished(LeafEvents.SimpleLeafEvent.Finished finished) {
+    if (!finished.isLogToChromeTrace()) {
+      return;
+    }
+
     writeChromeTraceEvent(
         "buck",
         finished.getEventName(),
@@ -459,7 +480,9 @@ public class ChromeTraceBuildListener implements BuckEventListener {
             "processed_bytes",
             Long.toString(finished.getProcessedBytes()),
             "python_profile",
-            finished.getProfile().orElse("")),
+            finished.getProfile().orElse(""),
+            "parser",
+            finished.getParserClass().getSimpleName()),
         finished);
   }
 
@@ -558,7 +581,7 @@ public class ChromeTraceBuildListener implements BuckEventListener {
         ChromeTraceEvent.Phase.BEGIN,
         ImmutableMap.of(
             "rule_key", Joiner.on(", ").join(started.getRuleKeys()),
-            "rule", started.getTarget().orElse("unknown")),
+            "rule", started.getTarget().map(BuildTarget::getFullyQualifiedName).orElse("unknown")),
         started);
   }
 
@@ -568,7 +591,9 @@ public class ChromeTraceBuildListener implements BuckEventListener {
         ImmutableMap.<String, String>builder()
             .put("success", Boolean.toString(finished.isSuccess()))
             .put("rule_key", Joiner.on(", ").join(finished.getRuleKeys()))
-            .put("rule", finished.getTarget().orElse("unknown"));
+            .put(
+                "rule",
+                finished.getTarget().map(BuildTarget::getFullyQualifiedName).orElse("unknown"));
     Optionals.putIfPresent(
         finished.getCacheResult().map(Object::toString), "cache_result", argumentsBuilder);
 
@@ -697,10 +722,7 @@ public class ChromeTraceBuildListener implements BuckEventListener {
                 "time_spent_in_gc_sec",
                 Long.toString(TimeUnit.MILLISECONDS.toSeconds(memory.getTimeSpentInGcMs())))
             .putAll(
-                memory
-                    .getCurrentMemoryBytesUsageByPool()
-                    .entrySet()
-                    .stream()
+                memory.getCurrentMemoryBytesUsageByPool().entrySet().stream()
                     .map(
                         e ->
                             Maps.immutableEntry(
@@ -808,10 +830,27 @@ public class ChromeTraceBuildListener implements BuckEventListener {
   }
 
   @Subscribe
-  public void onWatchmanOverflow(WatchmanOverflowEvent event) {
+  public void onWatchmanOverflow(WatchmanStatusEvent.Overflow event) {
     writeChromeTraceMetadataEvent(
         "watchman_overflow",
         ImmutableMap.of("cellPath", event.getCellPath().toString(), "reason", event.getReason()));
+  }
+
+  /** Mark the start of a Remote Execution session */
+  @Subscribe
+  public void onRemoteExecutionSessionStarted(RemoteExecutionSessionEvent.Started event) {
+    writeChromeTraceEvent("buck", event.getCategory(), Phase.BEGIN, ImmutableMap.of(), event);
+  }
+
+  /** Mark the end of a Remote Execution session and write down the related telemetry. */
+  @Subscribe
+  public void onRemoteExecutionSessionFinished(RemoteExecutionSessionEvent.Finished event) {
+    writeChromeTraceEvent(
+        "buck",
+        event.getCategory(),
+        Phase.END,
+        reStatsProvider.isPresent() ? reStatsProvider.get().exportFieldsToMap() : ImmutableMap.of(),
+        event);
   }
 
   @VisibleForTesting

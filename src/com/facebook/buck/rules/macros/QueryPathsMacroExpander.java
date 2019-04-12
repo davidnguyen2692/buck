@@ -16,7 +16,7 @@
 
 package com.facebook.buck.rules.macros;
 
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
@@ -28,7 +28,7 @@ import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.query.QueryBuildTarget;
 import com.facebook.buck.query.QueryFileTarget;
 import com.facebook.buck.rules.args.Arg;
-import com.facebook.buck.rules.query.Query;
+import com.facebook.buck.util.Escaper;
 import com.google.common.collect.ImmutableList;
 import java.util.Objects;
 import java.util.Optional;
@@ -48,16 +48,6 @@ public class QueryPathsMacroExpander extends QueryMacroExpander<QueryPathsMacro>
   }
 
   @Override
-  QueryPathsMacro fromQuery(Query query) {
-    return QueryPathsMacro.of(query);
-  }
-
-  @Override
-  boolean detectsTargetGraphOnlyDeps() {
-    return false;
-  }
-
-  @Override
   public Arg expandFrom(
       BuildTarget target,
       CellPathResolver cellNames,
@@ -65,9 +55,7 @@ public class QueryPathsMacroExpander extends QueryMacroExpander<QueryPathsMacro>
       QueryPathsMacro input,
       QueryResults precomputedWork) {
     return new QueriedPathsArg(
-        precomputedWork
-            .results
-            .stream()
+        precomputedWork.results.stream()
             .map(
                 queryTarget -> {
                   // What we do depends on the input.
@@ -96,10 +84,10 @@ public class QueryPathsMacroExpander extends QueryMacroExpander<QueryPathsMacro>
       // TODO(cjhopman): The sorted() call could feasibly (though unlikely) return different
       // ordering in different contexts.
       consumer.accept(
-          queriedPaths
-              .stream()
+          queriedPaths.stream()
               .map(pathResolver::getAbsolutePath)
               .map(Object::toString)
+              .map(Escaper::escapeAsShellString)
               .sorted()
               .collect(Collectors.joining(" ")));
     }

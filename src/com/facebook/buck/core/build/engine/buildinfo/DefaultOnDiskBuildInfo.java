@@ -18,9 +18,9 @@ package com.facebook.buck.core.build.engine.buildinfo;
 
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.rulekey.RuleKey;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.log.Logger;
 import com.facebook.buck.util.RichStream;
 import com.facebook.buck.util.cache.FileHashCache;
 import com.facebook.buck.util.json.ObjectMappers;
@@ -187,7 +187,8 @@ public class DefaultOnDiskBuildInfo implements OnDiskBuildInfo {
               paths.add(file);
               return super.visitFile(file, attrs);
             }
-          });
+          },
+          false);
     }
     return paths.build();
   }
@@ -234,7 +235,7 @@ public class DefaultOnDiskBuildInfo implements OnDiskBuildInfo {
     Hasher hasher = Hashing.sha1().newHasher();
     for (Path path : pathsForArtifact) {
       String pathString = path.toString();
-      HashCode fileHash = fileHashCache.get(projectFilesystem.resolve(path));
+      HashCode fileHash = fileHashCache.get(projectFilesystem, path);
       hasher.putBytes(pathString.getBytes(Charsets.UTF_8));
       hasher.putBytes(fileHash.asBytes());
       outputHashes.put(pathString, fileHash.toString());

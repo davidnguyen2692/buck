@@ -17,7 +17,6 @@
 package com.facebook.buck.cli;
 
 import com.facebook.buck.event.WorkAdvanceEvent;
-import com.facebook.buck.log.Logger;
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
 import com.google.common.eventbus.Subscribe;
@@ -30,8 +29,6 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 
 public class HangMonitor extends AbstractScheduledService {
-  private static final Logger LOG = Logger.get(HangMonitor.class);
-
   private final Consumer<String> hangReportConsumer;
   private final AtomicInteger eventsSeenSinceLastCheck;
   private final Duration hangCheckTimeout;
@@ -91,8 +88,6 @@ public class HangMonitor extends AbstractScheduledService {
     private final ServiceManager serviceManager;
 
     public AutoStartInstance(Consumer<String> hangReportConsumer, Duration hangCheckTimeout) {
-
-      LOG.info("HangMonitorAutoStart");
       hangMonitor = new HangMonitor(hangReportConsumer, hangCheckTimeout);
       serviceManager = new ServiceManager(ImmutableList.of(hangMonitor));
       serviceManager.startAsync();

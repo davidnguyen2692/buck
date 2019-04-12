@@ -21,7 +21,7 @@ import com.facebook.buck.android.apkmodule.APKModuleGraph;
 import com.facebook.buck.android.exopackage.ExopackageMode;
 import com.facebook.buck.android.toolchain.AndroidPlatformTarget;
 import com.facebook.buck.android.toolchain.DxToolchain;
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
@@ -31,8 +31,8 @@ import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.core.JavaLibrary;
 import com.facebook.buck.jvm.java.JavaBuckConfig;
+import com.facebook.buck.jvm.java.JavaOptions;
 import com.facebook.buck.jvm.java.JavacFactory;
-import com.facebook.buck.jvm.java.toolchain.JavaOptionsProvider;
 import com.facebook.buck.jvm.java.toolchain.JavacOptionsProvider;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.macros.StringWithMacrosConverter;
@@ -67,13 +67,13 @@ public class AndroidBinaryGraphEnhancerFactory {
       EnumSet<ExopackageMode> exopackageModes,
       ImmutableSortedSet<JavaLibrary> rulesToExcludeFromDex,
       AndroidGraphEnhancerArgs args,
-      boolean useProtoFormat) {
+      boolean useProtoFormat,
+      JavaOptions javaOptions,
+      JavacFactory javacFactory) {
 
     AndroidPlatformTarget androidPlatformTarget =
         toolchainProvider.getByName(
             AndroidPlatformTarget.DEFAULT_NAME, AndroidPlatformTarget.class);
-    JavaOptionsProvider javaOptionsProvider =
-        toolchainProvider.getByName(JavaOptionsProvider.DEFAULT_NAME, JavaOptionsProvider.class);
 
     ListeningExecutorService dxExecutorService =
         toolchainProvider
@@ -102,6 +102,8 @@ public class AndroidBinaryGraphEnhancerFactory {
           new APKModuleGraph(
               Optional.of(args.getApplicationModuleConfigs()),
               args.getApplicationModuleDependencies(),
+              args.getApplicationModuleBlacklist(),
+              args.getApplicationModulesWithResources(),
               targetGraph,
               buildTarget);
     }
@@ -109,7 +111,8 @@ public class AndroidBinaryGraphEnhancerFactory {
     NonPredexedDexBuildableArgs nonPreDexedDexBuildableArgs =
         NonPredexedDexBuildableArgs.builder()
             .setProguardAgentPath(proGuardConfig.getProguardAgentPath())
-            .setProguardJarOverride(proGuardConfig.getProguardJarOverride())
+            .setProguardJarOverride(
+                proGuardConfig.getProguardJarOverride(buildTarget.getTargetConfiguration()))
             .setProguardMaxHeapSize(proGuardConfig.getProguardMaxHeapSize())
             .setSdkProguardConfig(androidSdkProguardConfig)
             .setPreprocessJavaClassesBash(
@@ -122,7 +125,9 @@ public class AndroidBinaryGraphEnhancerFactory {
             .setOptimizationPasses(args.getOptimizationPasses())
             .setProguardJvmArgs(args.getProguardJvmArgs())
             .setSkipProguard(args.isSkipProguard())
-            .setJavaRuntimeLauncher(javaOptionsProvider.getJavaOptions().getJavaRuntimeLauncher())
+            .setJavaRuntimeLauncher(
+                javaOptions.getJavaRuntimeLauncher(
+                    graphBuilder, buildTarget.getTargetConfiguration()))
             .setProguardConfigPath(args.getProguardConfig())
             .setShouldProguard(shouldProguard)
             .build();
@@ -153,13 +158,17 @@ public class AndroidBinaryGraphEnhancerFactory {
         dexSplitMode,
         args.getNoDx(),
         /* resourcesToExclude */ ImmutableSet.of(),
+        /* nativeLibsToExclude */ ImmutableSet.of(),
+        /* nativeLinkablesToExclude */ ImmutableSet.of(),
+        /* nativeLibAssetsToExclude */ ImmutableSet.of(),
+        /* nativeLinkableAssetsToExclude */ ImmutableSet.of(),
         args.isSkipCrunchPngs(),
         args.isIncludesVectorDrawables(),
         args.isNoAutoVersionResources(),
         args.isNoVersionTransitionsResources(),
         args.isNoAutoAddOverlayResources(),
         javaBuckConfig,
-        JavacFactory.getDefault(toolchainProvider),
+        javacFactory,
         toolchainProvider
             .getByName(JavacOptionsProvider.DEFAULT_NAME, JavacOptionsProvider.class)
             .getJavacOptions(),

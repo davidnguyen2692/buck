@@ -15,7 +15,7 @@
  */
 package com.facebook.buck.util.config;
 
-import com.facebook.buck.log.Logger;
+import com.facebook.buck.core.util.log.Logger;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedSet;
@@ -51,11 +51,11 @@ public final class Configs {
    * <p>In order:
    *
    * <ol>
-   *   <li>{@code /etc/buckconfig}
    *   <li>Files (in lexicographical order) in {@code /etc/buckconfig.d}
-   *   <li>{@code <HOME>/.buckconfig}
+   *   <li>{@code /etc/buckconfig}
    *   <li>Files (in lexicographical order) in {@code <HOME>/buckconfig.d}
    *   <li>Files (in lexicographical order) in {@code <PROJECT ROOT >/buckconfig.d}
+   *   <li>{@code <HOME>/.buckconfig}
    *   <li>{@code <PROJECT ROOT>/.buckconfig}
    *   <li>{@code <PROJECT ROOT>/.buckconfig.local}
    *   <li>Any overrides (usually from the command line)

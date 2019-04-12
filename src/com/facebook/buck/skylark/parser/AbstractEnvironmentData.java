@@ -17,9 +17,8 @@
 package com.facebook.buck.skylark.parser;
 
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
-import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.google.devtools.build.lib.syntax.Environment;
-import com.google.devtools.build.lib.vfs.Path;
 import org.immutables.value.Value;
 
 /**
@@ -33,5 +32,5 @@ abstract class AbstractEnvironmentData {
   public abstract Environment getEnvironment();
 
   @Value.Parameter
-  public abstract ImmutableList<Path> getLoadedPaths();
+  public abstract ImmutableSet<String> getLoadedPaths();
 }

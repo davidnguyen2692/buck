@@ -21,72 +21,63 @@ import com.facebook.buck.core.model.BuildId;
 import com.facebook.buck.core.test.event.TestRunEvent;
 import com.facebook.buck.core.test.event.TestStatusMessageEvent;
 import com.facebook.buck.core.test.event.TestSummaryEvent;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.distributed.DistBuildCreatedEvent;
-import com.facebook.buck.distributed.DistBuildStatusEvent;
-import com.facebook.buck.distributed.StampedeLocalBuildStatusEvent;
 import com.facebook.buck.distributed.build_client.DistBuildSuperConsoleEvent;
 import com.facebook.buck.distributed.build_client.StampedeConsoleEvent;
-import com.facebook.buck.distributed.thrift.BuildSlaveInfo;
-import com.facebook.buck.distributed.thrift.BuildSlaveRunId;
-import com.facebook.buck.distributed.thrift.BuildSlaveStatus;
-import com.facebook.buck.distributed.thrift.BuildStatus;
 import com.facebook.buck.event.ActionGraphEvent;
 import com.facebook.buck.event.ArtifactCompressionEvent;
+import com.facebook.buck.event.CommandEvent.Finished;
 import com.facebook.buck.event.ConsoleEvent;
-import com.facebook.buck.event.DaemonEvent;
 import com.facebook.buck.event.FlushConsoleEvent;
 import com.facebook.buck.event.LeafEvent;
 import com.facebook.buck.event.LeafEvents;
 import com.facebook.buck.event.ParsingEvent;
 import com.facebook.buck.event.RuleKeyCalculationEvent;
 import com.facebook.buck.event.WatchmanStatusEvent;
-import com.facebook.buck.log.Logger;
+import com.facebook.buck.event.listener.interfaces.AdditionalConsoleLineProvider;
+import com.facebook.buck.event.listener.stats.cache.CacheRateStatsKeeper;
+import com.facebook.buck.event.listener.stats.cache.CacheRateStatsKeeper.CacheRateStatsUpdateEvent;
+import com.facebook.buck.event.listener.stats.stampede.DistBuildTrackedStatus;
+import com.facebook.buck.event.listener.util.EventInterval;
 import com.facebook.buck.step.StepEvent;
 import com.facebook.buck.test.TestResultSummary;
-import com.facebook.buck.test.TestResultSummaryVerbosity;
 import com.facebook.buck.test.TestResults;
 import com.facebook.buck.test.TestStatusMessage;
+import com.facebook.buck.test.config.TestResultSummaryVerbosity;
 import com.facebook.buck.test.result.type.ResultType;
-import com.facebook.buck.util.Console;
 import com.facebook.buck.util.ExitCode;
-import com.facebook.buck.util.MoreIterables;
 import com.facebook.buck.util.environment.ExecutionEnvironment;
 import com.facebook.buck.util.timing.Clock;
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Charsets;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Iterables;
+import com.google.common.collect.ImmutableList.Builder;
+import com.google.common.collect.Maps;
 import com.google.common.eventbus.Subscribe;
-import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import java.io.IOException;
-import java.nio.charset.Charset;
 import java.nio.file.Path;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashSet;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TimeZone;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import java.util.logging.Level;
-import javax.annotation.concurrent.GuardedBy;
 
 /** Console that provides rich, updating ansi output about the current build. */
 public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListener {
@@ -99,19 +90,15 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
 
   private static final Logger LOG = Logger.get(SuperConsoleEventBusListener.class);
 
-  @VisibleForTesting static final String EMOJI_BUNNY = "\uD83D\uDC07";
-
   private final Locale locale;
   private final Function<Long, String> formatTimeFunction;
+
+  private final ConcurrentMap<Long, ConcurrentLinkedDeque<LeafEvent>> threadsToRunningStep;
+
   private final ConcurrentMap<Long, Optional<? extends TestSummaryEvent>>
       threadsToRunningTestSummaryEvent;
   private final ConcurrentMap<Long, Optional<? extends TestStatusMessageEvent>>
       threadsToRunningTestStatusMessageEvent;
-  private final ConcurrentMap<Long, Optional<? extends LeafEvent>> threadsToRunningStep;
-
-  private final ConcurrentLinkedQueue<ConsoleEvent> logEvents;
-
-  private final ScheduledExecutorService renderScheduler;
 
   private final TestResultFormatter testFormatter;
 
@@ -138,26 +125,15 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
   private final boolean shouldAlwaysSortThreadsByTime;
   private final long buildRuleMinimumDurationMillis;
 
-  private final DateFormat dateFormat;
-  private int lastNumLinesPrinted;
-
-  private Optional<String> parsingStatus = Optional.empty();
-  // Save if Watchman reported zero file changes in case we receive an ActionGraphCache hit. This
+  // Save if Watchman reported zero file changes in case we receive an ActionGraphProvider hit. This
   // way the user can know that their changes, if they made any, were not picked up from Watchman.
   private boolean isZeroFileChanges = false;
-
-  private final Object distBuildSlaveTrackerLock = new Object();
 
   private long minimumDurationMillisecondsToShowParse;
   private long minimumDurationMillisecondsToShowActionGraph;
   private long minimumDurationMillisecondsToShowWatchman;
   private boolean hideEmptyDownload;
 
-  @GuardedBy("distBuildSlaveTrackerLock")
-  private final Map<BuildSlaveRunId, BuildSlaveStatus> distBuildSlaveTracker;
-
-  private volatile StampedeLocalBuildStatusEvent stampedeLocalBuildStatus =
-      new StampedeLocalBuildStatusEvent("init");
   private volatile Optional<DistBuildSuperConsoleEvent> stampedeSuperConsoleEvent =
       Optional.empty();
   private Optional<String> stampedeIdLogLine = Optional.empty();
@@ -168,20 +144,27 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
   private final int outputMaxColumns;
 
   private final Optional<String> buildIdLine;
+  private final Optional<String> buildDetailsLine;
+  private final ImmutableList<AdditionalConsoleLineProvider> additionalConsoleLineProviders;
+
+  private final RenderingConsole renderingConsole;
 
   public SuperConsoleEventBusListener(
       SuperConsoleConfig config,
-      Console console,
+      RenderingConsole renderingConsole,
       Clock clock,
       TestResultSummaryVerbosity summaryVerbosity,
       ExecutionEnvironment executionEnvironment,
       Locale locale,
       Path testLogPath,
       TimeZone timeZone,
-      Optional<BuildId> buildId) {
+      BuildId buildId,
+      boolean printBuildId,
+      Optional<String> buildDetailsTemplate,
+      ImmutableList<AdditionalConsoleLineProvider> additionalConsoleLineProviders) {
     this(
         config,
-        console,
+        renderingConsole,
         clock,
         summaryVerbosity,
         executionEnvironment,
@@ -192,13 +175,16 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
         500L,
         1000L,
         true,
-        buildId);
+        buildId,
+        printBuildId,
+        buildDetailsTemplate,
+        additionalConsoleLineProviders);
   }
 
   @VisibleForTesting
   public SuperConsoleEventBusListener(
       SuperConsoleConfig config,
-      Console console,
+      RenderingConsole renderingConsole,
       Clock clock,
       TestResultSummaryVerbosity summaryVerbosity,
       ExecutionEnvironment executionEnvironment,
@@ -209,15 +195,19 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
       long minimumDurationMillisecondsToShowActionGraph,
       long minimumDurationMillisecondsToShowWatchman,
       boolean hideEmptyDownload,
-      Optional<BuildId> buildId) {
+      BuildId buildId,
+      boolean printBuildId,
+      Optional<String> buildDetailsTemplate,
+      ImmutableList<AdditionalConsoleLineProvider> additionalConsoleLineProviders) {
     super(
-        console,
+        renderingConsole,
         clock,
         locale,
         executionEnvironment,
         false,
         config.getNumberOfSlowRulesToShow(),
         config.shouldShowSlowRulesInConsole());
+    this.additionalConsoleLineProviders = additionalConsoleLineProviders;
     this.locale = locale;
     this.formatTimeFunction = this::formatElapsedTime;
     this.threadsToRunningTestSummaryEvent =
@@ -226,16 +216,10 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
         new ConcurrentHashMap<>(executionEnvironment.getAvailableCores());
     this.threadsToRunningStep = new ConcurrentHashMap<>(executionEnvironment.getAvailableCores());
 
-    this.logEvents = new ConcurrentLinkedQueue<>();
-
-    this.renderScheduler =
-        Executors.newScheduledThreadPool(
-            1,
-            new ThreadFactoryBuilder().setNameFormat(getClass().getSimpleName() + "-%d").build());
     this.testFormatter =
         new TestResultFormatter(
-            console.getAnsi(),
-            console.getVerbosity(),
+            renderingConsole.getAnsi(),
+            renderingConsole.getVerbosity(),
             summaryVerbosity,
             locale,
             Optional.of(testLogPath));
@@ -253,11 +237,8 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
     this.minimumDurationMillisecondsToShowWatchman = minimumDurationMillisecondsToShowWatchman;
     this.hideEmptyDownload = hideEmptyDownload;
 
-    this.dateFormat = new SimpleDateFormat("[yyyy-MM-dd HH:mm:ss.SSS]", this.locale);
-    this.dateFormat.setTimeZone(timeZone);
-
-    // Using LinkedHashMap because we want a predictable iteration order.
-    this.distBuildSlaveTracker = new LinkedHashMap<>();
+    DateFormat dateFormat = new SimpleDateFormat("[yyyy-MM-dd HH:mm:ss.SSS]", this.locale);
+    dateFormat.setTimeZone(timeZone);
 
     int outputMaxColumns = 80;
     if (config.getThreadLineOutputMaxColumns().isPresent()) {
@@ -279,108 +260,13 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
       }
     }
     this.outputMaxColumns = outputMaxColumns;
-    this.buildIdLine =
-        buildId.isPresent()
-            ? Optional.of(SimpleConsoleEventBusListener.getBuildLogLine(buildId.get()))
-            : Optional.empty();
-  }
-
-  /** Schedules a runnable that updates the console output at a fixed interval. */
-  public void startRenderScheduler(long renderInterval, TimeUnit timeUnit) {
-    LOG.debug("Starting render scheduler (interval %d ms)", timeUnit.toMillis(renderInterval));
-    renderScheduler.scheduleAtFixedRate(
-        () -> {
-          try {
-            SuperConsoleEventBusListener.this.render();
-          } catch (Error | RuntimeException e) {
-            LOG.error(e, "Rendering exception");
-            throw e;
-          }
-        }, /* initialDelay */
-        renderInterval, /* period */
-        renderInterval,
-        timeUnit);
-  }
-
-  /** Shuts down the thread pool and cancels the fixed interval runnable. */
-  private synchronized void stopRenderScheduler() {
-    LOG.debug("Stopping render scheduler");
-    renderScheduler.shutdownNow();
-  }
-
-  @VisibleForTesting
-  synchronized void render() {
-    LOG.verbose("Rendering");
-    int previousNumLinesPrinted = lastNumLinesPrinted;
-    ImmutableList<String> lines = createRenderLinesAtTime(clock.currentTimeMillis());
-    ImmutableList<String> logLines = createLogRenderLines();
-    lastNumLinesPrinted = lines.size();
-
-    // Synchronize on the DirtyPrintStreamDecorator to prevent interlacing of output.
-    // We don't log immediately so we avoid locking the console handler to avoid deadlocks.
-    boolean stderrDirty;
-    boolean stdoutDirty;
-    synchronized (console.getStdErr()) {
-      synchronized (console.getStdOut()) {
-        // If another source has written to stderr, stop rendering with the SuperConsole.
-        // We need to do this to keep our updates consistent. We don't do this with stdout
-        // because we don't use it directly except in a couple of cases, where the
-        // synchronization in DirtyPrintStreamDecorator should be sufficient
-        stderrDirty = console.getStdErr().isDirty();
-        stdoutDirty = console.getStdOut().isDirty();
-        if (stderrDirty || stdoutDirty) {
-          stopRenderScheduler();
-        } else if (previousNumLinesPrinted != 0 || !lines.isEmpty() || !logLines.isEmpty()) {
-          String fullFrame = renderFullFrame(logLines, lines, previousNumLinesPrinted);
-          console.getStdErr().getRawStream().print(fullFrame);
-        }
-      }
-    }
-    if (stderrDirty) {
-      LOG.debug("Stopping console output (stderr was dirty).");
-    }
-  }
-
-  private String renderFullFrame(
-      ImmutableList<String> logLines, ImmutableList<String> lines, int previousNumLinesPrinted) {
-    int currentNumLines = lines.size();
-
-    Iterable<String> renderedLines =
-        Iterables.concat(
-            MoreIterables.zipAndConcat(
-                Iterables.cycle(ansi.clearLine()),
-                logLines,
-                Iterables.cycle(ansi.clearToTheEndOfLine() + System.lineSeparator())),
-            ansi.asNoWrap(
-                MoreIterables.zipAndConcat(
-                    Iterables.cycle(ansi.clearLine()),
-                    lines,
-                    Iterables.cycle(ansi.clearToTheEndOfLine() + System.lineSeparator()))));
-
-    // Number of lines remaining to clear because of old output once we displayed
-    // the new output.
-    int remainingLinesToClear =
-        previousNumLinesPrinted > currentNumLines ? previousNumLinesPrinted - currentNumLines : 0;
-
-    StringBuilder fullFrame = new StringBuilder();
-    // We move the cursor back to the top.
-    for (int i = 0; i < previousNumLinesPrinted; i++) {
-      fullFrame.append(ansi.cursorPreviousLine(1));
-    }
-    // We display the new output.
-    for (String part : renderedLines) {
-      fullFrame.append(part);
-    }
-    // We clear the remaining lines of the old output.
-    for (int i = 0; i < remainingLinesToClear; i++) {
-      fullFrame.append(ansi.clearLine());
-      fullFrame.append(System.lineSeparator());
-    }
-    // We move the cursor at the end of the new output.
-    for (int i = 0; i < remainingLinesToClear; i++) {
-      fullFrame.append(ansi.cursorPreviousLine(1));
-    }
-    return fullFrame.toString();
+    this.buildIdLine = printBuildId ? Optional.of(getBuildLogLine(buildId)) : Optional.empty();
+    this.buildDetailsLine =
+        buildDetailsTemplate.map(
+            template -> AbstractConsoleEventBusListener.getBuildDetailsLine(buildId, template));
+    this.renderingConsole = renderingConsole;
+    this.renderingConsole.registerDelegate(this::createRenderLinesAtTime);
+    this.renderingConsole.startRenderScheduler();
   }
 
   /**
@@ -396,7 +282,7 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
       lines.add(buildIdLine.get());
     }
 
-    logEventPair(
+    logEventInterval(
         "Processing filesystem changes",
         Optional.empty(),
         currentTimeMillis,
@@ -407,29 +293,27 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
         Optional.of(this.minimumDurationMillisecondsToShowWatchman),
         lines);
 
-    long parseTime =
-        logEventPair(
+    boolean parseFinished =
+        addLineFromEventInterval(
             "Parsing buck files",
             /* suffix */ Optional.empty(),
             currentTimeMillis,
-            /* offsetMs */ 0L,
-            buckFilesParsingEvents.values(),
+            parseStats.getInterval(),
             getEstimatedProgressOfParsingBuckFiles(),
             Optional.of(this.minimumDurationMillisecondsToShowParse),
             lines);
 
-    long actionGraphTime =
-        logEventPair(
+    boolean actionGraphFinished =
+        addLineFromEvents(
             "Creating action graph",
             /* suffix */ Optional.empty(),
             currentTimeMillis,
-            /* offsetMs */ 0L,
             actionGraphEvents.values(),
             getEstimatedProgressOfParsingBuckFiles(),
             Optional.of(this.minimumDurationMillisecondsToShowActionGraph),
             lines);
 
-    logEventPair(
+    logEventInterval(
         "Generating project",
         Optional.empty(),
         currentTimeMillis,
@@ -441,9 +325,7 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
         lines);
 
     // If parsing has not finished, then there is no build rule information to print yet.
-    if (buildStarted == null
-        || parseTime == UNFINISHED_EVENT_PAIR
-        || actionGraphTime == UNFINISHED_EVENT_PAIR) {
+    if (buildStarted == null || !parseFinished || !actionGraphFinished) {
       return lines.build();
     }
 
@@ -458,7 +340,7 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
     String localBuildLinePrefix = "Building";
 
     if (stampedeSuperConsoleEvent.isPresent()) {
-      localBuildLinePrefix = stampedeLocalBuildStatus.getLocalBuildLinePrefix();
+      localBuildLinePrefix = distStatsTracker.getLocalBuildLinePrefix();
 
       stampedeIdLogLine.ifPresent(lines::add);
       stampedeSuperConsoleEvent
@@ -466,49 +348,54 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
           .getMessage()
           .ifPresent(msg -> lines.add(ansi.asInformationText(msg)));
       long distBuildMs =
-          logEventPair(
+          logEventInterval(
               "Distributed Build",
               getOptionalDistBuildLineSuffix(),
               currentTimeMillis,
               0,
               this.distBuildStarted,
               this.distBuildFinished,
-              getApproximateDistBuildProgress(),
+              distStatsTracker.getApproximateProgress(),
               Optional.empty(),
               lines);
 
       if (distBuildMs == UNFINISHED_EVENT_PAIR) {
         MultiStateRenderer renderer;
-        synchronized (distBuildSlaveTrackerLock) {
-          renderer =
-              new DistBuildSlaveStateRenderer(
-                  ansi, currentTimeMillis, ImmutableList.copyOf(distBuildSlaveTracker.values()));
-        }
+
+        renderer =
+            new DistBuildSlaveStateRenderer(
+                ansi, currentTimeMillis, distStatsTracker.getSlaveStatuses());
 
         renderLines(renderer, lines, maxThreadLines, true);
       }
     }
 
-    if (networkStatsKeeper.getRemoteDownloadedArtifactsCount() > 0 || !this.hideEmptyDownload) {
+    for (AdditionalConsoleLineProvider provider : additionalConsoleLineProviders) {
+      lines.addAll(provider.createConsoleLinesAtTime(currentTimeMillis));
+    }
+
+    if (networkStatsTracker.getRemoteDownloadStats().getArtifacts() > 0
+        || !this.hideEmptyDownload) {
       lines.add(getNetworkStatsLine(buildFinished));
     }
 
     // Check to see if the build encompasses the time spent parsing. This is true for runs of
     // buck build but not so for runs of e.g. buck project. If so, subtract parse times
     // from the build time.
-    long buildStartedTime = buildStarted.getTimestamp();
+    long buildStartedTime = buildStarted.getTimestampMillis();
     long buildFinishedTime =
-        buildFinished != null ? buildFinished.getTimestamp() : currentTimeMillis;
-    Collection<EventPair> filteredBuckFilesParsingEvents =
-        getEventsBetween(buildStartedTime, buildFinishedTime, buckFilesParsingEvents.values());
-    Collection<EventPair> filteredActionGraphEvents =
+        buildFinished != null ? buildFinished.getTimestampMillis() : currentTimeMillis;
+    Collection<EventInterval> filteredBuckFilesParsingEvents =
+        getEventsBetween(
+            buildStartedTime, buildFinishedTime, ImmutableList.of(parseStats.getInterval()));
+    Collection<EventInterval> filteredActionGraphEvents =
         getEventsBetween(buildStartedTime, buildFinishedTime, actionGraphEvents.values());
     long offsetMs =
-        getTotalCompletedTimeFromEventPairs(filteredBuckFilesParsingEvents)
-            + getTotalCompletedTimeFromEventPairs(filteredActionGraphEvents);
+        getTotalCompletedTimeFromEventIntervals(filteredBuckFilesParsingEvents)
+            + getTotalCompletedTimeFromEventIntervals(filteredActionGraphEvents);
 
     long totalBuildMs =
-        logEventPair(
+        logEventInterval(
             localBuildLinePrefix,
             getOptionalBuildLineSuffix(),
             currentTimeMillis,
@@ -530,13 +417,13 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
               currentTimeMillis,
               outputMaxColumns,
               buildRuleMinimumDurationMillis,
-              threadsToRunningStep,
+              getCurrentThreadsToStep(),
               buildRuleThreadTracker);
       renderLines(renderer, lines, maxThreadLines, shouldAlwaysSortThreadsByTime);
     }
 
     long testRunTime =
-        logEventPair(
+        logEventInterval(
             "Testing",
             renderTestSuffix(),
             currentTimeMillis,
@@ -556,12 +443,12 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
               outputMaxColumns,
               threadsToRunningTestSummaryEvent,
               threadsToRunningTestStatusMessageEvent,
-              threadsToRunningStep,
+              getCurrentThreadsToStep(),
               buildRuleThreadTracker);
       renderLines(renderer, lines, maxThreadLines, shouldAlwaysSortThreadsByTime);
     }
 
-    logEventPair(
+    logEventInterval(
         "Installing",
         /* suffix */ Optional.empty(),
         currentTimeMillis,
@@ -573,7 +460,24 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
         lines);
 
     logHttpCacheUploads(lines);
+
+    maybePrintBuildDetails(lines);
+
     return lines.build();
+  }
+
+  private Map<Long, Optional<? extends LeafEvent>> getCurrentThreadsToStep() {
+    return Maps.transformValues(
+        threadsToRunningStep, list -> Optional.ofNullable(Objects.requireNonNull(list).peekLast()));
+  }
+
+  private void maybePrintBuildDetails(Builder<String> lines) {
+    Finished commandFinishedEvent = commandFinished;
+    if (commandFinishedEvent != null
+        && buildDetailsCommands.contains(commandFinishedEvent.getCommandName())
+        && buildDetailsLine.isPresent()) {
+      lines.add(buildDetailsLine.get());
+    }
   }
 
   private void getTotalTimeLine(ImmutableList.Builder<String> lines) {
@@ -581,7 +485,7 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
       // project generation never started
       // we only output total time if build started and finished
       if (buildStarted != null && buildFinished != null) {
-        long durationMs = buildFinished.getTimestamp() - buildStarted.getTimestamp();
+        long durationMs = buildFinished.getTimestampMillis() - buildStarted.getTimestampMillis();
         String finalLine = "  Total time: " + formatElapsedTime(durationMs);
         if (distBuildStarted != null) {
           // Stampede build. We need to print final status to reduce confusion from remote errors.
@@ -599,7 +503,8 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
       // we wait for generation to finish to output time
       if (projectGenerationFinished != null) {
         long durationMs =
-            projectGenerationFinished.getTimestamp() - projectGenerationStarted.getTimestamp();
+            projectGenerationFinished.getTimestampMillis()
+                - projectGenerationStarted.getTimestampMillis();
         lines.add("  Total time: " + formatElapsedTime(durationMs));
       }
     }
@@ -607,57 +512,48 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
 
   private Optional<String> getOptionalDistBuildLineSuffix() {
     List<String> columns = new ArrayList<>();
+    DistBuildTrackedStatus distBuildStatus = distStatsTracker.getTrackedStatus();
 
-    synchronized (distBuildStatusLock) {
-      if (!distBuildStatus.isPresent()) {
-        columns.add("remote status: init");
-      } else {
-        distBuildStatus
-            .get()
-            .getStatus()
-            .ifPresent(status -> columns.add("remote status: " + status.toLowerCase()));
+    if (!distBuildStatus.hasRemoteStatus()) {
+      columns.add("remote status: init");
+    } else {
+      distBuildStatus
+          .getStatus()
+          .ifPresent(status -> columns.add("remote status: " + status.toLowerCase()));
 
-        int totalUploadErrorsCount = 0;
-        ImmutableList.Builder<CacheRateStatsKeeper.CacheRateStatsUpdateEvent> slaveCacheStats =
-            new ImmutableList.Builder<>();
+      int totalUploadErrorsCount = 0;
+      for (CacheRateStatsUpdateEvent slaveCacheStat : distBuildStatus.getSlaveCacheStats()) {
+        totalUploadErrorsCount += slaveCacheStat.getCacheErrorCount();
+      }
 
-        for (BuildSlaveStatus slaveStatus : distBuildStatus.get().getSlaveStatuses()) {
-          totalUploadErrorsCount += slaveStatus.getHttpArtifactUploadsFailureCount();
+      if (distBuildStatus.getTotalRulesCount() > 0) {
+        columns.add(
+            String.format(
+                "%d/%d jobs",
+                distBuildStatus.getFinishedRulesCount(), distBuildStatus.getTotalRulesCount()));
+      }
 
-          if (slaveStatus.isSetCacheRateStats()) {
-            slaveCacheStats.add(
-                CacheRateStatsKeeper.getCacheRateStatsUpdateEventFromSerializedStats(
-                    slaveStatus.getCacheRateStats()));
-          }
-        }
+      CacheRateStatsKeeper.CacheRateStatsUpdateEvent aggregatedCacheStats =
+          CacheRateStatsKeeper.getAggregatedCacheRateStats(distBuildStatus.getSlaveCacheStats());
 
-        if (distBuildTotalRulesCount > 0) {
+      if (aggregatedCacheStats.getTotalRulesCount() != 0) {
+        columns.add(String.format("%.1f%% cache miss", aggregatedCacheStats.getCacheMissRate()));
+
+        if (aggregatedCacheStats.getCacheErrorCount() != 0) {
           columns.add(
-              String.format("%d/%d jobs", distBuildFinishedRulesCount, distBuildTotalRulesCount));
+              String.format(
+                  "%d [%.1f%%] cache errors",
+                  aggregatedCacheStats.getCacheErrorCount(),
+                  aggregatedCacheStats.getCacheErrorRate()));
         }
+      }
 
-        CacheRateStatsKeeper.CacheRateStatsUpdateEvent aggregatedCacheStats =
-            CacheRateStatsKeeper.getAggregatedCacheRateStats(slaveCacheStats.build());
-
-        if (aggregatedCacheStats.getTotalRulesCount() != 0) {
-          columns.add(String.format("%.1f%% cache miss", aggregatedCacheStats.getCacheMissRate()));
-
-          if (aggregatedCacheStats.getCacheErrorCount() != 0) {
-            columns.add(
-                String.format(
-                    "%d [%.1f%%] cache errors",
-                    aggregatedCacheStats.getCacheErrorCount(),
-                    aggregatedCacheStats.getCacheErrorRate()));
-          }
-        }
-
-        if (totalUploadErrorsCount > 0) {
-          columns.add(String.format("%d upload errors", totalUploadErrorsCount));
-        }
+      if (totalUploadErrorsCount > 0) {
+        columns.add(String.format("%d upload errors", totalUploadErrorsCount));
       }
     }
 
-    String localStatus = String.format("local status: %s", stampedeLocalBuildStatus.getStatus());
+    String localStatus = String.format("local status: %s", distBuildStatus.getLocalStatus());
     String remoteStatusAndSummary = String.join(", ", columns);
     if (remoteStatusAndSummary.length() == 0) {
       return Optional.of(localStatus);
@@ -666,22 +562,6 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
     String parseLine;
     parseLine = remoteStatusAndSummary + "; " + localStatus;
     return Strings.isNullOrEmpty(parseLine) ? Optional.empty() : Optional.of(parseLine);
-  }
-
-  /** Adds log messages for rendering. */
-  @VisibleForTesting
-  ImmutableList<String> createLogRenderLines() {
-    ImmutableList.Builder<String> logEventLinesBuilder = ImmutableList.builder();
-    ConsoleEvent logEvent;
-    while ((logEvent = logEvents.poll()) != null) {
-      formatConsoleEvent(logEvent, logEventLinesBuilder);
-      if (logEvent.getLevel().equals(Level.WARNING)) {
-        anyWarningsPrinted.set(true);
-      } else if (logEvent.getLevel().equals(Level.SEVERE)) {
-        anyErrorsPrinted.set(true);
-      }
-    }
-    return logEventLinesBuilder.build();
   }
 
   /**
@@ -757,58 +637,49 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
 
   @Subscribe
   public void stepStarted(StepEvent.Started started) {
-    threadsToRunningStep.put(started.getThreadId(), Optional.of(started));
+    runningStepStarted(started);
+  }
+
+  private void runningStepStarted(LeafEvent started) {
+    Objects.requireNonNull(started, "event was null.");
+    Objects.requireNonNull(
+            Objects.requireNonNull(threadsToRunningStep, "map was null.")
+                .computeIfAbsent(started.getThreadId(), ignored -> new ConcurrentLinkedDeque<>()),
+            "value was null.")
+        .add(started);
   }
 
   @Subscribe
   public void stepFinished(StepEvent.Finished finished) {
-    threadsToRunningStep.put(finished.getThreadId(), Optional.empty());
+    runningStepFinished(finished.getThreadId());
+  }
+
+  private void runningStepFinished(long threadId) {
+    Objects.requireNonNull(threadsToRunningStep, "map was null.")
+        .computeIfAbsent(threadId, ignored -> new ConcurrentLinkedDeque<>())
+        .pollLast();
   }
 
   // TODO(cjhopman): We should introduce a simple LeafEvent-like thing that everything that logs
   // step-like things can subscribe to.
   @Subscribe
   public void simpleLeafEventStarted(LeafEvents.SimpleLeafEvent.Started started) {
-    threadsToRunningStep.put(started.getThreadId(), Optional.of(started));
+    runningStepStarted(started);
   }
 
   @Subscribe
   public void simpleLeafEventFinished(LeafEvents.SimpleLeafEvent.Finished finished) {
-    threadsToRunningStep.put(finished.getThreadId(), Optional.empty());
+    runningStepFinished(finished.getThreadId());
   }
 
   @Subscribe
   public void ruleKeyCalculationStarted(RuleKeyCalculationEvent.Started started) {
-    threadsToRunningStep.put(started.getThreadId(), Optional.of(started));
+    runningStepStarted(started);
   }
 
   @Subscribe
   public void ruleKeyCalculationFinished(RuleKeyCalculationEvent.Finished finished) {
-    threadsToRunningStep.put(finished.getThreadId(), Optional.empty());
-  }
-
-  @Override
-  @Subscribe
-  public void onDistBuildStatusEvent(DistBuildStatusEvent event) {
-    super.onDistBuildStatusEvent(event);
-    synchronized (distBuildSlaveTrackerLock) {
-      for (BuildSlaveStatus status : event.getStatus().getSlaveStatuses()) {
-        distBuildSlaveTracker.put(status.buildSlaveRunId, status);
-      }
-
-      // Don't track the status of failed or lost minions
-      for (BuildSlaveInfo slaveInfo : event.getJob().getBuildSlaves()) {
-        if (slaveInfo.getStatus().equals(BuildStatus.FAILED)
-            || slaveInfo.getStatus().equals(BuildStatus.LOST)) {
-          distBuildSlaveTracker.remove(slaveInfo.buildSlaveRunId);
-        }
-      }
-    }
-  }
-
-  @Subscribe
-  public void onStampedeLocalBuildStatusEvent(StampedeLocalBuildStatusEvent event) {
-    this.stampedeLocalBuildStatus = event;
+    runningStepFinished(finished.getThreadId());
   }
 
   @Subscribe
@@ -825,25 +696,25 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
   @Subscribe
   public void artifactCacheStarted(ArtifactCacheEvent.Started started) {
     if (started.getInvocationType() == ArtifactCacheEvent.InvocationType.SYNCHRONOUS) {
-      threadsToRunningStep.put(started.getThreadId(), Optional.of(started));
+      runningStepStarted(started);
     }
   }
 
   @Subscribe
   public void artifactCacheFinished(ArtifactCacheEvent.Finished finished) {
     if (finished.getInvocationType() == ArtifactCacheEvent.InvocationType.SYNCHRONOUS) {
-      threadsToRunningStep.put(finished.getThreadId(), Optional.empty());
+      runningStepFinished(finished.getThreadId());
     }
   }
 
   @Subscribe
   public void artifactCompressionStarted(ArtifactCompressionEvent.Started started) {
-    threadsToRunningStep.put(started.getThreadId(), Optional.of(started));
+    runningStepStarted(started);
   }
 
   @Subscribe
   public void artifactCompressionFinished(ArtifactCompressionEvent.Finished finished) {
-    threadsToRunningStep.put(finished.getThreadId(), Optional.empty());
+    runningStepFinished(finished.getThreadId());
   }
 
   @Subscribe
@@ -882,11 +753,7 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
       testReportBuilder.addAll(builder.build());
       testOutput = String.join(System.lineSeparator(), testReportBuilder.build());
     }
-    // We're about to write to stdout, so make sure we render the final frame before we do.
-    render();
-    synchronized (console.getStdOut()) {
-      console.getStdOut().println(testOutput);
-    }
+    renderingConsole.printToStdOut(testOutput);
   }
 
   @Subscribe
@@ -923,7 +790,7 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
         numFailingTests.incrementAndGet();
         // We don't use TestResultFormatter.reportResultSummary() here since that also
         // includes the stack trace and stdout/stderr.
-        logEvents.add(
+        logEvent(
             ConsoleEvent.severe(
                 String.format(
                     locale,
@@ -953,7 +820,16 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
     if (console.getVerbosity().isSilent() && !event.getLevel().equals(Level.SEVERE)) {
       return;
     }
-    logEvents.add(event);
+    logEventDirectly(event);
+  }
+
+  private void logEventDirectly(ConsoleEvent logEvent) {
+    renderingConsole.logLines(formatConsoleEvent(logEvent));
+    if (logEvent.getLevel().equals(Level.WARNING)) {
+      anyWarningsPrinted.set(true);
+    } else if (logEvent.getLevel().equals(Level.SEVERE)) {
+      anyErrorsPrinted.set(true);
+    }
   }
 
   @Subscribe
@@ -965,12 +841,12 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
 
   @Subscribe
   public void forceRender(@SuppressWarnings("unused") FlushConsoleEvent event) {
-    render();
+    renderingConsole.render();
   }
 
   @Override
   public void printSevereWarningDirectly(String line) {
-    logEvents.add(ConsoleEvent.severe(line));
+    logEventDirectly(ConsoleEvent.severe(line));
   }
 
   private void printInfoDirectlyOnce(String line) {
@@ -978,7 +854,7 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
       return;
     }
     if (!actionGraphCacheMessage.contains(line)) {
-      logEvents.add(ConsoleEvent.info(line));
+      logEventDirectly(ConsoleEvent.info(line));
       actionGraphCacheMessage.add(line);
     }
   }
@@ -992,7 +868,6 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
     } else {
       LOG.debug("Action graph cache hit");
     }
-    parsingStatus = Optional.of("actionGraphCacheHit");
   }
 
   @Subscribe
@@ -1001,7 +876,6 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
         "Action graph will be rebuilt because there was an issue with watchman:"
             + System.lineSeparator()
             + event.getReason());
-    parsingStatus = Optional.of("watchmanOverflow: " + event.getReason());
   }
 
   private void printFileAddedOrRemoved() {
@@ -1012,54 +886,30 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
   public void watchmanFileCreation(WatchmanStatusEvent.FileCreation event) {
     LOG.debug("Watchman notified about file addition: " + event.getFilename());
     printFileAddedOrRemoved();
-    parsingStatus = Optional.of("watchmanFileCreation");
   }
 
   @Subscribe
   public void watchmanFileDeletion(WatchmanStatusEvent.FileDeletion event) {
     LOG.debug("Watchman notified about file deletion: " + event.getFilename());
     printFileAddedOrRemoved();
-    parsingStatus = Optional.of("watchmanFileDeletion");
   }
 
   @Subscribe
   @SuppressWarnings("unused")
   public void watchmanZeroFileChanges(WatchmanStatusEvent.ZeroFileChanges event) {
     isZeroFileChanges = true;
-    parsingStatus = Optional.of("watchmanZeroFileChanges");
-  }
-
-  @Subscribe
-  @SuppressWarnings("unused")
-  public void daemonNewInstance(DaemonEvent.NewDaemonInstance event) {
-    parsingStatus = Optional.of("daemonNewInstance");
   }
 
   @Subscribe
   @SuppressWarnings("unused")
   public void symlinkInvalidation(ParsingEvent.SymlinkInvalidation event) {
     printInfoDirectlyOnce("Action graph will be rebuilt because symlinks are used.");
-    parsingStatus = Optional.of("symlinkInvalidation");
   }
 
   @Subscribe
   @SuppressWarnings("unused")
   public void envVariableChange(ParsingEvent.EnvVariableChange event) {
     printInfoDirectlyOnce("Action graph will be rebuilt because environment variables changed.");
-    parsingStatus = Optional.of("envVariableChange");
-  }
-
-  @VisibleForTesting
-  static Optional<String> createParsingMessage(String emoji, String reason) {
-    if (Charset.defaultCharset().equals(Charsets.UTF_8)) {
-      return Optional.of(emoji + "  " + reason);
-    } else {
-      if (emoji.equals(EMOJI_BUNNY)) {
-        return Optional.of("(FAST)");
-      } else {
-        return Optional.of("(SLOW) " + reason);
-      }
-    }
   }
 
   @Override
@@ -1074,16 +924,10 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
     }
   }
 
-  @VisibleForTesting
-  Optional<String> getParsingStatus() {
-    return parsingStatus;
-  }
-
   @Override
   public synchronized void close() throws IOException {
     super.close();
-    stopRenderScheduler();
-    render(); // Ensure final frame is rendered.
+    renderingConsole.close();
   }
 
   @Override

@@ -21,6 +21,7 @@ import com.facebook.buck.android.apkmodule.APKModuleGraph;
 import com.facebook.buck.android.toolchain.AndroidPlatformTarget;
 import com.facebook.buck.core.build.buildable.context.BuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.impl.BuildTargetPaths;
@@ -33,7 +34,6 @@ import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.step.AbstractExecutionStep;
-import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.step.StepExecutionResults;
@@ -41,7 +41,6 @@ import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.util.sha1.Sha1HashCode;
 import com.facebook.buck.util.types.Pair;
-import com.google.common.base.Preconditions;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.HashMultimap;
@@ -93,6 +92,7 @@ public class PreDexMerge extends AbstractBuildRuleWithDeclaredAndExtraDeps {
       EnumSet.of(
           DxStep.Option.USE_CUSTOM_DX_IF_AVAILABLE,
           DxStep.Option.RUN_IN_PROCESS,
+          DxStep.Option.NO_DESUGAR,
           DxStep.Option.NO_OPTIMIZE);
 
   @AddToRuleKey private final DexSplitMode dexSplitMode;
@@ -354,9 +354,7 @@ public class PreDexMerge extends AbstractBuildRuleWithDeclaredAndExtraDeps {
             getProjectFilesystem(),
             primaryDexPath,
             Suppliers.ofInstance(
-                rootApkModuleResult
-                    .primaryDexInputs
-                    .stream()
+                rootApkModuleResult.primaryDexInputs.stream()
                     .map(path -> sourcePathResolver.getRelativePath(getProjectFilesystem(), path))
                     .collect(ImmutableSet.toImmutableSet())),
             Optional.of(paths.jarfilesSubdir),
@@ -371,7 +369,10 @@ public class PreDexMerge extends AbstractBuildRuleWithDeclaredAndExtraDeps {
             dxExecutorService,
             xzCompressionLevel,
             dxMaxHeapSize,
-            dexTool));
+            dexTool,
+            false,
+            false,
+            Optional.empty()));
 
     for (PreDexedFilesSorter.Result result : sortResults.values()) {
       if (!result.apkModule.equals(apkModuleGraph.getRootAPKModule())) {
@@ -449,9 +450,7 @@ public class PreDexMerge extends AbstractBuildRuleWithDeclaredAndExtraDeps {
     // For single-dex apps with pre-dexing, we just add the steps directly.
 
     Stream<SourcePath> sourcePathsToDex =
-        preDexDeps
-            .values()
-            .stream()
+        preDexDeps.values().stream()
             .filter(DexProducedFromJavaLibrary::hasOutput)
             .map(DexProducedFromJavaLibrary::getSourcePathToDex);
 
@@ -475,21 +474,26 @@ public class PreDexMerge extends AbstractBuildRuleWithDeclaredAndExtraDeps {
   }
 
   public Path getMetadataTxtPath() {
-    Preconditions.checkState(dexSplitMode.isShouldSplitDex());
+    checkSplitDexEnabled();
     return new SplitDexPaths().metadataFile;
   }
 
   public Path getDexDirectory() {
-    Preconditions.checkState(dexSplitMode.isShouldSplitDex());
+    checkSplitDexEnabled();
     return new SplitDexPaths().jarfilesSubdir;
+  }
+
+  private void checkSplitDexEnabled() {
+    if (!dexSplitMode.isShouldSplitDex()) {
+      throw new HumanReadableException(
+          "A multi-dex build was requested, but `use_split_dex=True` was not specified");
+    }
   }
 
   /** @return the output directories for modular dex files */
   Stream<Path> getModuleDexPaths() {
     SplitDexPaths paths = new SplitDexPaths();
-    return apkModuleGraph
-        .getAPKModules()
-        .stream()
+    return apkModuleGraph.getAPKModules().stream()
         .filter(module -> !module.isRootModule())
         .map(module -> paths.additionalJarfilesSubdir.resolve(module.getName()));
   }

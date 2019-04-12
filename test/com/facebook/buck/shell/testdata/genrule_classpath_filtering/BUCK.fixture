@@ -17,6 +17,12 @@ genrule(
 )
 
 genrule(
+    name = "echo_classpath_binary",
+    out = "out",
+    cmd = "echo $(query_targets \"classpath(:app)\") > $OUT",
+)
+
+genrule(
     name = "echo_with_ap_dep_is_proc",
     out = "out",
     bash = "echo $(query_targets \"attrfilter(annotation_processor_deps, //annotations:proc-lib, classpath(:lib_a))\") > $OUT",
@@ -59,6 +65,18 @@ genrule(
     name = "echo_with_deps",
     out = "out",
     cmd = "echo $(query_targets \"deps(:app)\") > $OUT",
+)
+
+genrule(
+    name = "echo_with_rdeps",
+    out = "out",
+    cmd = "echo $(query_targets \"rdeps(:app, :lib_d)\") > $OUT",
+)
+
+genrule(
+    name = "echo_with_rdeps_1",
+    out = "out",
+    cmd = "echo $(query_targets \"rdeps(:app, :lib_d, 1)\") > $OUT",
 )
 
 genrule(
@@ -160,4 +178,55 @@ java_binary(
     deps = [
         ":lib_a",
     ],
+)
+
+filegroup(
+    name = "resources_a",
+    srcs = [
+        "resources/A.txt",
+    ],
+    labels = [
+        "include",
+    ],
+)
+
+filegroup(
+    name = "resources_b",
+    srcs = [
+        "resources/B.txt",
+    ],
+    labels = [
+        "include",
+    ],
+)
+
+filegroup(
+    name = "resources_c",
+    srcs = [
+        "resources/C.txt",
+    ],
+    labels = [
+    ],
+)
+
+sh_binary(
+    name = "package",
+    main = "pacakge.sh",
+)
+
+genrule(
+    name = "package_deps",
+    srcs = [
+        ":resources_a",
+        ":resources_b",
+        ":resources_c",
+    ],
+    out = "none",
+    cmd = "echo 1 > $OUT",
+)
+
+genrule(
+    name = "package_genrule",
+    out = "labels.txt",
+    cmd = "echo  $(query_outputs 'attrfilter(labels,include,deps(:package_deps))') > $OUT",
 )

@@ -38,9 +38,9 @@ import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.jvm.java.JavaBuckConfig;
 import com.facebook.buck.shell.GenruleBuilder;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -176,7 +176,8 @@ public class RobolectricTestRuleTest {
     Path resDirectoriesPath =
         RobolectricTest.getResourceDirectoriesPath(filesystem, robolectricBuildTarget);
     String result = robolectricTest.getRobolectricResourceDirectoriesArg(pathResolver, resDeps);
-    assertEquals("-Dbuck.robolectric_res_directories=@" + resDirectoriesPath, result);
+    assertEquals(
+        "-Dbuck.robolectric_res_directories=@" + filesystem.resolve(resDirectoriesPath), result);
   }
 
   @Test
@@ -219,7 +220,9 @@ public class RobolectricTestRuleTest {
     Path assetDirectoriesPath =
         RobolectricTest.getAssetDirectoriesPath(filesystem, robolectricBuildTarget);
     String result = robolectricTest.getRobolectricAssetsDirectories(pathResolver, resDeps);
-    assertEquals("-Dbuck.robolectric_assets_directories=@" + assetDirectoriesPath, result);
+    assertEquals(
+        "-Dbuck.robolectric_assets_directories=@" + filesystem.resolve(assetDirectoriesPath),
+        result);
   }
 
   @Test
@@ -234,17 +237,6 @@ public class RobolectricTestRuleTest {
     Path resDep2 = Paths.get("res2");
     Path resDep3 = Paths.get("res3");
     Path resDep4 = Paths.get("res4_to_ignore");
-
-    StringBuilder expectedVmArgBuilder = new StringBuilder();
-    expectedVmArgBuilder
-        .append("-D")
-        .append(RobolectricTest.LIST_OF_RESOURCE_DIRECTORIES_PROPERTY_NAME)
-        .append("=")
-        .append(resDep1)
-        .append(File.pathSeparator)
-        .append(resDep2)
-        .append(File.pathSeparator)
-        .append(resDep3);
 
     BuildTarget robolectricBuildTarget =
         BuildTargetFactory.newInstance(
@@ -273,7 +265,16 @@ public class RobolectricTestRuleTest {
                 new ResourceRule(FakeSourcePath.of(filesystem, resDep3)),
                 new ResourceRule(FakeSourcePath.of(filesystem, resDep4))));
 
-    assertEquals(expectedVmArgBuilder.toString(), result);
+    String expectedVmArgBuilder =
+        "-D"
+            + RobolectricTest.LIST_OF_RESOURCE_DIRECTORIES_PROPERTY_NAME
+            + "="
+            + resDep1
+            + File.pathSeparator
+            + resDep2
+            + File.pathSeparator
+            + resDep3;
+    assertEquals(expectedVmArgBuilder, result);
   }
 
   @Test
@@ -317,15 +318,6 @@ public class RobolectricTestRuleTest {
     Path assetsDep2 = Paths.get("assets2");
     Path assetsDep3 = Paths.get("assets3_to_ignore");
 
-    StringBuilder expectedVmArgBuilder = new StringBuilder();
-    expectedVmArgBuilder
-        .append("-D")
-        .append(RobolectricTest.LIST_OF_ASSETS_DIRECTORIES_PROPERTY_NAME)
-        .append("=")
-        .append(assetsDep1)
-        .append(File.pathSeparator)
-        .append(assetsDep2);
-
     BuildTarget robolectricBuildTarget =
         BuildTargetFactory.newInstance(
             "//java/src/com/facebook/base/robolectricTest:robolectricTest");
@@ -352,7 +344,14 @@ public class RobolectricTestRuleTest {
                 new ResourceRule(null, FakeSourcePath.of(filesystem, assetsDep2)),
                 new ResourceRule(null, FakeSourcePath.of(filesystem, assetsDep3))));
 
-    assertEquals(expectedVmArgBuilder.toString(), result);
+    String expectedVmArgBuilder =
+        "-D"
+            + RobolectricTest.LIST_OF_ASSETS_DIRECTORIES_PROPERTY_NAME
+            + "="
+            + assetsDep1
+            + File.pathSeparator
+            + assetsDep2;
+    assertEquals(expectedVmArgBuilder, result);
   }
 
   @Test

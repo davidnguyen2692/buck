@@ -17,16 +17,16 @@
 package com.facebook.buck.event.listener;
 
 import com.facebook.buck.core.build.event.BuildRuleEvent.Finished;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.event.BuckEvent;
 import com.facebook.buck.event.BuckEventListener;
-import com.facebook.buck.log.Logger;
 import com.facebook.buck.util.json.ObjectMappers;
 import com.facebook.buck.util.network.ScribeLogger;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
 import com.google.common.eventbus.Subscribe;
-import java.util.Arrays;
+import java.util.Collections;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 
@@ -70,7 +70,7 @@ public class ScribeEventListener implements BuckEventListener {
         () -> {
           try {
             String message = ObjectMappers.WRITER.writeValueAsString(event);
-            logger.log(category, Arrays.asList(message));
+            logger.log(category, Collections.singletonList(message));
           } catch (JsonProcessingException ex) {
             LOG.warn(ex, "Failed to create Scribe message");
           }
@@ -89,10 +89,7 @@ public class ScribeEventListener implements BuckEventListener {
       return false;
     }
     // If the event is BuildRuleFinished, only send if the status is enabled.
-    if (event.getEventName().equals("BuildRuleFinished")
-        && !enabledBuildRuleFinishedStatuses.contains(((Finished) event).getStatus().name())) {
-      return false;
-    }
-    return true;
+    return !event.getEventName().equals("BuildRuleFinished")
+        || enabledBuildRuleFinishedStatuses.contains(((Finished) event).getStatus().name());
   }
 }

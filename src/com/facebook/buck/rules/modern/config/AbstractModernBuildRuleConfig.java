@@ -24,56 +24,22 @@ import org.immutables.value.Value;
 /** Various configuration for ModernBuildRule behavior. */
 @Value.Immutable
 @BuckStyleTuple
-abstract class AbstractModernBuildRuleConfig implements ConfigView<BuckConfig> {
+abstract class AbstractModernBuildRuleConfig
+    implements ConfigView<BuckConfig>, ModernBuildRuleStrategyConfig {
   public static final String SECTION = "modern_build_rule";
 
-  public static final int DEFAULT_REMOTE_PORT = 19080;
-
-  public Strategy getBuildStrategy() {
-    return getDelegate().getEnum(SECTION, "strategy", Strategy.class).orElse(Strategy.DEFAULT);
+  @Value.Derived
+  public ModernBuildRuleStrategyConfig getDefaultStrategyConfig() {
+    return new ModernBuildRuleStrategyConfigFromSection(getDelegate(), SECTION);
   }
 
-  public String getRemoteHost() {
-    return getDelegate().getValue(SECTION, "remote_host").orElse("localhost");
+  @Override
+  public ModernBuildRuleBuildStrategy getBuildStrategy() {
+    return getDefaultStrategyConfig().getBuildStrategy();
   }
 
-  public int getRemotePort() {
-    return getDelegate().getInteger(SECTION, "remote_port").orElse(19030);
-  }
-
-  public String getCasHost() {
-    return getDelegate().getValue(SECTION, "cas_host").orElse("localhost");
-  }
-
-  public int getCasPort() {
-    return getDelegate().getInteger(SECTION, "cas_port").orElse(19031);
-  }
-
-  /**
-   * These are the supported strategies.
-   *
-   * <p>Strategies starting with DEBUG_ aren't particularly useful in production and are just meant
-   * for development.
-   */
-  public enum Strategy {
-    NONE,
-
-    GRPC_REMOTE,
-
-    THRIFT_REMOTE,
-
-    DEBUG_GRPC_SERVICE_IN_PROCESS,
-
-    DEBUG_ISOLATED_OUT_OF_PROCESS,
-    DEBUG_ISOLATED_OUT_OF_PROCESS_GRPC,
-
-    DEBUG_ISOLATED_IN_PROCESS,
-    // Creates a strategy that serializes and deserializes ModernBuildRules in memory and then
-    // builds the deserialized version.
-    DEBUG_RECONSTRUCT,
-    // Creates a strategy that just forwards to the default behavior.
-    DEBUG_PASSTHROUGH;
-
-    private static final Strategy DEFAULT = NONE;
+  @Override
+  public HybridLocalBuildStrategyConfig getHybridLocalConfig() {
+    return getDefaultStrategyConfig().getHybridLocalConfig();
   }
 }

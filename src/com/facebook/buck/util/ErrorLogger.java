@@ -16,12 +16,8 @@
 
 package com.facebook.buck.util;
 
-import static com.facebook.buck.util.string.MoreStrings.linesToText;
-
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.exceptions.handler.HumanReadableExceptionAugmentor;
-import com.facebook.buck.event.ConsoleEvent;
-import com.facebook.buck.event.EventDispatcher;
 import com.facebook.buck.util.exceptions.ExceptionWithContext;
 import com.facebook.buck.util.exceptions.WrapsException;
 import com.google.common.annotations.VisibleForTesting;
@@ -36,6 +32,7 @@ import java.nio.channels.ClosedByInterruptException;
 import java.nio.file.FileSystemLoopException;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ExecutionException;
 import java.util.regex.Pattern;
@@ -43,8 +40,6 @@ import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 
 public class ErrorLogger {
-  private static final com.facebook.buck.log.Logger LOG =
-      com.facebook.buck.log.Logger.get(ErrorLogger.class);
   private boolean suppressStackTraces = false;
 
   public ErrorLogger setSuppressStackTraces(boolean enabled) {
@@ -74,7 +69,6 @@ public class ErrorLogger {
   private final HumanReadableExceptionAugmentor errorAugmentor;
 
   /** Prints the stacktrace as formatted by an ErrorLogger. */
-  @VisibleForTesting
   public static String getUserFriendlyMessage(Throwable e) {
     StringBuilder builder = new StringBuilder();
     new ErrorLogger(
@@ -97,34 +91,6 @@ public class ErrorLogger {
     return builder.toString();
   }
 
-  public ErrorLogger(
-      EventDispatcher dispatcher,
-      String userPrefix,
-      String verboseMessage,
-      HumanReadableExceptionAugmentor errorAugmentor) {
-    this(
-        new LogImpl() {
-          @Override
-          public void logUserVisible(String message) {
-            dispatcher.post(ConsoleEvent.severe(userPrefix + message));
-          }
-
-          @Override
-          public void logUserVisibleInternalError(String message) {
-            // TODO(cjhopman): This should be colored to make it obviously different from a user
-            // error.
-            dispatcher.post(
-                ConsoleEvent.severe(linesToText("Buck encountered an internal error", message)));
-          }
-
-          @Override
-          public void logVerbose(Throwable e) {
-            LOG.debug(e, verboseMessage);
-          }
-        },
-        errorAugmentor);
-  }
-
   public ErrorLogger(LogImpl logger, HumanReadableExceptionAugmentor errorAugmentor) {
     this.logger = logger;
     this.errorAugmentor = errorAugmentor;
@@ -135,7 +101,7 @@ public class ErrorLogger {
    * context.
    */
   @VisibleForTesting
-  static class DeconstructedException {
+  public static class DeconstructedException {
     private final Throwable rootCause;
     @Nullable private final Throwable parent;
     private final ImmutableList<String> context;
@@ -155,7 +121,8 @@ public class ErrorLogger {
                   .join(context.stream().map(c -> indent + c).collect(Collectors.toList())));
     }
 
-    private String getMessage(boolean suppressStackTraces) {
+    /** Returns the message (and optionally stack trace) for the root cause. */
+    public String getMessage(boolean suppressStackTraces) {
       if (rootCause instanceof HumanReadableException) {
         return ((HumanReadableException) rootCause).getHumanReadableErrorMessage();
       }
@@ -185,7 +152,7 @@ public class ErrorLogger {
       if (rootCause instanceof OutOfMemoryError) {
         message =
             "Buck ran out of memory, you may consider increasing heap size with java args "
-                + "(see https://buckbuild.com/concept/buckjavaargs.html)"
+                + "(see https://buckbuild.com/files-and-dirs/buckjavaargs.html)"
                 + System.lineSeparator();
       }
 
@@ -210,16 +177,17 @@ public class ErrorLogger {
         return true;
       }
 
-      if (isNoSpaceOnDevice()) {
-        return true;
-      }
-
-      return false;
+      return isNoSpaceOnDevice();
     }
 
     public boolean isNoSpaceOnDevice() {
       return rootCause instanceof IOException
+          && rootCause.getMessage() != null
           && rootCause.getMessage().startsWith("No space left on device");
+    }
+
+    public Throwable getRootCause() {
+      return rootCause;
     }
 
     /**
@@ -249,7 +217,7 @@ public class ErrorLogger {
 
   /** Deconstructs an exception to assist in creating user-friendly messages. */
   @VisibleForTesting
-  static DeconstructedException deconstruct(Throwable e) {
+  public static DeconstructedException deconstruct(Throwable e) {
     Throwable parent = null;
 
     // TODO(cjhopman): Think about how to handle multiline context strings.
@@ -269,7 +237,7 @@ public class ErrorLogger {
     }
 
     return new DeconstructedException(
-        Preconditions.checkNotNull(e), parent, ImmutableList.copyOf(context));
+        Objects.requireNonNull(e), parent, ImmutableList.copyOf(context));
   }
 
   private void logUserVisible(DeconstructedException deconstructed) {

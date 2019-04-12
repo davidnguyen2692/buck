@@ -16,7 +16,7 @@
 
 package com.facebook.buck.features.lua;
 
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.description.arg.CommonDescriptionArg;
 import com.facebook.buck.core.description.arg.HasDeclaredDeps;
 import com.facebook.buck.core.description.attr.ImplicitDepsInferringDescription;
@@ -502,8 +502,7 @@ public class LuaBinaryDescription
           NativeLinkables.getTransitiveNativeLinkables(
                   cxxPlatform, graphBuilder, nativeLinkableRoots.values())
               .values()) {
-        NativeLinkable.Linkage linkage =
-            nativeLinkable.getPreferredLinkage(cxxPlatform, graphBuilder);
+        NativeLinkable.Linkage linkage = nativeLinkable.getPreferredLinkage(cxxPlatform);
         if (linkage != NativeLinkable.Linkage.STATIC) {
           builder.putAllNativeLibraries(
               nativeLinkable.getSharedLibraries(cxxPlatform, graphBuilder));
@@ -644,15 +643,13 @@ public class LuaBinaryDescription
 
       @AddToRuleKey
       private final List<NonHashableSourcePathContainer> toolNativeLibsLinkTree =
-          nativeLibsLinktree
-              .stream()
+          nativeLibsLinktree.stream()
               .map(linkTree -> new NonHashableSourcePathContainer(linkTree.getSourcePathToOutput()))
               .collect(ImmutableList.toImmutableList());
 
       @AddToRuleKey
       private final List<NonHashableSourcePathContainer> toolPythonModulesLinktree =
-          pythonModulesLinktree
-              .stream()
+          pythonModulesLinktree.stream()
               .map(linkTree -> new NonHashableSourcePathContainer(linkTree.getSourcePathToOutput()))
               .collect(ImmutableList.toImmutableList());
 
@@ -682,8 +679,9 @@ public class LuaBinaryDescription
       LuaPackageComponents components) {
     Path output = getOutputPath(buildTarget, projectFilesystem, luaPlatform);
 
-    Tool lua = luaPlatform.getLua().resolve(graphBuilder);
-    Tool packager = luaPlatform.getPackager().resolve(graphBuilder);
+    Tool lua = luaPlatform.getLua().resolve(graphBuilder, buildTarget.getTargetConfiguration());
+    Tool packager =
+        luaPlatform.getPackager().resolve(graphBuilder, buildTarget.getTargetConfiguration());
 
     LuaStandaloneBinary binary =
         graphBuilder.addToIndex(
@@ -700,12 +698,10 @@ public class LuaBinaryDescription
                             .build())
                     .withoutExtraDeps(),
                 packager,
-                ImmutableList.of(),
                 output,
-                Optional.of(starter),
+                starter,
                 components,
                 mainModule,
-                lua,
                 luaPlatform.shouldCacheBinaries()));
 
     return new CommandTool.Builder()
@@ -833,7 +829,7 @@ public class LuaBinaryDescription
         binary,
         args.getMainModule(),
         components.getComponents(),
-        luaPlatform.getLua().resolve(graphBuilder),
+        luaPlatform.getLua().resolve(graphBuilder, buildTarget.getTargetConfiguration()),
         packageStyle);
   }
 
@@ -846,7 +842,8 @@ public class LuaBinaryDescription
       ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
     LuaPlatform luaPlatform = getPlatform(buildTarget, constructorArg);
     if (luaPlatform.getPackageStyle() == LuaPlatform.PackageStyle.STANDALONE) {
-      extraDepsBuilder.addAll(luaPlatform.getPackager().getParseTimeDeps());
+      extraDepsBuilder.addAll(
+          luaPlatform.getPackager().getParseTimeDeps(buildTarget.getTargetConfiguration()));
     }
     extraDepsBuilder.addAll(getNativeStarterDepTargets(luaPlatform));
   }

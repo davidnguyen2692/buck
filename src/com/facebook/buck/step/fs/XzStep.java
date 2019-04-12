@@ -16,8 +16,8 @@
 
 package com.facebook.buck.step.fs;
 
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.step.StepExecutionResults;
@@ -83,7 +83,8 @@ public class XzStep implements Step {
   }
 
   /**
-   * Creates an XzStep to compress a file with XZ compression level 4.
+   * Creates an XzStep to compress a file with XZ compression level {@value
+   * #DEFAULT_COMPRESSION_LEVEL}.
    *
    * <p>The destination file will be {@code sourceFile} with the added {@code .xz} extension.
    *
@@ -93,18 +94,6 @@ public class XzStep implements Step {
    */
   public XzStep(ProjectFilesystem filesystem, Path sourceFile) {
     this(filesystem, sourceFile, DEFAULT_COMPRESSION_LEVEL);
-  }
-
-  /**
-   * Creates an XzStep to compress a file with XZ compression level 4.
-   *
-   * <p>Decompression will require 5MiB of RAM.
-   *
-   * @param sourceFile file to compress
-   * @param outputPath desired output path
-   */
-  public XzStep(ProjectFilesystem filesystem, Path sourceFile, Path outputPath) {
-    this(filesystem, sourceFile, outputPath, DEFAULT_COMPRESSION_LEVEL);
   }
 
   /**
@@ -143,8 +132,7 @@ public class XzStep implements Step {
   }
 
   @Override
-  public StepExecutionResult execute(ExecutionContext context)
-      throws IOException, InterruptedException {
+  public StepExecutionResult execute(ExecutionContext context) throws IOException {
     boolean deleteSource = false;
     try (InputStream in = filesystem.newFileInputStream(sourceFile);
         OutputStream out = filesystem.newFileOutputStream(destinationFile);

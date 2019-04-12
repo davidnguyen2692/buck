@@ -16,8 +16,7 @@
 
 package com.facebook.buck.features.go;
 
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
-import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.InternalFlavor;
 import com.facebook.buck.core.model.impl.BuildTargetPaths;
@@ -51,16 +50,19 @@ import com.facebook.buck.rules.args.FileListableLinkerInputArg;
 import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
 import com.facebook.buck.rules.macros.StringWithMacros;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Streams;
+import com.google.common.io.Files;
 import java.nio.file.Path;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.Objects;
 import java.util.Optional;
+import java.util.stream.Stream;
 
 /**
  * The CGoLibrary represents cgo build process which outputs the linkable object that is appended to
@@ -100,13 +102,7 @@ public class CGoLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps {
       GoPlatform platform,
       CgoLibraryDescriptionArg args,
       Iterable<BuildTarget> cxxDeps,
-      Tool cgo,
-      Path packageName) {
-
-    if (args.getLinkStyle().isPresent()
-        && args.getLinkStyle().get() != Linker.LinkableDepType.STATIC_PIC) {
-      throw new HumanReadableException("CGoLibrary currently supports only static_pic link style.");
-    }
+      Tool cgo) {
 
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
     CxxDeps allDeps =
@@ -132,6 +128,20 @@ public class CGoLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps {
             cxxDeps,
             headers);
 
+    ImmutableSet.Builder<SourcePath> cxxSourcesFromArg = ImmutableSet.builder();
+    ImmutableSet.Builder<SourcePath> goSourcesFromArg = ImmutableSet.builder();
+
+    for (SourceWithFlags srcWithFlags : args.getSrcs()) {
+      SourcePath pth = srcWithFlags.getSourcePath();
+      String ext = Files.getFileExtension(pathResolver.getAbsolutePath(pth).toString());
+
+      if (CxxSource.Type.fromExtension(ext).equals(Optional.of(CxxSource.Type.C))) {
+        cxxSourcesFromArg.add(pth);
+      } else if (ext.equals("go")) {
+        goSourcesFromArg.add(pth);
+      }
+    }
+
     CGoGenSource genSource =
         (CGoGenSource)
             graphBuilder.computeIfAbsent(
@@ -142,10 +152,7 @@ public class CGoLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps {
                         projectFilesystem,
                         ruleFinder,
                         pathResolver,
-                        args.getSrcs()
-                            .stream()
-                            .map(x -> x.getSourcePath())
-                            .collect(ImmutableSet.toImmutableSet()),
+                        goSourcesFromArg.build(),
                         headerSymlinkTree,
                         cgo,
                         args.getCgoCompilerFlags(),
@@ -183,6 +190,7 @@ public class CGoLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps {
                                 genSource.getExportHeader())
                             .build(),
                         new ImmutableList.Builder<SourcePath>()
+                            .addAll(cxxSourcesFromArg.build())
                             .addAll(genSource.getCFiles())
                             .addAll(genSource.getCgoFiles())
                             .build(),
@@ -200,8 +208,18 @@ public class CGoLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps {
                     pathResolver,
                     cgo,
                     platform,
-                    packageName,
-                    Preconditions.checkNotNull(cgoBin.getSourcePathToOutput())));
+                    // take first source file in the list to infer the package
+                    // name via go list
+                    goSourcesFromArg.build().iterator().next(),
+                    Objects.requireNonNull(cgoBin.getSourcePathToOutput())));
+
+    // filter out compiled object only for the sources we are interested in
+    ImmutableList<String> linkableObjectFiles =
+        Stream.concat(
+                cxxSourcesFromArg.build().stream()
+                    .map(x -> pathResolver.getAbsolutePath(x).getFileName().toString()),
+                ImmutableList.of(".cgo2.c", "_cgo_export.c").stream())
+            .collect(ImmutableList.toImmutableList());
 
     // generate final object file (equivalent of _all.o) which includes:
     //  * _cgo_export.o
@@ -210,16 +228,15 @@ public class CGoLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps {
         ImmutableList.<Arg>builder()
             .addAll(StringArg.from("-r", "-nostdlib"))
             .addAll(
-                cgoBin
-                    .getArgs()
-                    .stream()
+                cgoBin.getArgs().stream()
                     .filter(FileListableLinkerInputArg.class::isInstance)
                     .map(FileListableLinkerInputArg.class::cast)
                     .filter(
                         arg -> {
-                          String fileName =
-                              pathResolver.getAbsolutePath(arg.getPath()).getFileName().toString();
-                          return fileName.contains(".cgo2.c") || fileName.contains("_cgo_export.c");
+                          Path pth = pathResolver.getAbsolutePath(arg.getPath());
+                          String fileName = pth.getFileName().toString();
+                          return pth.toString().contains("cgo-first-step")
+                              && linkableObjectFiles.stream().anyMatch(x -> fileName.contains(x));
                         })
                     .collect(ImmutableList.toImmutableList()))
             .build();
@@ -237,10 +254,10 @@ public class CGoLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps {
                         graphBuilder,
                         ruleFinder,
                         target,
-                        BuildTargetPaths.getGenPath(projectFilesystem, target, "%s/_all"),
+                        BuildTargetPaths.getGenPath(projectFilesystem, target, "%s/_all.o"),
                         ImmutableMap.of(),
                         cxxArgs, // collection of selected object files
-                        Linker.LinkableDepType.STATIC_PIC,
+                        args.getLinkStyle().orElse(Linker.LinkableDepType.STATIC_PIC),
                         CxxLinkOptions.of(),
                         Optional.empty()));
 
@@ -262,22 +279,22 @@ public class CGoLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps {
                                 ruleFinder.filterBuildRuleInputs(cgoAllBin.getSourcePathToOutput()))
                             .addAll(
                                 ruleFinder.filterBuildRuleInputs(
-                                    new ImmutableList.Builder<SourcePath>()
+                                    new Builder<SourcePath>()
                                         .addAll(genSource.getGoFiles())
                                         .add(
-                                            Preconditions.checkNotNull(
+                                            Objects.requireNonNull(
                                                 cgoImport.getSourcePathToOutput()))
                                         .build()))
                             .build())
                     .withoutExtraDeps(),
                 target,
                 projectFilesystem,
-                new ImmutableList.Builder<SourcePath>()
+                new Builder<SourcePath>()
                     .addAll(genSource.getGoFiles())
-                    .add(Preconditions.checkNotNull(cgoImport.getSourcePathToOutput()))
+                    .add(Objects.requireNonNull(cgoImport.getSourcePathToOutput()))
                     .build(),
-                Preconditions.checkNotNull(cgoAllBin.getSourcePathToOutput()),
-                Preconditions.checkNotNull(allDeps.get(graphBuilder, platform.getCxxPlatform()))));
+                Objects.requireNonNull(cgoAllBin.getSourcePathToOutput()),
+                Objects.requireNonNull(allDeps.get(graphBuilder, platform.getCxxPlatform()))));
   }
 
   private static HeaderSymlinkTree getHeaderSymlinkTree(
@@ -302,8 +319,7 @@ public class CGoLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps {
 
     // scan CxxDeps for headers and add them to allHeaders
     HashMap<Path, SourcePath> cxxDepsHeaders = new HashMap<Path, SourcePath>();
-    cxxPreprocessorInputs
-        .stream()
+    cxxPreprocessorInputs.stream()
         .flatMap(input -> input.getIncludes().stream())
         .filter(header -> header instanceof CxxSymlinkTreeHeaders)
         .flatMap(header -> ((CxxSymlinkTreeHeaders) header).getNameToPathMap().entrySet().stream())
@@ -363,7 +379,7 @@ public class CGoLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps {
             ImmutableSet.of(),
             Optional.empty(),
             Optional.empty(),
-            Linker.LinkableDepType.STATIC_PIC,
+            args.getLinkStyle().orElse(Linker.LinkableDepType.STATIC_PIC),
             CxxLinkOptions.of(),
             args.getPreprocessorFlags(),
             args.getPlatformPreprocessorFlags(),
@@ -381,7 +397,9 @@ public class CGoLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps {
             args.getLinkerExtraOutputs(),
             args.getPlatformLinkerFlags(),
             Optional.empty(),
-            args.getRawHeaders());
+            args.getRawHeaders(),
+            args.getIncludeDirectories(),
+            Optional.empty());
 
     return cxxLinkAndCompileRules.getCxxLink();
   }

@@ -22,6 +22,7 @@ import static com.facebook.buck.swift.SwiftLibraryDescription.SWIFT_COMPILE_FLAV
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.FlavorDomain;
+import com.facebook.buck.core.model.TargetConfiguration;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.BuildRuleParams;
@@ -30,13 +31,13 @@ import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.attr.HasRuntimeDeps;
 import com.facebook.buck.core.rules.impl.NoopBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.core.sourcepath.SourcePath;
-import com.facebook.buck.cxx.CxxBridgingHeaders;
 import com.facebook.buck.cxx.CxxDescriptionEnhancer;
 import com.facebook.buck.cxx.CxxHeadersDir;
 import com.facebook.buck.cxx.CxxLink;
 import com.facebook.buck.cxx.CxxPreprocessables;
 import com.facebook.buck.cxx.CxxPreprocessorDep;
 import com.facebook.buck.cxx.CxxPreprocessorInput;
+import com.facebook.buck.cxx.CxxRawHeaders;
 import com.facebook.buck.cxx.TransitiveCxxPreprocessorInputCache;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.LinkerMapMode;
@@ -52,11 +53,11 @@ import com.facebook.buck.util.RichStream;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.ImmutableSortedSet;
 import java.util.Collection;
 import java.util.Optional;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
-import java.util.stream.StreamSupport;
 
 /**
  * An action graph representation of a Swift library from the target graph, providing the various
@@ -132,7 +133,9 @@ class SwiftLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
       return ImmutableList.of();
     }
     SwiftRuntimeNativeLinkable swiftRuntimeNativeLinkable =
-        new SwiftRuntimeNativeLinkable(swiftPlatformFlavorDomain.getValue(cxxPlatform.getFlavor()));
+        new SwiftRuntimeNativeLinkable(
+            swiftPlatformFlavorDomain.getValue(cxxPlatform.getFlavor()),
+            getBuildTarget().getTargetConfiguration());
     return RichStream.from(exportedDeps)
         .filter(NativeLinkable.class)
         .concat(RichStream.of(swiftRuntimeNativeLinkable))
@@ -144,8 +147,8 @@ class SwiftLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
       CxxPlatform cxxPlatform,
       Linker.LinkableDepType type,
       boolean forceLinkWhole,
-      ImmutableSet<LanguageExtensions> languageExtensions,
-      ActionGraphBuilder graphBuilder) {
+      ActionGraphBuilder graphBuilder,
+      TargetConfiguration targetConfiguration) {
     SwiftCompile rule = requireSwiftCompileRule(cxxPlatform.getFlavor());
     NativeLinkableInput.Builder inputBuilder = NativeLinkableInput.builder();
     inputBuilder
@@ -153,7 +156,7 @@ class SwiftLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
         .addAllFrameworks(frameworks)
         .addAllLibraries(libraries);
     boolean isDynamic;
-    Linkage preferredLinkage = getPreferredLinkage(cxxPlatform, graphBuilder);
+    Linkage preferredLinkage = getPreferredLinkage(cxxPlatform);
     switch (preferredLinkage) {
       case STATIC:
         isDynamic = false;
@@ -233,8 +236,7 @@ class SwiftLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
   }
 
   @Override
-  public NativeLinkable.Linkage getPreferredLinkage(
-      CxxPlatform cxxPlatform, ActionGraphBuilder graphBuilder) {
+  public NativeLinkable.Linkage getPreferredLinkage(CxxPlatform cxxPlatform) {
     // don't create dylib for swift companion target.
     if (getBuildTarget().getFlavors().contains(SWIFT_COMPANION_FLAVOR)) {
       return Linkage.STATIC;
@@ -249,16 +251,14 @@ class SwiftLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
     // will pull in runtime deps (e.g. other binaries) or transitive C/C++ libraries.  Since the
     // `CxxLibrary` rules themselves are noop meta rules, they shouldn't add any unnecessary
     // overhead.
-    return Stream.concat(
-            getDeclaredDeps().stream(), StreamSupport.stream(exportedDeps.spliterator(), false))
+    return Stream.concat(getDeclaredDeps().stream(), exportedDeps.stream())
         .map(BuildRule::getBuildTarget);
   }
 
   @Override
   public Iterable<CxxPreprocessorDep> getCxxPreprocessorDeps(
       CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver) {
-    return getBuildDeps()
-        .stream()
+    return getBuildDeps().stream()
         .filter(CxxPreprocessorDep.class::isInstance)
         .map(CxxPreprocessorDep.class::cast)
         .collect(ImmutableSet.toImmutableSet());
@@ -277,7 +277,7 @@ class SwiftLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
     builder.addIncludes(
         CxxHeadersDir.of(CxxPreprocessables.IncludeType.LOCAL, rule.getSourcePathToOutput()));
     if (bridgingHeader.isPresent()) {
-      builder.addIncludes(CxxBridgingHeaders.from(bridgingHeader.get()));
+      builder.addIncludes(CxxRawHeaders.of(ImmutableSortedSet.of(bridgingHeader.get())));
     }
     return builder.build();
   }

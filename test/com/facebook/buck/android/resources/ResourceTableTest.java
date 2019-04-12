@@ -29,7 +29,6 @@ import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
 import com.google.common.io.ByteStreams;
 import java.io.ByteArrayOutputStream;
-import java.io.IOException;
 import java.io.PrintStream;
 import java.nio.ByteBuffer;
 import java.nio.file.Files;
@@ -52,7 +51,7 @@ public class ResourceTableTest {
   private Path apkPath;
 
   @Before
-  public void setUp() throws InterruptedException, IOException {
+  public void setUp() {
     filesystem =
         TestProjectFilesystems.createProjectFilesystem(
             TestDataHelper.getTestDataDirectory(this).resolve("aapt_dump"));
@@ -100,8 +99,7 @@ public class ResourceTableTest {
       String expected =
           Joiner.on("\n")
               .join(
-                  Files.readAllLines(resourcesOutput)
-                      .stream()
+                  Files.readAllLines(resourcesOutput).stream()
                       .map((s) -> re.matcher(s).matches() ? "      config (unknown):" : s)
                       .iterator());
       MoreAsserts.assertLargeStringsEqual(expected + "\n", content);
@@ -131,8 +129,7 @@ public class ResourceTableTest {
       String expected =
           Joiner.on("\n")
               .join(
-                  Files.readAllLines(resourcesOutput)
-                      .stream()
+                  Files.readAllLines(resourcesOutput).stream()
                       .map((s) -> re.matcher(s).matches() ? "      config (unknown):" : s)
                       .iterator());
       MoreAsserts.assertLargeStringsEqual(expected + "\n", content);
@@ -162,8 +159,7 @@ public class ResourceTableTest {
       String expected =
           Joiner.on("\n")
               .join(
-                  Files.readAllLines(resourcesOutput)
-                      .stream()
+                  Files.readAllLines(resourcesOutput).stream()
                       .map((s) -> re.matcher(s).matches() ? "      config (unknown):" : s)
                       .iterator());
       MoreAsserts.assertLargeStringsEqual(expected + "\n", content);

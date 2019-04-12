@@ -39,11 +39,11 @@ import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.rules.keys.RuleKeyDiagnostics.Result;
 import com.facebook.buck.rules.keys.config.TestRuleKeyConfigurationFactory;
 import com.facebook.buck.rules.keys.hasher.StringRuleKeyHasher;
 import com.facebook.buck.testutil.DummyFileHashCache;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.util.cache.FileHashCache;
 import com.facebook.buck.util.cache.FileHashCacheMode;
 import com.facebook.buck.util.cache.impl.DefaultFileHashCache;
@@ -447,7 +447,6 @@ public class DefaultRuleKeyFactoryTest {
     assertBothKeysAndValuesGetHashed(
         BuildTargetFactory.newInstance(Paths.get("/root"), "//example/base:one"),
         BuildTargetFactory.newInstance(Paths.get("/root"), "//example/base:two"));
-    assertBothKeysAndValuesGetHashed(new SourceRoot("root1"), new SourceRoot("root2"));
 
     // wrapper types
     assertBothKeysAndValuesGetHashed(Optional.of("abc"), Optional.of("def"));

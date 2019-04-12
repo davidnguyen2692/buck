@@ -16,16 +16,17 @@
 
 package com.facebook.buck.query;
 
-import static org.easymock.EasyMock.createMock;
-import static org.easymock.EasyMock.expect;
-import static org.easymock.EasyMock.replay;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
 import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.query.QueryEnvironment.Argument;
+import com.facebook.buck.query.QueryEnvironment.TargetEvaluator;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
+import java.util.Set;
+import java.util.function.Predicate;
 import org.hamcrest.Matchers;
 import org.junit.Before;
 import org.junit.Rule;
@@ -42,20 +43,16 @@ public class QueryParserTest {
 
   @Before
   public void makeEnvironment() {
-    QueryEnvironment.TargetEvaluator targetEvaluator =
-        createMock(QueryEnvironment.TargetEvaluator.class);
-    expect(targetEvaluator.getType()).andStubReturn(QueryEnvironment.TargetEvaluator.Type.LAZY);
-    queryEnvironment = createMock(QueryEnvironment.class);
-    expect(queryEnvironment.getFunctions()).andStubReturn(QueryEnvironment.DEFAULT_QUERY_FUNCTIONS);
-    expect(queryEnvironment.getTargetEvaluator()).andReturn(targetEvaluator);
-    replay(targetEvaluator);
-    replay(queryEnvironment);
+    QueryEnvironment.TargetEvaluator targetEvaluator = new TestTargetEvaluator();
+    queryEnvironment = new TestQueryEnvironment(targetEvaluator);
   }
 
   @Test
   public void testDeps() throws Exception {
-    ImmutableList<Argument> args = ImmutableList.of(Argument.of(TargetLiteral.of("//foo:bar")));
-    QueryExpression expected = FunctionExpression.of(new DepsFunction(), args);
+    ImmutableList<Argument<QueryBuildTarget>> args =
+        ImmutableList.of(Argument.of(TargetLiteral.of("//foo:bar")));
+    QueryExpression<QueryBuildTarget> expected =
+        new ImmutableFunctionExpression<>(new DepsFunction(), args);
 
     String query = "deps('//foo:bar')";
     QueryExpression result = QueryParser.parse(query, queryEnvironment);
@@ -64,16 +61,17 @@ public class QueryParserTest {
 
   @Test
   public void testTestsOfDepsSet() throws Exception {
-    ImmutableList<TargetLiteral> args =
+    ImmutableList<TargetLiteral<QueryBuildTarget>> args =
         ImmutableList.of(TargetLiteral.of("//foo:bar"), TargetLiteral.of("//other:lib"));
-    QueryExpression depsExpr =
-        FunctionExpression.of(
+    QueryExpression<QueryBuildTarget> depsExpr =
+        new ImmutableFunctionExpression<>(
             new DepsFunction(), ImmutableList.of(Argument.of(SetExpression.of(args))));
-    QueryExpression testsofExpr =
-        FunctionExpression.of(new TestsOfFunction(), ImmutableList.of(Argument.of(depsExpr)));
+    QueryExpression<QueryBuildTarget> testsofExpr =
+        new ImmutableFunctionExpression<>(
+            new TestsOfFunction(), ImmutableList.of(Argument.of(depsExpr)));
 
     String query = "testsof(deps(set('//foo:bar' //other:lib)))";
-    QueryExpression result = QueryParser.parse(query, queryEnvironment);
+    QueryExpression<QueryBuildTarget> result = QueryParser.parse(query, queryEnvironment);
     assertThat(result, is(equalTo(testsofExpr)));
   }
 
@@ -121,5 +119,94 @@ public class QueryParserTest {
     thrown.expectMessage("https://buckbuild.com/command/query.html#deps");
     String query = "deps(//foo:bar, //bar:foo)";
     QueryParser.parse(query, queryEnvironment);
+  }
+
+  private static class TestTargetEvaluator implements TargetEvaluator {
+
+    @Override
+    public ImmutableSet<QueryTarget> evaluateTarget(String target) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public Type getType() {
+      return TargetEvaluator.Type.LAZY;
+    }
+  }
+
+  private static class TestQueryEnvironment implements QueryEnvironment<QueryBuildTarget> {
+
+    private final TargetEvaluator targetEvaluator;
+
+    private TestQueryEnvironment(TargetEvaluator targetEvaluator) {
+      this.targetEvaluator = targetEvaluator;
+    }
+
+    @Override
+    public TargetEvaluator getTargetEvaluator() {
+      return targetEvaluator;
+    }
+
+    @Override
+    public Iterable<QueryFunction<?, QueryBuildTarget>> getFunctions() {
+      return ImmutableList.of(new DepsFunction(), new RdepsFunction(), new TestsOfFunction());
+    }
+
+    @Override
+    public ImmutableSet<QueryBuildTarget> getFwdDeps(Iterable<QueryBuildTarget> targets) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public Set<QueryBuildTarget> getReverseDeps(Iterable<QueryBuildTarget> targets) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public Set<QueryFileTarget> getInputs(QueryBuildTarget target) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public Set<QueryBuildTarget> getTransitiveClosure(Set<QueryBuildTarget> targets) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void buildTransitiveClosure(Set<? extends QueryTarget> targetNodes, int maxDepth) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public String getTargetKind(QueryBuildTarget target) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public ImmutableSet<QueryBuildTarget> getTestsForTarget(QueryBuildTarget target) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public ImmutableSet<QueryFileTarget> getBuildFiles(Set<QueryBuildTarget> targets) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public ImmutableSet<QueryBuildTarget> getFileOwners(ImmutableList<String> files) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public ImmutableSet<? extends QueryTarget> getTargetsInAttribute(
+        QueryBuildTarget target, String attribute) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public ImmutableSet<Object> filterAttributeContents(
+        QueryBuildTarget target, String attribute, Predicate<Object> predicate) {
+      throw new UnsupportedOperationException();
+    }
   }
 }

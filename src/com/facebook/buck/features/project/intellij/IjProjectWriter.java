@@ -16,48 +16,65 @@
 
 package com.facebook.buck.features.project.intellij;
 
+import static com.facebook.buck.features.project.intellij.IjProjectPaths.getUrl;
+
 import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.model.targetgraph.TargetNode;
-import com.facebook.buck.core.model.targetgraph.impl.TargetGraphAndTargets;
+import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.features.project.intellij.model.ContentRoot;
 import com.facebook.buck.features.project.intellij.model.IjLibrary;
 import com.facebook.buck.features.project.intellij.model.IjModule;
 import com.facebook.buck.features.project.intellij.model.IjProjectConfig;
-import com.facebook.buck.features.project.intellij.model.IjProjectElement;
 import com.facebook.buck.features.project.intellij.model.ModuleIndexEntry;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.util.json.ObjectMappers;
+import com.fasterxml.jackson.core.JsonGenerator;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Ordering;
-import com.google.common.collect.Sets;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Comparator;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.TreeMap;
 import org.stringtemplate.v4.ST;
 
 /** Writes the serialized representations of IntelliJ project components to disk. */
 public class IjProjectWriter {
+  static final String TARGET_INFO_MAP_FILENAME = "target-info.json";
+  static final String INTELLIJ_TYPE = "intellij.type";
+  static final String INTELLIJ_NAME = "intellij.name";
+  static final String INTELLIJ_FILE_PATH = "intellij.file_path";
+  static final String MODULE_TYPE = "module";
+  static final String LIBRARY_TYPE = "library";
+
+  private final TargetGraph targetGraph;
   private final IjProjectTemplateDataPreparer projectDataPreparer;
   private final IjProjectConfig projectConfig;
   private final ProjectFilesystem projectFilesystem;
   private final IntellijModulesListParser modulesParser;
   private final IJProjectCleaner cleaner;
   private final ProjectFilesystem outFilesystem;
+  private final IjProjectPaths projectPaths;
 
   public IjProjectWriter(
+      TargetGraph targetGraph,
       IjProjectTemplateDataPreparer projectDataPreparer,
       IjProjectConfig projectConfig,
       ProjectFilesystem projectFilesystem,
       IntellijModulesListParser modulesParser,
       IJProjectCleaner cleaner,
       ProjectFilesystem outFilesystem) {
+    this.targetGraph = targetGraph;
     this.projectDataPreparer = projectDataPreparer;
     this.projectConfig = projectConfig;
+    this.projectPaths = projectConfig.getProjectPaths();
     this.projectFilesystem = projectFilesystem;
     this.modulesParser = modulesParser;
     this.cleaner = cleaner;
@@ -70,18 +87,102 @@ public class IjProjectWriter {
 
     writeProjectSettings();
 
-    for (IjModule module : projectDataPreparer.getModulesToBeWritten()) {
-      ImmutableList<ContentRoot> contentRoots = projectDataPreparer.getContentRoots(module);
-      writeModule(module, contentRoots);
-    }
-    for (IjLibrary library : projectDataPreparer.getLibrariesToBeWritten()) {
-      writeLibrary(library);
-    }
+    projectDataPreparer
+        .getModulesToBeWritten()
+        .parallelStream()
+        .forEach(
+            module -> {
+              try {
+                writeModule(module, projectDataPreparer.getContentRoots(module));
+              } catch (IOException exception) {
+                throw new RuntimeException(exception);
+              }
+            });
+    projectDataPreparer
+        .getLibrariesToBeWritten()
+        .parallelStream()
+        .forEach(
+            library -> {
+              try {
+                writeLibrary(library);
+              } catch (IOException exception) {
+                throw new RuntimeException(exception);
+              }
+            });
+
     writeModulesIndex(projectDataPreparer.getModuleIndexEntries());
     writeWorkspace();
+
+    if (projectConfig.isGeneratingTargetInfoMapEnabled()) {
+      writeTargetInfoMap(projectDataPreparer, false);
+    }
   }
 
-  private void writeModule(IjModule module, ImmutableList<ContentRoot> contentRoots)
+  private Map<String, Map<String, String>> readTargetInfoMap() throws IOException {
+    Path targetInfoMapPath = getTargetInfoMapPath();
+    return outFilesystem.exists(targetInfoMapPath)
+        ? ObjectMappers.createParser(outFilesystem.newFileInputStream(targetInfoMapPath))
+            .readValueAs(new TypeReference<TreeMap<String, TreeMap<String, String>>>() {})
+        : Maps.newTreeMap();
+  }
+
+  private void writeTargetInfoMap(IjProjectTemplateDataPreparer projectDataPreparer, boolean update)
+      throws IOException {
+    Map<String, Map<String, String>> targetInfoMap =
+        update ? readTargetInfoMap() : Maps.newTreeMap();
+    projectDataPreparer
+        .getModulesToBeWritten()
+        .forEach(
+            module -> {
+              module
+                  .getTargets()
+                  .forEach(
+                      target -> {
+                        Map<String, String> targetInfo = Maps.newTreeMap();
+                        targetInfo.put(INTELLIJ_TYPE, MODULE_TYPE);
+                        targetInfo.put(INTELLIJ_NAME, module.getName());
+                        targetInfo.put(
+                            INTELLIJ_FILE_PATH,
+                            projectPaths.getModuleImlFilePath(module).toString());
+                        targetInfo.put("buck.type", getRuleNameForBuildTarget(target));
+                        targetInfoMap.put(target.getFullyQualifiedName(), targetInfo);
+                      });
+            });
+    projectDataPreparer
+        .getLibrariesToBeWritten()
+        .forEach(
+            library -> {
+              library
+                  .getTargets()
+                  .forEach(
+                      target -> {
+                        Map<String, String> targetInfo = Maps.newTreeMap();
+                        targetInfo.put(INTELLIJ_TYPE, LIBRARY_TYPE);
+                        targetInfo.put(INTELLIJ_NAME, library.getName());
+                        targetInfo.put(
+                            INTELLIJ_FILE_PATH,
+                            projectPaths.getLibraryXmlFilePath(library).toString());
+                        targetInfo.put("buck.type", getRuleNameForBuildTarget(target));
+                        targetInfoMap.put(target.getFullyQualifiedName(), targetInfo);
+                      });
+            });
+    Path targetInfoMapPath = getTargetInfoMapPath();
+    try (JsonGenerator generator =
+        ObjectMappers.createGenerator(outFilesystem.newFileOutputStream(targetInfoMapPath))
+            .useDefaultPrettyPrinter()) {
+      generator.writeObject(targetInfoMap);
+    }
+  }
+
+  private Path getTargetInfoMapPath() {
+    return getIdeaConfigDir().resolve(TARGET_INFO_MAP_FILENAME);
+  }
+
+  private String getRuleNameForBuildTarget(BuildTarget buildTarget) {
+    return targetGraph.get(buildTarget).getRuleType().getName();
+  }
+
+  private boolean writeModule(IjModule module, ImmutableList<ContentRoot> contentRoots)
       throws IOException {
 
     ST moduleContents = StringTemplateFile.MODULE_TEMPLATE.getST();
@@ -102,10 +203,10 @@ public class IjProjectWriter {
         "metaInfDirectory",
         module
             .getMetaInfDirectory()
-            .map((dir) -> module.getModuleBasePath().relativize(dir))
+            .map((dir) -> getUrl(projectPaths.getModuleQualifiedPath(dir, module)))
             .orElse(null));
 
-    writeTemplate(moduleContents, module.getModuleImlFilePath());
+    return writeTemplate(moduleContents, projectPaths.getModuleImlFilePath(module));
   }
 
   private void writeProjectSettings() throws IOException {
@@ -136,7 +237,7 @@ public class IjProjectWriter {
       return languageLevelFromConfig.get();
     } else {
       String languageLevel =
-          projectConfig.getJavaBuckConfig().getDefaultJavacOptions().getSourceLevel();
+          projectConfig.getJavaBuckConfig().getJavacLanguageLevelOptions().getSourceLevel();
       return JavaLanguageLevelHelper.convertLanguageLevelToIjFormat(languageLevel);
     }
   }
@@ -148,37 +249,26 @@ public class IjProjectWriter {
 
   private void writeLibrary(IjLibrary library) throws IOException {
     ST contents = StringTemplateFile.LIBRARY_TEMPLATE.getST();
-    IjProjectPaths projectPaths = projectConfig.getProjectPaths();
     contents.add("name", library.getName());
     contents.add(
         "binaryJars",
-        library
-            .getBinaryJars()
-            .stream()
-            .map(projectPaths::toProjectDirRelativeString)
+        library.getBinaryJars().stream()
+            .map(projectPaths::getProjectRelativePath)
             .collect(ImmutableSortedSet.toImmutableSortedSet(Ordering.natural())));
     contents.add(
         "classPaths",
-        library
-            .getClassPaths()
-            .stream()
-            .map(projectPaths::toProjectDirRelativeString)
+        library.getClassPaths().stream()
+            .map(projectPaths::getProjectRelativePath)
             .collect(ImmutableSortedSet.toImmutableSortedSet(Ordering.natural())));
     contents.add(
         "sourceJars",
-        library
-            .getSourceJars()
-            .stream()
-            .map(projectPaths::toProjectDirRelativeString)
+        library.getSourceJars().stream()
+            .map(projectPaths::getProjectRelativePath)
             .collect(ImmutableSortedSet.toImmutableSortedSet(Ordering.natural())));
     contents.add("javadocUrls", library.getJavadocUrls());
     // TODO(mkosiba): support res and assets for aar.
 
-    Path path =
-        projectConfig
-            .getProjectPaths()
-            .getLibrariesDir()
-            .resolve(Util.normalizeIntelliJName(library.getName()) + ".xml");
+    Path path = projectPaths.getLibraryXmlFilePath(library);
     writeTemplate(contents, path);
   }
 
@@ -192,7 +282,7 @@ public class IjProjectWriter {
   }
 
   private Path getIdeaConfigDir() {
-    return projectConfig.getProjectPaths().getIdeaConfigDir();
+    return projectPaths.getIdeaConfigDir();
   }
 
   /**
@@ -200,9 +290,11 @@ public class IjProjectWriter {
    *
    * @param path Relative path from project root
    */
-  private void writeTemplate(ST contents, Path path) throws IOException {
-    StringTemplateFile.writeToFile(outFilesystem, contents, path, getIdeaConfigDir());
+  private boolean writeTemplate(ST contents, Path path) throws IOException {
+    boolean didUpdate =
+        StringTemplateFile.writeToFile(outFilesystem, contents, path, getIdeaConfigDir());
     cleaner.doNotDelete(path);
+    return didUpdate;
   }
 
   private void writeWorkspace() throws IOException {
@@ -212,69 +304,40 @@ public class IjProjectWriter {
   }
 
   /**
-   * Update just the roots that were passed in
+   * Update project files and modules index
    *
-   * @param targetGraphAndTargets
-   * @param moduleGraph
-   * @throws IOException
+   * @throws IOException if a file cannot be written
    */
-  public void update(TargetGraphAndTargets targetGraphAndTargets, IjModuleGraph moduleGraph)
-      throws IOException {
+  public void update() throws IOException {
     outFilesystem.mkdirs(getIdeaConfigDir());
-    Set<BuildTarget> modulesToUpdate =
-        targetGraphAndTargets
-            .getProjectRoots()
-            .stream()
-            .map(TargetNode::getBuildTarget)
-            .collect(ImmutableSet.toImmutableSet());
-    // Find all modules that contain one or more of our targets
-    final ImmutableSet<IjModule> modulesEdited =
-        projectDataPreparer
-            .getModulesToBeWritten()
-            .stream()
-            .filter(module -> !Sets.intersection(module.getTargets(), modulesToUpdate).isEmpty())
-            .collect(ImmutableSet.toImmutableSet());
-    // Find all direct dependencies of our modules
-    final ImmutableSet<IjProjectElement> depsToKeep =
-        modulesEdited
-            .stream()
-            .flatMap(module -> moduleGraph.getDepsFor(module).keySet().stream())
-            .collect(ImmutableSet.toImmutableSet());
-    // Find all libraries which are direct deps of the modules we found above
-    final ImmutableSet<IjLibrary> librariesNeeded =
-        projectDataPreparer
-            .getLibrariesToBeWritten()
-            .stream()
-            .filter(depsToKeep::contains)
-            .collect(ImmutableSet.toImmutableSet());
-
-    // Write out the modules that contain our targets
-    for (IjModule module : modulesEdited) {
+    for (IjModule module : projectDataPreparer.getModulesToBeWritten()) {
       ImmutableList<ContentRoot> contentRoots = projectDataPreparer.getContentRoots(module);
       writeModule(module, contentRoots);
     }
-    // Write out the libraries that our modules depend on
-    for (IjLibrary library : librariesNeeded) {
+    for (IjLibrary library : projectDataPreparer.getLibrariesToBeWritten()) {
       writeLibrary(library);
     }
-    updateModulesIndex(modulesEdited);
+    updateModulesIndex(projectDataPreparer.getModulesToBeWritten());
+
+    if (projectConfig.isGeneratingTargetInfoMapEnabled()) {
+      writeTargetInfoMap(projectDataPreparer, true);
+    }
   }
 
   /** Update the modules.xml file with any new modules from the given set */
   private void updateModulesIndex(ImmutableSet<IjModule> modulesEdited) throws IOException {
-    Path path = projectFilesystem.resolve(getIdeaConfigDir().resolve("modules.xml"));
-    final Set<ModuleIndexEntry> existingModules = modulesParser.getAllModules(path);
+    final Set<ModuleIndexEntry> existingModules =
+        modulesParser.getAllModules(
+            projectFilesystem.newFileInputStream(getIdeaConfigDir().resolve("modules.xml")));
     final Set<Path> existingModuleFilepaths =
-        existingModules
-            .stream()
+        existingModules.stream()
             .map(ModuleIndexEntry::getFilePath)
             .map(MorePaths::pathWithUnixSeparators)
             .map(Paths::get)
             .collect(ImmutableSet.toImmutableSet());
     ImmutableSet<Path> remainingModuleFilepaths =
-        modulesEdited
-            .stream()
-            .map(IjModule::getModuleImlFilePath)
+        modulesEdited.stream()
+            .map(projectPaths::getModuleImlFilePath)
             .map(MorePaths::pathWithUnixSeparators)
             .map(Paths::get)
             .filter(modulePath -> !existingModuleFilepaths.contains(modulePath))
@@ -290,10 +353,8 @@ public class IjProjectWriter {
         modulePath ->
             finalModulesBuilder.add(
                 ModuleIndexEntry.builder()
-                    .setFilePath(
-                        Paths.get(
-                            projectConfig.getProjectPaths().toProjectDirRelativeString(modulePath)))
-                    .setFileUrl(projectConfig.getProjectPaths().toProjectDirRelativeUrl(modulePath))
+                    .setFilePath(projectPaths.getProjectRelativePath(modulePath))
+                    .setFileUrl(getUrl(projectPaths.getProjectQualifiedPath(modulePath)))
                     .setGroup(projectConfig.getModuleGroupName())
                     .build()));
 

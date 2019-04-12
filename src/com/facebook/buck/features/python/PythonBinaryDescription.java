@@ -16,7 +16,7 @@
 
 package com.facebook.buck.features.python;
 
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.description.arg.CommonDescriptionArg;
 import com.facebook.buck.core.description.arg.HasDeclaredDeps;
 import com.facebook.buck.core.description.arg.HasTests;
@@ -38,16 +38,18 @@ import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.core.toolchain.ToolchainProvider;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatformsProvider;
+import com.facebook.buck.cxx.toolchain.UnresolvedCxxPlatform;
 import com.facebook.buck.cxx.toolchain.linker.WindowsLinker;
+import com.facebook.buck.features.python.PythonBuckConfig.PackageStyle;
 import com.facebook.buck.features.python.toolchain.PexToolProvider;
 import com.facebook.buck.features.python.toolchain.PythonPlatform;
 import com.facebook.buck.features.python.toolchain.PythonPlatformsProvider;
 import com.facebook.buck.file.WriteFile;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.log.Logger;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
 import com.facebook.buck.rules.macros.StringWithMacros;
 import com.facebook.buck.rules.macros.StringWithMacrosConverter;
@@ -144,10 +146,12 @@ public class PythonBinaryDescription
       String mainModule,
       Optional<String> extension,
       PythonPackageComponents components,
-      ImmutableSet<String> preloadLibraries) {
+      ImmutableSet<String> preloadLibraries,
+      PackageStyle packageStyle) {
 
     // We don't currently support targeting Windows.
-    if (cxxPlatform.getLd().resolve(graphBuilder) instanceof WindowsLinker) {
+    if (cxxPlatform.getLd().resolve(graphBuilder, buildTarget.getTargetConfiguration())
+        instanceof WindowsLinker) {
       throw new HumanReadableException(
           "%s: cannot build in-place python binaries for Windows (%s)",
           buildTarget, cxxPlatform.getFlavor());
@@ -187,7 +191,8 @@ public class PythonBinaryDescription
         preloadLibraries,
         pythonBuckConfig.legacyOutputPath(),
         linkTree,
-        pythonPlatform.getEnvironment());
+        pythonPlatform.getEnvironment(),
+        packageStyle);
   }
 
   PythonBinary createPackageRule(
@@ -206,6 +211,7 @@ public class PythonBinaryDescription
       ImmutableSet<String> preloadLibraries) {
 
     switch (packageStyle) {
+      case INPLACE_LITE:
       case INPLACE:
         return createInPlaceBinaryRule(
             buildTarget,
@@ -218,7 +224,8 @@ public class PythonBinaryDescription
             mainModule,
             extension,
             components,
-            preloadLibraries);
+            preloadLibraries,
+            packageStyle);
 
       case STANDALONE:
         return new PythonPackagedBinary(
@@ -229,9 +236,11 @@ public class PythonBinaryDescription
             pythonPlatform,
             toolchainProvider
                 .getByName(PexToolProvider.DEFAULT_NAME, PexToolProvider.class)
-                .getPexTool(graphBuilder),
+                .getPexTool(graphBuilder, buildTarget.getTargetConfiguration()),
             buildArgs,
-            pythonBuckConfig.getPexExecutor(graphBuilder).orElse(pythonPlatform.getEnvironment()),
+            pythonBuckConfig
+                .getPexExecutor(graphBuilder, buildTarget.getTargetConfiguration())
+                .orElse(pythonPlatform.getEnvironment()),
             extension.orElse(pythonBuckConfig.getPexExtension()),
             pythonPlatform.getEnvironment(),
             mainModule,
@@ -245,16 +254,18 @@ public class PythonBinaryDescription
     }
   }
 
-  private CxxPlatform getCxxPlatform(BuildTarget target, AbstractPythonBinaryDescriptionArg args) {
+  private UnresolvedCxxPlatform getCxxPlatform(
+      BuildTarget target, AbstractPythonBinaryDescriptionArg args) {
     CxxPlatformsProvider cxxPlatformsProvider =
         toolchainProvider.getByName(CxxPlatformsProvider.DEFAULT_NAME, CxxPlatformsProvider.class);
-    FlavorDomain<CxxPlatform> cxxPlatforms = cxxPlatformsProvider.getCxxPlatforms();
+    FlavorDomain<UnresolvedCxxPlatform> cxxPlatforms =
+        cxxPlatformsProvider.getUnresolvedCxxPlatforms();
     return cxxPlatforms
         .getValue(target)
         .orElse(
             args.getCxxPlatform()
                 .map(cxxPlatforms::getValue)
-                .orElse(cxxPlatformsProvider.getDefaultCxxPlatform()));
+                .orElse(cxxPlatformsProvider.getDefaultUnresolvedCxxPlatform()));
   }
 
   @Override
@@ -311,7 +322,7 @@ public class PythonBinaryDescription
                     args.getPlatform()
                         .<Flavor>map(InternalFlavor::of)
                         .orElse(pythonPlatforms.getFlavors().iterator().next())));
-    CxxPlatform cxxPlatform = getCxxPlatform(buildTarget, args);
+    CxxPlatform cxxPlatform = getCxxPlatform(buildTarget, args).resolve(graphBuilder);
     CellPathResolver cellRoots = context.getCellPathResolver();
     ProjectFilesystem projectFilesystem = context.getProjectFilesystem();
     StringWithMacrosConverter macrosConverter =
@@ -336,8 +347,7 @@ public class PythonBinaryDescription
             pythonPlatform,
             cxxBuckConfig,
             cxxPlatform,
-            args.getLinkerFlags()
-                .stream()
+            args.getLinkerFlags().stream()
                 .map(x -> macrosConverter.convert(x, graphBuilder))
                 .collect(ImmutableList.toImmutableList()),
             pythonBuckConfig.getNativeLinkStrategy(),
@@ -367,12 +377,17 @@ public class PythonBinaryDescription
       ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
     // We need to use the C/C++ linker for native libs handling, so add in the C/C++ linker to
     // parse time deps.
-    extraDepsBuilder.addAll(getCxxPlatform(buildTarget, constructorArg).getLd().getParseTimeDeps());
+    extraDepsBuilder.addAll(
+        getCxxPlatform(buildTarget, constructorArg)
+            .getLinkerParseTimeDeps(buildTarget.getTargetConfiguration()));
 
     if (constructorArg.getPackageStyle().orElse(pythonBuckConfig.getPackageStyle())
         == PythonBuckConfig.PackageStyle.STANDALONE) {
-      Optionals.addIfPresent(pythonBuckConfig.getPexTarget(), extraDepsBuilder);
-      Optionals.addIfPresent(pythonBuckConfig.getPexExecutorTarget(), extraDepsBuilder);
+      Optionals.addIfPresent(
+          pythonBuckConfig.getPexTarget(buildTarget.getTargetConfiguration()), extraDepsBuilder);
+      Optionals.addIfPresent(
+          pythonBuckConfig.getPexExecutorTarget(buildTarget.getTargetConfiguration()),
+          extraDepsBuilder);
     }
   }
 

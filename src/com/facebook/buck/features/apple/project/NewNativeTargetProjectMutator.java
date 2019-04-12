@@ -54,11 +54,11 @@ import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.SourceWithFlags;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.cxx.CxxSource;
 import com.facebook.buck.cxx.toolchain.HeaderVisibility;
 import com.facebook.buck.features.js.JsBundleOutputs;
 import com.facebook.buck.features.js.JsBundleOutputsDescription;
-import com.facebook.buck.log.Logger;
 import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.google.common.base.Charsets;
 import com.google.common.base.Joiner;
@@ -695,13 +695,15 @@ class NewNativeTargetProjectMutator {
         shellScriptBuildPhase
             .getInputPaths()
             .addAll(
-                arg.getSrcs()
-                    .stream()
+                arg.getSrcs().stream()
                     .map(sourcePathResolver)
                     .map(pathRelativizer::outputDirToRootRelative)
                     .map(Object::toString)
                     .collect(Collectors.toSet()));
+        shellScriptBuildPhase.getInputPaths().addAll(arg.getInputs());
+        shellScriptBuildPhase.getInputFileListPaths().addAll(arg.getInputFileLists());
         shellScriptBuildPhase.getOutputPaths().addAll(arg.getOutputs());
+        shellScriptBuildPhase.getOutputFileListPaths().addAll(arg.getOutputFileLists());
         shellScriptBuildPhase.setShellScript(arg.getCmd());
       } else if (node.getDescription() instanceof JsBundleOutputsDescription) {
         shellScriptBuildPhase.setShellScript(

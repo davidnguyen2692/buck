@@ -537,7 +537,7 @@ public class InnerClassesTableTest {
     private final TestCompiler compiler = new TestCompiler();
 
     public Tester setSourceFile(String name, String... lines) throws IOException {
-      compiler.addSourceFileContents(name, Arrays.stream(lines).collect(Collectors.joining("\n")));
+      compiler.addSourceFileContents(name, String.join("\n", lines));
       return this;
     }
 
@@ -581,14 +581,12 @@ public class InnerClassesTableTest {
       InnerClassesTable innerClassesTable =
           new InnerClassesTable(descriptorFactory, accessFlags, topElement);
 
-      ClassNode classNode = new ClassNode(Opcodes.ASM6);
+      ClassNode classNode = new ClassNode(Opcodes.ASM7);
       innerClassesTable.reportInnerClassReferences(classNode);
 
       assertEquals(
           Arrays.asList(innerClassesEntries),
-          classNode
-              .innerClasses
-              .stream()
+          classNode.innerClasses.stream()
               .map(innerClass -> innerClass.name)
               .collect(Collectors.toList()));
       return this;

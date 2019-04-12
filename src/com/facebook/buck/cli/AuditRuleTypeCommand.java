@@ -26,7 +26,6 @@ import com.facebook.buck.rules.coercer.TypeCoercerFactory;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.ExitCode;
 import com.google.common.collect.ImmutableMap;
-import java.io.IOException;
 import java.io.PrintStream;
 import java.util.function.Consumer;
 import org.kohsuke.args4j.Argument;
@@ -37,8 +36,7 @@ public class AuditRuleTypeCommand extends AbstractCommand {
   private static final String INDENT = "    ";
 
   @Override
-  public ExitCode runWithoutHelp(CommandRunnerParams params)
-      throws IOException, InterruptedException {
+  public ExitCode runWithoutHelp(CommandRunnerParams params) {
     KnownRuleTypes knownRuleTypes = params.getKnownRuleTypesProvider().get(params.getCell());
     RuleType buildRuleType = knownRuleTypes.getRuleType(ruleName);
     BaseDescription<?> description = knownRuleTypes.getDescription(buildRuleType);
@@ -67,15 +65,11 @@ public class AuditRuleTypeCommand extends AbstractCommand {
             typeCoercerFactory, description.getConstructorArgType());
     String name = DescriptionCache.getRuleType(description).getName();
     printStream.println("def " + name + " (");
-    allParamInfo
-        .values()
-        .stream()
+    allParamInfo.values().stream()
         .filter(param -> !param.isOptional())
         .sorted()
         .forEach(formatPythonFunction(printStream));
-    allParamInfo
-        .values()
-        .stream()
+    allParamInfo.values().stream()
         .filter(ParamInfo::isOptional)
         .sorted()
         .forEach(formatPythonFunction(printStream));

@@ -16,9 +16,12 @@
 
 package com.facebook.buck.rules.modern;
 
+import com.facebook.buck.core.model.TargetConfiguration;
 import com.facebook.buck.core.rulekey.AddsToRuleKey;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
 import java.nio.file.Path;
@@ -34,10 +37,15 @@ public interface ValueCreator<E extends Exception> {
 
   <T> ImmutableList<T> createList(ValueTypeInfo<T> innerType) throws E;
 
-  <T> ImmutableSortedSet<T> createSet(ValueTypeInfo<T> innerType) throws E;
+  <T> ImmutableSet<T> createSet(ValueTypeInfo<T> innerType) throws E;
 
-  <K, V> ImmutableSortedMap<K, V> createMap(ValueTypeInfo<K> keyType, ValueTypeInfo<V> valueType)
+  <T> ImmutableSortedSet<T> createSortedSet(ValueTypeInfo<T> innerType) throws E;
+
+  <K, V> ImmutableMap<K, V> createMap(ValueTypeInfo<K> keyType, ValueTypeInfo<V> valueType)
       throws E;
+
+  <K, V> ImmutableSortedMap<K, V> createSortedMap(
+      ValueTypeInfo<K> keyType, ValueTypeInfo<V> valueType) throws E;
 
   @Nullable
   <T> T createNullable(ValueTypeInfo<T> inner) throws E;
@@ -67,6 +75,8 @@ public interface ValueCreator<E extends Exception> {
   Float createFloat() throws E;
 
   Double createDouble() throws E;
+
+  TargetConfiguration createTargetConfiguration() throws E;
 
   <T> T createSpecial(Class<T> valueClass, Object... args) throws E;
 }

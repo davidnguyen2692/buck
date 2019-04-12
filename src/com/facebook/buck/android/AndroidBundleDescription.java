@@ -21,7 +21,7 @@ import static com.facebook.buck.android.AndroidBinaryResourcesGraphEnhancer.PACK
 import com.facebook.buck.android.FilterResourcesSteps.ResourceFilter;
 import com.facebook.buck.android.dalvik.ZipSplitter.DexSplitStrategy;
 import com.facebook.buck.android.exopackage.ExopackageMode;
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.description.arg.CommonDescriptionArg;
 import com.facebook.buck.core.description.arg.HasDeclaredDeps;
@@ -43,7 +43,11 @@ import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.core.JavaLibrary;
 import com.facebook.buck.jvm.java.JavaBuckConfig;
+import com.facebook.buck.jvm.java.JavaOptions;
+import com.facebook.buck.jvm.java.JavacFactory;
+import com.facebook.buck.jvm.java.toolchain.JavaOptionsProvider;
 import com.facebook.buck.rules.macros.StringWithMacros;
+import com.facebook.buck.util.Optionals;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -52,6 +56,7 @@ import java.util.EnumSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.OptionalInt;
+import java.util.function.Supplier;
 import org.immutables.value.Value;
 
 public class AndroidBundleDescription
@@ -70,33 +75,34 @@ public class AndroidBundleDescription
 
   private final JavaBuckConfig javaBuckConfig;
   private final AndroidBuckConfig androidBuckConfig;
+  private final JavacFactory javacFactory;
+  private final Supplier<JavaOptions> javaOptions;
   private final ProGuardConfig proGuardConfig;
   private final CxxBuckConfig cxxBuckConfig;
   private final DxConfig dxConfig;
   private final AndroidInstallConfig androidInstallConfig;
-  private final ApkConfig apkConfig;
   private final ToolchainProvider toolchainProvider;
   private final AndroidBinaryGraphEnhancerFactory androidBinaryGraphEnhancerFactory;
   private final AndroidBundleFactory androidBundleFactory;
 
   public AndroidBundleDescription(
       JavaBuckConfig javaBuckConfig,
-      AndroidBuckConfig androidBuckConfig,
       ProGuardConfig proGuardConfig,
+      AndroidBuckConfig androidBuckConfig,
       BuckConfig buckConfig,
       CxxBuckConfig cxxBuckConfig,
       DxConfig dxConfig,
-      ApkConfig apkConfig,
       ToolchainProvider toolchainProvider,
       AndroidBinaryGraphEnhancerFactory androidBinaryGraphEnhancerFactory,
       AndroidBundleFactory androidBundleFactory) {
     this.javaBuckConfig = javaBuckConfig;
+    this.javacFactory = JavacFactory.getDefault(toolchainProvider);
+    this.javaOptions = JavaOptionsProvider.getDefaultJavaOptions(toolchainProvider);
     this.androidBuckConfig = androidBuckConfig;
     this.proGuardConfig = proGuardConfig;
     this.cxxBuckConfig = cxxBuckConfig;
     this.dxConfig = dxConfig;
     this.androidInstallConfig = new AndroidInstallConfig(buckConfig);
-    this.apkConfig = apkConfig;
     this.toolchainProvider = toolchainProvider;
     this.androidBinaryGraphEnhancerFactory = androidBinaryGraphEnhancerFactory;
     this.androidBundleFactory = androidBundleFactory;
@@ -170,7 +176,9 @@ public class AndroidBundleDescription
             exopackageModes,
             rulesToExcludeFromDex,
             args,
-            true);
+            true,
+            javaOptions.get(),
+            javacFactory);
     AndroidBundle androidBundle =
         androidBundleFactory.create(
             toolchainProvider,
@@ -184,8 +192,8 @@ public class AndroidBundleDescription
             exopackageModes,
             resourceFilter,
             rulesToExcludeFromDex,
-            apkConfig,
-            args);
+            args,
+            javaOptions.get());
     // The exo installer is always added to the index so that the action graph is the same
     // between build and install calls.
     new AndroidBinaryInstallGraphEnhancer(
@@ -234,12 +242,19 @@ public class AndroidBundleDescription
       AbstractAndroidBundleDescriptionArg constructorArg,
       ImmutableCollection.Builder<BuildTarget> extraDepsBuilder,
       ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
+    javacFactory.addParseTimeDeps(targetGraphOnlyDepsBuilder, null);
+    javaOptions
+        .get()
+        .addParseTimeDeps(targetGraphOnlyDepsBuilder, buildTarget.getTargetConfiguration());
+
+    Optionals.addIfPresent(
+        proGuardConfig.getProguardTarget(buildTarget.getTargetConfiguration()), extraDepsBuilder);
+
     if (constructorArg.getRedex()) {
       // If specified, this option may point to either a BuildTarget or a file.
-      Optional<BuildTarget> redexTarget = androidBuckConfig.getRedexTarget();
-      if (redexTarget.isPresent()) {
-        extraDepsBuilder.add(redexTarget.get());
-      }
+      Optional<BuildTarget> redexTarget =
+          androidBuckConfig.getRedexTarget(buildTarget.getTargetConfiguration());
+      redexTarget.ifPresent(extraDepsBuilder::add);
     }
   }
 
@@ -303,6 +318,8 @@ public class AndroidBundleDescription
     boolean isCompressAssetLibraries() {
       return false;
     }
+
+    abstract Optional<CompressionAlgorithm> getAssetCompressionAlgorithm();
 
     @Value.Default
     boolean getRedex() {

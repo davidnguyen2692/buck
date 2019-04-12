@@ -48,7 +48,7 @@ abstract class AbstractBuckPaths {
   /** The version the buck output directory was created for */
   @Value.Derived
   public Path getCurrentVersionFile() {
-    return getBuckOut().resolve(".currentversion");
+    return getConfiguredBuckOut().resolve(".currentversion");
   }
 
   @Value.Derived
@@ -120,6 +120,11 @@ abstract class AbstractBuckPaths {
   @Value.Derived
   public Path getEmbeddedCellsBuckOutBaseDir() {
     return getBuckOut().resolve("cells");
+  }
+
+  @Value.Derived
+  public Path getProjectRootDir() {
+    return getBuckOut().resolve("project_root");
   }
 
   public Path getSymlinkPathForDir(Path unconfiguredDirInBuckOut) {

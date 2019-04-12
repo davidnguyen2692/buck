@@ -16,6 +16,7 @@
 
 package com.facebook.buck.features.python;
 
+import static com.sun.org.apache.xerces.internal.util.PropertyState.is;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.endsWith;
 import static org.hamcrest.Matchers.equalTo;
@@ -29,6 +30,7 @@ import static org.junit.Assume.assumeTrue;
 
 import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.config.FakeBuckConfig;
+import com.facebook.buck.core.model.EmptyTargetConfiguration;
 import com.facebook.buck.core.rules.BuildRuleResolver;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
@@ -79,7 +81,7 @@ public class PythonBinaryIntegrationTest {
     ImmutableList.Builder<Object[]> validPermutations = ImmutableList.builder();
     for (PythonBuckConfig.PackageStyle packageStyle : PythonBuckConfig.PackageStyle.values()) {
       for (boolean pexDirectory : new boolean[] {true, false}) {
-        if (packageStyle == PythonBuckConfig.PackageStyle.INPLACE && pexDirectory) {
+        if (packageStyle.isInPlace() && pexDirectory) {
           continue;
         }
 
@@ -104,7 +106,7 @@ public class PythonBinaryIntegrationTest {
   public ProjectWorkspace workspace;
 
   @Before
-  public void setUp() throws InterruptedException, IOException {
+  public void setUp() throws IOException {
     assumeTrue(!Platform.detect().equals(Platform.WINDOWS));
 
     workspace = TestDataHelper.createProjectWorkspaceForScenario(this, "python_binary", tmp);
@@ -176,13 +178,18 @@ public class PythonBinaryIntegrationTest {
     }
   }
 
-  @Test
-  public void nativeLibraries() throws IOException {
-    assumeThat(packageStyle, equalTo(PythonBuckConfig.PackageStyle.INPLACE));
+  public void assumeThatNativeLibsAreSupported() {
+    assumeThat(packageStyle, not(is(PackageStyle.INPLACE_LITE)));
     assumeThat(
         "TODO(8667197): Native libs currently don't work on El Capitan",
         Platform.detect(),
         not(equalTo(Platform.MACOS)));
+  }
+
+  @Test
+  public void nativeLibraries() throws IOException {
+    assumeThat(packageStyle, equalTo(PythonBuckConfig.PackageStyle.INPLACE));
+    assumeThatNativeLibsAreSupported();
     ProcessResult result = workspace.runBuckCommand("run", ":bin-with-native-libs").assertSuccess();
     assertThat(result.getStdout(), containsString("HELLO WORLD"));
   }
@@ -209,15 +216,12 @@ public class PythonBinaryIntegrationTest {
   public void nativeLibsEnvVarIsPreserved() throws IOException {
     BuildRuleResolver resolver = new TestActionGraphBuilder();
 
-    assumeThat(
-        "TODO(8667197): Native libs currently don't work on El Capitan",
-        Platform.detect(),
-        not(equalTo(Platform.MACOS)));
+    assumeThatNativeLibsAreSupported();
 
     String nativeLibsEnvVarName =
         CxxPlatformUtils.build(new CxxBuckConfig(FakeBuckConfig.builder().build()))
             .getLd()
-            .resolve(resolver)
+            .resolve(resolver, EmptyTargetConfiguration.INSTANCE)
             .searchPathEnvVar();
     String originalNativeLibsEnvVar = "something";
     workspace.writeContentsToPath(
@@ -426,6 +430,19 @@ public class PythonBinaryIntegrationTest {
         .assertSuccess();
   }
 
+  @Test
+  public void depOntoCxxLibrary() throws IOException {
+    workspace
+        .runBuckCommand(
+            "build",
+            "-c",
+            "cxx.cxx=//cxx_lib_dep/helpers:cxx",
+            "-c",
+            "cxx.cxx_type=gcc",
+            "//cxx_lib_dep:bin")
+        .assertSuccess();
+  }
+
   private PythonBuckConfig getPythonBuckConfig() throws IOException {
     Config rawConfig = Configs.createDefaultConfig(tmp.getRoot());
     BuckConfig buckConfig =
@@ -440,6 +457,22 @@ public class PythonBinaryIntegrationTest {
   public void stripsPathEarlyInInplaceBinaries() throws IOException, InterruptedException {
     assumeThat(packageStyle, Matchers.is(PackageStyle.INPLACE));
     Path pexPath = workspace.buildAndReturnOutput("//pathtest:pathtest");
+
+    DefaultProcessExecutor executor = new DefaultProcessExecutor(new TestConsole());
+
+    Result ret =
+        executor.launchAndExecute(
+            ProcessExecutorParams.builder()
+                .setDirectory(workspace.resolve("pathtest"))
+                .setCommand(ImmutableList.of(pexPath.toString()))
+                .build());
+    Assert.assertEquals(0, ret.getExitCode());
+  }
+
+  @Test
+  public void preloadDeps() throws IOException, InterruptedException {
+    assumeThat(packageStyle, Matchers.is(PackageStyle.INPLACE));
+    Path pexPath = workspace.buildAndReturnOutput("//preload_deps:bin");
 
     DefaultProcessExecutor executor = new DefaultProcessExecutor(new TestConsole());
 

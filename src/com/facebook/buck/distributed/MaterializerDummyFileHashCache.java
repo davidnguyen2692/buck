@@ -17,12 +17,12 @@
 package com.facebook.buck.distributed;
 
 import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.io.ArchiveMemberPath;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.distributed.thrift.BuildJobStateFileHashEntry;
 import com.facebook.buck.distributed.thrift.BuildJobStateFileHashes;
 import com.facebook.buck.distributed.thrift.PathWithUnixSeparators;
-import com.facebook.buck.io.ArchiveMemberPath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.log.Logger;
 import com.facebook.buck.util.cache.FileHashCacheVerificationResult;
 import com.facebook.buck.util.cache.ProjectFileHashCache;
 import com.google.common.base.Preconditions;
@@ -36,6 +36,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Collections;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.Stack;
@@ -156,7 +157,7 @@ class MaterializerDummyFileHashCache implements ProjectFileHashCache {
     for (BuildJobStateFileHashEntry fileEntry :
         fileMaterializationFuturesByFileHashEntry.keySet()) {
       ListenableFuture<?> materializationFuture =
-          Preconditions.checkNotNull(fileMaterializationFuturesByFileHashEntry.get(fileEntry));
+          Objects.requireNonNull(fileMaterializationFuturesByFileHashEntry.get(fileEntry));
       if (!materializationFuture.isDone()) {
         LOG.warn(
             String.format(

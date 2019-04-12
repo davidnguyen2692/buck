@@ -33,6 +33,7 @@ import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.core.util.immutables.BuckStyleTuple;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.cxx.toolchain.Compiler;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxFlavorSanitizer;
@@ -41,9 +42,7 @@ import com.facebook.buck.cxx.toolchain.DebugPathSanitizer;
 import com.facebook.buck.cxx.toolchain.InferBuckConfig;
 import com.facebook.buck.cxx.toolchain.PicType;
 import com.facebook.buck.cxx.toolchain.Preprocessor;
-import com.facebook.buck.cxx.toolchain.linker.Linker;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.log.Logger;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.SanitizedArg;
 import com.facebook.buck.rules.args.StringArg;
@@ -141,7 +140,7 @@ abstract class AbstractCxxSourceRuleFactory {
     return getCxxBuckConfig().isPCHEnabled()
         && sourceType.getPrecompiledHeaderLanguage().isPresent()
         && CxxSourceTypes.getPreprocessor(getCxxPlatform(), sourceType)
-            .resolve(getActionGraphBuilder())
+            .resolve(getActionGraphBuilder(), getBaseBuildTarget().getTargetConfiguration())
             .supportsPrecompiledHeaders();
   }
 
@@ -159,8 +158,6 @@ abstract class AbstractCxxSourceRuleFactory {
             getBaseBuildTarget(),
             getActionGraphBuilder(),
             getPathResolver(),
-            getRuleFinder(),
-            getCxxPlatform(),
             getPrefixHeader(),
             getPrecompiledHeader())
         .getPreInclude();
@@ -182,16 +179,14 @@ abstract class AbstractCxxSourceRuleFactory {
 
   @Value.Lazy
   protected ImmutableSet<FrameworkPath> getFrameworks() {
-    return getCxxPreprocessorInput()
-        .stream()
+    return getCxxPreprocessorInput().stream()
         .flatMap(input -> input.getFrameworks().stream())
         .collect(ImmutableSet.toImmutableSet());
   }
 
   @Value.Lazy
   protected ImmutableList<CxxHeaders> getIncludes() {
-    return getCxxPreprocessorInput()
-        .stream()
+    return getCxxPreprocessorInput().stream()
         .flatMap(input -> input.getIncludes().stream())
         .collect(ImmutableList.toImmutableList());
   }
@@ -199,8 +194,7 @@ abstract class AbstractCxxSourceRuleFactory {
   private final Function<CxxSource.Type, ImmutableList<Arg>> rulePreprocessorFlags =
       memoize(
           type ->
-              getCxxPreprocessorInput()
-                  .stream()
+              getCxxPreprocessorInput().stream()
                   .flatMap(input -> input.getPreprocessorFlags().get(type).stream())
                   .collect(ImmutableList.toImmutableList()));
 
@@ -210,7 +204,8 @@ abstract class AbstractCxxSourceRuleFactory {
               key -> {
                 Preprocessor preprocessor =
                     CxxSourceTypes.getPreprocessor(getCxxPlatform(), key.getSourceType())
-                        .resolve(getActionGraphBuilder());
+                        .resolve(
+                            getActionGraphBuilder(), getBaseBuildTarget().getTargetConfiguration());
                 // TODO(cjhopman): The aggregated deps logic should move into PreprocessorDelegate
                 // itself.
                 BuildRule aggregatedDeps = requireAggregatedPreprocessDepsRule();
@@ -265,8 +260,7 @@ abstract class AbstractCxxSourceRuleFactory {
 
   /** @return the object file name for the given source name. */
   private String getCompileOutputName(String name) {
-    Linker ld = getCxxPlatform().getLd().resolve(getActionGraphBuilder());
-    String outName = ld.hasFilePathSizeLimitations() ? "out" : getOutputName(name);
+    String outName = getCxxPlatform().getFilepathLengthLimited() ? "out" : getOutputName(name);
     return outName + "." + getCxxPlatform().getObjectFileExtension();
   }
 
@@ -341,7 +335,8 @@ abstract class AbstractCxxSourceRuleFactory {
         || type == CxxSource.Type.OBJC_CPP_OUTPUT
         || type == CxxSource.Type.CXX_CPP_OUTPUT
         || type == CxxSource.Type.OBJCXX_CPP_OUTPUT
-        || type == CxxSource.Type.CUDA_CPP_OUTPUT) {
+        || type == CxxSource.Type.CUDA_CPP_OUTPUT
+        || type == CxxSource.Type.HIP_CPP_OUTPUT) {
       args.addAll(sanitizedArgs(getCxxPlatform().getAsflags()));
     }
 
@@ -364,7 +359,7 @@ abstract class AbstractCxxSourceRuleFactory {
 
     Compiler compiler =
         CxxSourceTypes.getCompiler(getCxxPlatform(), source.getType())
-            .resolve(getActionGraphBuilder());
+            .resolve(getActionGraphBuilder(), getBaseBuildTarget().getTargetConfiguration());
 
     // Build up the list of compiler flags.
     CxxToolFlags flags =
@@ -380,7 +375,11 @@ abstract class AbstractCxxSourceRuleFactory {
             .build();
 
     CompilerDelegate compilerDelegate =
-        new CompilerDelegate(getCxxPlatform().getCompilerDebugPathSanitizer(), compiler, flags);
+        new CompilerDelegate(
+            getCxxPlatform().getCompilerDebugPathSanitizer(),
+            compiler,
+            flags,
+            getCxxPlatform().getUseArgFile());
 
     // TODO(steveo): this does not account for `precompiledHeaderRule`.
 
@@ -414,7 +413,7 @@ abstract class AbstractCxxSourceRuleFactory {
       CxxSource.Type type, ImmutableList<String> sourceFlags) {
     Compiler compiler =
         CxxSourceTypes.getCompiler(getCxxPlatform(), CxxSourceTypes.getPreprocessorOutputType(type))
-            .resolve(getActionGraphBuilder());
+            .resolve(getActionGraphBuilder(), getBaseBuildTarget().getTargetConfiguration());
     return CxxToolFlags.explicitBuilder()
         .addAllPlatformFlags(StringArg.from(getPicType().getFlags(compiler)))
         .addAllPlatformFlags(getPlatformPreprocessorFlags(type))
@@ -434,7 +433,9 @@ abstract class AbstractCxxSourceRuleFactory {
                 getPicType()
                     .getFlags(
                         CxxSourceTypes.getCompiler(getCxxPlatform(), outputType)
-                            .resolve(getActionGraphBuilder()))))
+                            .resolve(
+                                getActionGraphBuilder(),
+                                getBaseBuildTarget().getTargetConfiguration()))))
         // Add in the platform specific compiler flags.
         .addAllPlatformFlags(getPlatformCompileFlags(outputType))
         .addAllRuleFlags(getRuleCompileFlags(outputType))
@@ -503,8 +504,9 @@ abstract class AbstractCxxSourceRuleFactory {
             getCxxPlatform().getCompilerDebugPathSanitizer(),
             CxxSourceTypes.getCompiler(
                     getCxxPlatform(), CxxSourceTypes.getPreprocessorOutputType(source.getType()))
-                .resolve(getActionGraphBuilder()),
-            computeCompilerFlags(source.getType(), source.getFlags()));
+                .resolve(getActionGraphBuilder(), getBaseBuildTarget().getTargetConfiguration()),
+            computeCompilerFlags(source.getType(), source.getFlags()),
+            getCxxPlatform().getUseArgFile());
 
     PreprocessorDelegateCacheValue preprocessorDelegateValue =
         preprocessorDelegates.apply(
@@ -544,10 +546,20 @@ abstract class AbstractCxxSourceRuleFactory {
       return Optional.empty();
     }
 
+    CxxSource.Type sourceType = source.getType();
+    if (sourceType.isAssembly()) {
+      // Asm files do not use precompiled headers; indeed, CxxPrecompiledHeader will throw if
+      // created for an assembly source.
+      //
+      // It's unclear why this is distinct from canUsePrecompiledHeaders(), or why a
+      // CxxPrecompiledHeader can be created with canPrecompile = false.
+      return Optional.empty();
+    }
+
     return Optional.of(
         requirePrecompiledHeaderBuildRule(
             preprocessorDelegateValue,
-            source.getType(),
+            sourceType,
             source.getFlags(),
             getActionGraphBuilder(),
             getRuleFinder(),
@@ -644,9 +656,7 @@ abstract class AbstractCxxSourceRuleFactory {
   public ImmutableMap<CxxPreprocessAndCompile, SourcePath> requirePreprocessAndCompileRules(
       ImmutableMap<String, CxxSource> sources) {
 
-    return sources
-        .entrySet()
-        .stream()
+    return sources.entrySet().stream()
         .map(
             entry -> {
               String name = entry.getKey();
@@ -743,7 +753,15 @@ abstract class AbstractCxxSourceRuleFactory {
   /** Quick and dirty memoized function. */
   private static <K, V> Function<K, V> memoize(Function<K, V> mappingFunction) {
     HashMap<K, V> cache = new HashMap<>();
-    return k -> cache.computeIfAbsent(k, mappingFunction);
+    return k -> {
+      V value = cache.get(k);
+      if (value != null) {
+        return value;
+      }
+      value = mappingFunction.apply(k);
+      cache.put(k, value);
+      return value;
+    };
   }
 
   private class HashBuilder extends AbstractRuleKeyBuilder<String> {

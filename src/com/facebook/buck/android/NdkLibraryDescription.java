@@ -17,13 +17,16 @@ package com.facebook.buck.android;
 
 import com.facebook.buck.android.toolchain.ndk.AndroidNdk;
 import com.facebook.buck.android.toolchain.ndk.AndroidNdkConstants;
-import com.facebook.buck.android.toolchain.ndk.NdkCxxPlatform;
 import com.facebook.buck.android.toolchain.ndk.NdkCxxPlatformsProvider;
 import com.facebook.buck.android.toolchain.ndk.TargetCpuType;
+import com.facebook.buck.android.toolchain.ndk.UnresolvedNdkCxxPlatform;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.description.arg.CommonDescriptionArg;
 import com.facebook.buck.core.description.arg.HasDeclaredDeps;
 import com.facebook.buck.core.description.arg.HasSrcs;
+import com.facebook.buck.core.description.attr.ImplicitDepsInferringDescription;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.TargetConfiguration;
 import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
 import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
@@ -51,15 +54,19 @@ import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkables;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.macros.EnvironmentVariableMacroExpander;
-import com.facebook.buck.rules.macros.MacroHandler;
+import com.facebook.buck.rules.macros.Macro;
+import com.facebook.buck.rules.macros.MacroExpander;
+import com.facebook.buck.rules.macros.StringWithMacros;
+import com.facebook.buck.rules.macros.StringWithMacrosConverter;
 import com.facebook.buck.util.Escaper;
+import com.facebook.buck.util.VersionStringComparator;
 import com.facebook.buck.util.environment.Platform;
 import com.facebook.buck.util.string.MoreStrings;
 import com.facebook.buck.util.types.Pair;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
+import com.google.common.collect.ImmutableCollection.Builder;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedSet;
 import java.io.IOException;
 import java.nio.file.FileVisitOption;
@@ -74,7 +81,14 @@ import java.util.Optional;
 import java.util.regex.Pattern;
 import org.immutables.value.Value;
 
-public class NdkLibraryDescription implements DescriptionWithTargetGraph<NdkLibraryDescriptionArg> {
+/**
+ * Defines the (now deprecated) ndk_library rule for building c-based libraries for android using
+ * android make.
+ */
+@Deprecated
+public class NdkLibraryDescription
+    implements DescriptionWithTargetGraph<NdkLibraryDescriptionArg>,
+        ImplicitDepsInferringDescription<NdkLibraryDescriptionArg> {
 
   private static final Pattern EXTENSIONS_REGEX =
       Pattern.compile(
@@ -82,9 +96,14 @@ public class NdkLibraryDescription implements DescriptionWithTargetGraph<NdkLibr
               + MoreStrings.regexPatternForAny("mk", "h", "hpp", "c", "cpp", "cc", "cxx")
               + "$");
 
-  public static final MacroHandler MACRO_HANDLER =
-      new MacroHandler(
-          ImmutableMap.of("env", new EnvironmentVariableMacroExpander(Platform.detect())));
+  public static final ImmutableList<MacroExpander<? extends Macro, ?>> MACRO_EXPANDERS =
+      ImmutableList.of(new EnvironmentVariableMacroExpander(Platform.detect()));
+
+  private final ToolchainProvider toolchainProvider;
+
+  public NdkLibraryDescription(ToolchainProvider toolchainProvider) {
+    this.toolchainProvider = toolchainProvider;
+  }
 
   @Override
   public Class<NdkLibraryDescriptionArg> getConstructorArgType() {
@@ -163,7 +182,8 @@ public class NdkLibraryDescription implements DescriptionWithTargetGraph<NdkLibr
       ToolchainProvider toolchainProvider,
       ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
-      ActionGraphBuilder graphBuilder) {
+      ActionGraphBuilder graphBuilder,
+      TargetConfiguration targetConfiguration) {
 
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
     SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
@@ -176,9 +196,9 @@ public class NdkLibraryDescription implements DescriptionWithTargetGraph<NdkLibr
             NdkCxxPlatformsProvider.DEFAULT_NAME, NdkCxxPlatformsProvider.class);
     AndroidNdk androidNdk = toolchainProvider.getByName(AndroidNdk.DEFAULT_NAME, AndroidNdk.class);
 
-    for (Map.Entry<TargetCpuType, NdkCxxPlatform> entry :
+    for (Map.Entry<TargetCpuType, UnresolvedNdkCxxPlatform> entry :
         ndkCxxPlatformsProvider.getNdkCxxPlatforms().entrySet()) {
-      CxxPlatform cxxPlatform = entry.getValue().getCxxPlatform();
+      CxxPlatform cxxPlatform = entry.getValue().getCxxPlatform().resolve(graphBuilder);
 
       // Collect the preprocessor input for all C/C++ library deps.  We search *through* other
       // NDK library rules.
@@ -198,7 +218,8 @@ public class NdkLibraryDescription implements DescriptionWithTargetGraph<NdkLibr
           Arg.stringify(
               cxxPreprocessorInput.getPreprocessorFlags().get(CxxSource.Type.C), pathResolver));
       Preprocessor preprocessor =
-          CxxSourceTypes.getPreprocessor(cxxPlatform, CxxSource.Type.C).resolve(graphBuilder);
+          CxxSourceTypes.getPreprocessor(cxxPlatform, CxxSource.Type.C)
+              .resolve(graphBuilder, targetConfiguration);
       ppFlags.addAll(
           CxxHeaders.getArgs(
               cxxPreprocessorInput.getIncludes(), pathResolver, Optional.empty(), preprocessor));
@@ -216,6 +237,7 @@ public class NdkLibraryDescription implements DescriptionWithTargetGraph<NdkLibr
           NativeLinkables.getTransitiveNativeLinkableInput(
               cxxPlatform,
               graphBuilder,
+              targetConfiguration,
               params.getBuildDeps(),
               Linker.LinkableDepType.SHARED,
               r -> r instanceof NdkLibrary ? Optional.of(r.getBuildDeps()) : Optional.empty());
@@ -223,20 +245,21 @@ public class NdkLibraryDescription implements DescriptionWithTargetGraph<NdkLibr
       // We add any dependencies from the native linkable input to this rule, even though
       // it technically should be added to the top-level rule.
       deps.addAll(
-          nativeLinkableInput
-              .getArgs()
-              .stream()
+          nativeLinkableInput.getArgs().stream()
               .flatMap(arg -> BuildableSupport.getDeps(arg, ruleFinder))
               .iterator());
 
       // Add in the transitive native linkable flags contributed by C/C++ library rules into the
       // NDK build.
+      VersionStringComparator versionComparator = new VersionStringComparator();
+      boolean shouldEscapeLdFlags =
+          versionComparator.compare(androidNdk.getNdkVersion(), "18") >= 0;
       String localLdflags =
           Joiner.on(' ')
               .join(
                   escapeForMakefile(
                       projectFilesystem,
-                      false,
+                      shouldEscapeLdFlags,
                       Arg.stringify(nativeLinkableInput.getArgs(), pathResolver)));
 
       // Write the relevant lines to the generated makefile.
@@ -352,9 +375,14 @@ public class NdkLibraryDescription implements DescriptionWithTargetGraph<NdkLibr
       NdkLibraryDescriptionArg args) {
     ToolchainProvider toolchainProvider = context.getToolchainProvider();
     ProjectFilesystem projectFilesystem = context.getProjectFilesystem();
+    ActionGraphBuilder graphBuilder = context.getActionGraphBuilder();
     Pair<String, Iterable<BuildRule>> makefilePair =
         generateMakefile(
-            toolchainProvider, projectFilesystem, params, context.getActionGraphBuilder());
+            toolchainProvider,
+            projectFilesystem,
+            params,
+            graphBuilder,
+            buildTarget.getTargetConfiguration());
 
     ImmutableSortedSet<SourcePath> sources;
     if (!args.getSrcs().isEmpty()) {
@@ -362,6 +390,19 @@ public class NdkLibraryDescription implements DescriptionWithTargetGraph<NdkLibr
     } else {
       sources = findSources(projectFilesystem, buildTarget.getBasePath());
     }
+
+    StringWithMacrosConverter macrosConverter =
+        StringWithMacrosConverter.builder()
+            .setBuildTarget(buildTarget)
+            .setCellPathResolver(context.getCellPathResolver())
+            .setExpanders(MACRO_EXPANDERS)
+            .build();
+
+    ImmutableList<Arg> flags =
+        args.getFlags().stream()
+            .map(flag -> macrosConverter.convert(flag, graphBuilder))
+            .collect(ImmutableList.toImmutableList());
+
     AndroidNdk androidNdk = toolchainProvider.getByName(AndroidNdk.DEFAULT_NAME, AndroidNdk.class);
     return new NdkLibrary(
         buildTarget,
@@ -372,18 +413,36 @@ public class NdkLibraryDescription implements DescriptionWithTargetGraph<NdkLibr
         getGeneratedMakefilePath(buildTarget, projectFilesystem),
         makefilePair.getFirst(),
         sources,
-        args.getFlags(),
+        flags,
         args.getIsAsset(),
-        androidNdk.getNdkVersion(),
-        MACRO_HANDLER.getExpander(
-            buildTarget, context.getCellPathResolver(), context.getActionGraphBuilder()));
+        androidNdk.getNdkVersion());
+  }
+
+  @Override
+  public void findDepsForTargetFromConstructorArgs(
+      BuildTarget buildTarget,
+      CellPathResolver cellRoots,
+      NdkLibraryDescriptionArg constructorArg,
+      Builder<BuildTarget> extraDepsBuilder,
+      Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
+    toolchainProvider
+        .getByNameIfPresent(NdkCxxPlatformsProvider.DEFAULT_NAME, NdkCxxPlatformsProvider.class)
+        .ifPresent(
+            ndkCxxPlatformsProvider ->
+                ndkCxxPlatformsProvider
+                    .getNdkCxxPlatforms()
+                    .values()
+                    .forEach(
+                        platform ->
+                            extraDepsBuilder.addAll(
+                                platform.getParseTimeDeps(buildTarget.getTargetConfiguration()))));
   }
 
   @BuckStyleImmutable
   @Value.Immutable
   interface AbstractNdkLibraryDescriptionArg
       extends CommonDescriptionArg, HasDeclaredDeps, HasSrcs {
-    ImmutableList<String> getFlags();
+    ImmutableList<StringWithMacros> getFlags();
 
     @Value.Default
     default boolean getIsAsset() {

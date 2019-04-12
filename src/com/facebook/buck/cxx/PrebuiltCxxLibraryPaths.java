@@ -16,7 +16,7 @@
 
 package com.facebook.buck.cxx;
 
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.sourcepath.SourcePath;
@@ -62,10 +62,7 @@ interface PrebuiltCxxLibraryPaths {
 
   @SuppressWarnings("unused")
   default Optional<NativeLinkable.Linkage> getLinkage(
-      ProjectFilesystem filesystem,
-      ActionGraphBuilder graphBuilder,
-      CellPathResolver cellRoots,
-      CxxPlatform cxxPlatform) {
+      ProjectFilesystem filesystem, CellPathResolver cellRoots, CxxPlatform cxxPlatform) {
     return Optional.empty();
   }
 

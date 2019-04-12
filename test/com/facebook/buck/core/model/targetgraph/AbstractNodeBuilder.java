@@ -16,10 +16,8 @@
 
 package com.facebook.buck.core.model.targetgraph;
 
-import static java.nio.charset.StandardCharsets.UTF_8;
-
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.cell.TestCellPathResolver;
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
 import com.facebook.buck.core.description.arg.HasDeclaredDeps;
 import com.facebook.buck.core.description.attr.ImplicitDepsInferringDescription;
 import com.facebook.buck.core.model.BuildTarget;
@@ -33,21 +31,19 @@ import com.facebook.buck.core.rules.TestBuildRuleParams;
 import com.facebook.buck.core.toolchain.ToolchainProvider;
 import com.facebook.buck.core.toolchain.impl.ToolchainProviderBuilder;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.parser.exceptions.NoSuchBuildTargetException;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
+import com.facebook.buck.rules.coercer.PathTypeCoercer.PathExistenceVerificationMode;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
 import com.facebook.buck.rules.query.QueryCache;
 import com.facebook.buck.rules.query.QueryUtils;
-import com.facebook.buck.rules.visibility.VisibilityPatternParser;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
+import com.facebook.buck.rules.visibility.parser.VisibilityPatternParser;
 import com.facebook.buck.versions.Version;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
-import com.google.common.hash.HashCode;
-import com.google.common.hash.Hashing;
 import java.util.Optional;
-import javax.annotation.Nullable;
 
 /**
  * Support class for writing builders for nodes of a {@link TargetGraph} and {@link ActionGraph}
@@ -60,8 +56,6 @@ public abstract class AbstractNodeBuilder<
     TDescription extends DescriptionWithTargetGraph<TArg>,
     TBuildRule extends BuildRule> {
   protected static final TypeCoercerFactory TYPE_COERCER_FACTORY = new DefaultTypeCoercerFactory();
-  private static final VisibilityPatternParser VISIBILITY_PATTERN_PARSER =
-      new VisibilityPatternParser();
 
   protected final TDescription description;
   protected final ProjectFilesystem filesystem;
@@ -69,43 +63,27 @@ public abstract class AbstractNodeBuilder<
   protected final BuildTarget target;
   protected final TArgBuilder argBuilder;
   protected final CellPathResolver cellRoots;
-  @Nullable private final HashCode rawHashCode;
   private Optional<ImmutableMap<BuildTarget, Version>> selectedVersions = Optional.empty();
 
   protected AbstractNodeBuilder(TDescription description, BuildTarget target) {
-    this(
-        description,
-        target,
-        new FakeProjectFilesystem(),
-        new ToolchainProviderBuilder().build(),
-        null);
+    this(description, target, new FakeProjectFilesystem(), new ToolchainProviderBuilder().build());
   }
 
   protected AbstractNodeBuilder(
       TDescription description, BuildTarget target, ProjectFilesystem projectFilesystem) {
-    this(description, target, projectFilesystem, new ToolchainProviderBuilder().build(), null);
+    this(description, target, projectFilesystem, new ToolchainProviderBuilder().build());
   }
 
   protected AbstractNodeBuilder(
       TDescription description,
       BuildTarget target,
       ProjectFilesystem projectFilesystem,
-      HashCode hashCode) {
-    this(description, target, projectFilesystem, new ToolchainProviderBuilder().build(), hashCode);
-  }
-
-  protected AbstractNodeBuilder(
-      TDescription description,
-      BuildTarget target,
-      ProjectFilesystem projectFilesystem,
-      ToolchainProvider toolchainProvider,
-      HashCode hashCode) {
+      ToolchainProvider toolchainProvider) {
     this.description = description;
     this.filesystem = projectFilesystem;
     this.toolchainProvider = toolchainProvider;
     this.target = target;
     this.argBuilder = makeArgBuilder(description);
-    this.rawHashCode = hashCode;
 
     this.cellRoots = TestCellPathResolver.get(projectFilesystem);
   }
@@ -168,29 +146,21 @@ public abstract class AbstractNodeBuilder<
 
   public TargetNode<TArg> build(ProjectFilesystem filesystem) {
     try {
-      HashCode hash =
-          rawHashCode == null
-              ? Hashing.sha1().hashString(target.getFullyQualifiedName(), UTF_8)
-              : rawHashCode;
-      TargetNodeFactory factory = new TargetNodeFactory(TYPE_COERCER_FACTORY);
+      TargetNodeFactory factory =
+          new TargetNodeFactory(TYPE_COERCER_FACTORY, PathExistenceVerificationMode.DO_NOT_VERIFY);
       TArg populatedArg = getPopulatedArg();
-      TargetNode<TArg> node =
-          factory
-              .createFromObject(
-                  // This hash will do in a pinch.
-                  hash,
-                  description,
-                  populatedArg,
-                  filesystem,
-                  target,
-                  getDepsFromArg(populatedArg),
-                  ImmutableSet.of(
-                      VISIBILITY_PATTERN_PARSER.parse(
-                          null, VisibilityPatternParser.VISIBILITY_PUBLIC)),
-                  ImmutableSet.of(),
-                  cellRoots)
-              .withSelectedVersions(selectedVersions);
-      return node;
+      return factory
+          .createFromObject(
+              description,
+              populatedArg,
+              filesystem,
+              target,
+              getDepsFromArg(populatedArg),
+              ImmutableSet.of(
+                  VisibilityPatternParser.parse(null, VisibilityPatternParser.VISIBILITY_PUBLIC)),
+              ImmutableSet.of(),
+              cellRoots)
+          .withSelectedVersions(selectedVersions);
     } catch (NoSuchBuildTargetException e) {
       throw new RuntimeException(e);
     }

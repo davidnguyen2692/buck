@@ -20,6 +20,7 @@ import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
+import com.facebook.buck.core.model.EmptyTargetConfiguration;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
@@ -37,8 +38,8 @@ import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableInput;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.rules.args.Arg;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.util.RichStream;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -63,7 +64,10 @@ public class HaskellPrebuiltLibraryDescriptionTest {
     PrebuiltHaskellLibrary library = builder.build(graphBuilder, filesystem, targetGraph);
     NativeLinkableInput input =
         library.getNativeLinkableInput(
-            CxxPlatformUtils.DEFAULT_PLATFORM, Linker.LinkableDepType.STATIC, graphBuilder);
+            CxxPlatformUtils.DEFAULT_PLATFORM,
+            Linker.LinkableDepType.STATIC,
+            graphBuilder,
+            EmptyTargetConfiguration.INSTANCE);
     assertThat(
         RichStream.from(input.getArgs())
             .flatMap(
@@ -90,7 +94,10 @@ public class HaskellPrebuiltLibraryDescriptionTest {
     PrebuiltHaskellLibrary library = builder.build(graphBuilder, filesystem, targetGraph);
     NativeLinkableInput input =
         library.getNativeLinkableInput(
-            CxxPlatformUtils.DEFAULT_PLATFORM, Linker.LinkableDepType.SHARED, graphBuilder);
+            CxxPlatformUtils.DEFAULT_PLATFORM,
+            Linker.LinkableDepType.SHARED,
+            graphBuilder,
+            EmptyTargetConfiguration.INSTANCE);
     assertThat(
         RichStream.from(input.getArgs())
             .flatMap(
@@ -174,11 +181,17 @@ public class HaskellPrebuiltLibraryDescriptionTest {
     PrebuiltHaskellLibrary library = builder.build(graphBuilder, filesystem, targetGraph);
     NativeLinkableInput staticInput =
         library.getNativeLinkableInput(
-            CxxPlatformUtils.DEFAULT_PLATFORM, Linker.LinkableDepType.STATIC, graphBuilder);
+            CxxPlatformUtils.DEFAULT_PLATFORM,
+            Linker.LinkableDepType.STATIC,
+            graphBuilder,
+            EmptyTargetConfiguration.INSTANCE);
     assertThat(Arg.stringify(staticInput.getArgs(), pathResolver), Matchers.contains(flag));
     NativeLinkableInput sharedInput =
         library.getNativeLinkableInput(
-            CxxPlatformUtils.DEFAULT_PLATFORM, Linker.LinkableDepType.SHARED, graphBuilder);
+            CxxPlatformUtils.DEFAULT_PLATFORM,
+            Linker.LinkableDepType.SHARED,
+            graphBuilder,
+            EmptyTargetConfiguration.INSTANCE);
     assertThat(Arg.stringify(sharedInput.getArgs(), pathResolver), Matchers.contains(flag));
   }
 

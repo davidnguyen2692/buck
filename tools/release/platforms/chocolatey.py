@@ -1,8 +1,21 @@
+# Copyright 2018-present Facebook, Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License"); you may
+# not use this file except in compliance with the License. You may obtain
+# a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+# WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+# License for the specific language governing permissions and limitations
+# under the License.
+
 import logging
 import os
 
 import requests
-
 from platforms.common import (
     ReleaseException,
     copy_from_docker_windows,
@@ -103,14 +116,15 @@ def build_chocolatey(repository, release, windows_host, output_dir):
     return nupkg_path
 
 
-def publish_chocolatey(chocolatey_file, chocolatey_api_key):
+def publish_chocolatey(chocolatey_file, chocolatey_api_key, insecure_chocolatey_upload):
     """ Publish a nupkg to chocolatey """
     url = "https://push.chocolatey.org/api/v2/package"
     headers = {"X-NuGet-ApiKey": chocolatey_api_key}
+    verify = not insecure_chocolatey_upload
 
     logging.info("Publishing chocolatey package at {}".format(chocolatey_file))
     with open(chocolatey_file, "rb") as fin:
-        response = requests.put(url, headers=headers, data=fin)
+        response = requests.put(url, headers=headers, data=fin, verify=verify)
     if response.status_code == 409:
         raise ReleaseException("Package and version already exists on chocolatey")
     response.raise_for_status()

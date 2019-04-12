@@ -32,13 +32,12 @@ import com.facebook.buck.core.sourcepath.FakeSourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.jvm.core.JavaLibrary;
 import com.facebook.buck.jvm.java.testutil.AbiCompilationModeTest;
 import com.facebook.buck.shell.GenruleBuilder;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.hash.HashCode;
 import java.nio.file.Path;
 import java.util.Optional;
 import javax.annotation.Nullable;
@@ -179,8 +178,7 @@ public class JavaLibraryClasspathProviderTest extends AbiCompilationModeTest {
             .add(getFullOutput(e)) // c exports e
             // b is non-java so b and d do not appear
             .build(),
-        aLib.getTransitiveClasspaths()
-            .stream()
+        aLib.getTransitiveClasspaths().stream()
             .map(resolver::getAbsolutePath)
             .collect(ImmutableSet.toImmutableSet()));
   }
@@ -206,11 +204,8 @@ public class JavaLibraryClasspathProviderTest extends AbiCompilationModeTest {
         ImmutableSet.of(z, c, e),
         JavaLibraryClasspathProvider.getTransitiveClasspathDeps((JavaLibrary) z));
 
-    BuildRule mavenCoord =
-        new JavaLibraryBuilder(
-                BuildTargetFactory.newInstance("//has:output"),
-                filesystem,
-                HashCode.fromString("aaaa"))
+    JavaLibrary mavenCoord =
+        new JavaLibraryBuilder(BuildTargetFactory.newInstance("//has:output"), filesystem)
             .setMavenCoords("com.example:buck:1.0")
             .addDep(z.getBuildTarget())
             .build(graphBuilder);
@@ -218,7 +213,7 @@ public class JavaLibraryClasspathProviderTest extends AbiCompilationModeTest {
     assertEquals(
         "Does appear if no output jar but maven coordinate present.",
         ImmutableSet.of(z, c, e, mavenCoord),
-        JavaLibraryClasspathProvider.getTransitiveClasspathDeps((JavaLibrary) mavenCoord));
+        JavaLibraryClasspathProvider.getTransitiveClasspathDeps(mavenCoord));
   }
 
   @Test
@@ -236,8 +231,7 @@ public class JavaLibraryClasspathProviderTest extends AbiCompilationModeTest {
       String target,
       Iterable<String> srcs,
       Iterable<TargetNode<?>> deps,
-      ProjectFilesystem filesystem)
-      throws Exception {
+      ProjectFilesystem filesystem) {
     return makeRule(target, srcs, deps, null, filesystem);
   }
 

@@ -55,7 +55,7 @@ public final class ClassLoaderCache implements AutoCloseable {
 
     ClassLoader classLoader = cacheForParent.get(classPath);
     if (classLoader == null) {
-      URL[] urls = classPath.toArray(new URL[classPath.size()]);
+      URL[] urls = classPath.toArray(new URL[0]);
       classLoader = new CachedURLClassLoader(urls, parentClassLoader);
       cacheForParent.put(classPath, classLoader);
     }
@@ -114,7 +114,7 @@ public final class ClassLoaderCache implements AutoCloseable {
     }
 
     @Override
-    public void close() throws IOException {
+    public void close() {
       // Do nothing; only the cache can close this ClassLoader
     }
 

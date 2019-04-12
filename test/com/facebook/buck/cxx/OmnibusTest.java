@@ -21,6 +21,7 @@ import static org.junit.Assert.assertThat;
 import com.facebook.buck.core.cell.TestCellPathResolver;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
+import com.facebook.buck.core.model.EmptyTargetConfiguration;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.TestBuildRuleParams;
@@ -34,10 +35,10 @@ import com.facebook.buck.cxx.toolchain.linker.Linker;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkTarget;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableInput;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.parser.exceptions.NoSuchBuildTargetException;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.StringArg;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import java.util.Map;
@@ -101,9 +102,15 @@ public class OmnibusTest {
         getCxxLinkRule(ruleFinder, libs.get("libomnibus.so")),
         pathResolver,
         a.getNativeLinkableInput(
-            CxxPlatformUtils.DEFAULT_PLATFORM, Linker.LinkableDepType.STATIC_PIC, graphBuilder),
+            CxxPlatformUtils.DEFAULT_PLATFORM,
+            Linker.LinkableDepType.STATIC_PIC,
+            graphBuilder,
+            EmptyTargetConfiguration.INSTANCE),
         b.getNativeLinkableInput(
-            CxxPlatformUtils.DEFAULT_PLATFORM, Linker.LinkableDepType.STATIC_PIC, graphBuilder));
+            CxxPlatformUtils.DEFAULT_PLATFORM,
+            Linker.LinkableDepType.STATIC_PIC,
+            graphBuilder,
+            EmptyTargetConfiguration.INSTANCE));
   }
 
   @Test
@@ -155,7 +162,10 @@ public class OmnibusTest {
         root.getNativeLinkTargetInput(
             CxxPlatformUtils.DEFAULT_PLATFORM, graphBuilder, pathResolver, ruleFinder),
         b.getNativeLinkableInput(
-            CxxPlatformUtils.DEFAULT_PLATFORM, Linker.LinkableDepType.SHARED, graphBuilder));
+            CxxPlatformUtils.DEFAULT_PLATFORM,
+            Linker.LinkableDepType.SHARED,
+            graphBuilder,
+            EmptyTargetConfiguration.INSTANCE));
     assertThat(
         libs.get(b.getBuildTarget().toString()),
         Matchers.not(Matchers.instanceOf(ExplicitBuildTargetSourcePath.class)));
@@ -163,7 +173,10 @@ public class OmnibusTest {
         getCxxLinkRule(ruleFinder, libs.get("libomnibus.so")),
         pathResolver,
         a.getNativeLinkableInput(
-            CxxPlatformUtils.DEFAULT_PLATFORM, Linker.LinkableDepType.STATIC_PIC, graphBuilder));
+            CxxPlatformUtils.DEFAULT_PLATFORM,
+            Linker.LinkableDepType.STATIC_PIC,
+            graphBuilder,
+            EmptyTargetConfiguration.INSTANCE));
   }
 
   @Test
@@ -221,7 +234,10 @@ public class OmnibusTest {
         root.getNativeLinkTargetInput(
             CxxPlatformUtils.DEFAULT_PLATFORM, graphBuilder, pathResolver, ruleFinder),
         c.getNativeLinkableInput(
-            CxxPlatformUtils.DEFAULT_PLATFORM, Linker.LinkableDepType.SHARED, graphBuilder));
+            CxxPlatformUtils.DEFAULT_PLATFORM,
+            Linker.LinkableDepType.SHARED,
+            graphBuilder,
+            EmptyTargetConfiguration.INSTANCE));
     assertThat(
         libs.get(b.getBuildTarget().toString()),
         Matchers.not(Matchers.instanceOf(ExplicitBuildTargetSourcePath.class)));
@@ -232,7 +248,10 @@ public class OmnibusTest {
         getCxxLinkRule(ruleFinder, libs.get("libomnibus.so")),
         pathResolver,
         a.getNativeLinkableInput(
-            CxxPlatformUtils.DEFAULT_PLATFORM, Linker.LinkableDepType.STATIC_PIC, graphBuilder));
+            CxxPlatformUtils.DEFAULT_PLATFORM,
+            Linker.LinkableDepType.STATIC_PIC,
+            graphBuilder,
+            EmptyTargetConfiguration.INSTANCE));
   }
 
   @Test
@@ -299,7 +318,10 @@ public class OmnibusTest {
         getCxxLinkRule(ruleFinder, libs.get("libomnibus.so")),
         pathResolver,
         a.getNativeLinkableInput(
-            CxxPlatformUtils.DEFAULT_PLATFORM, Linker.LinkableDepType.STATIC_PIC, graphBuilder));
+            CxxPlatformUtils.DEFAULT_PLATFORM,
+            Linker.LinkableDepType.STATIC_PIC,
+            graphBuilder,
+            EmptyTargetConfiguration.INSTANCE));
   }
 
   @Test
@@ -412,12 +434,18 @@ public class OmnibusTest {
         root.getNativeLinkTargetInput(
             CxxPlatformUtils.DEFAULT_PLATFORM, graphBuilder, pathResolver, ruleFinder),
         a.getNativeLinkableInput(
-            CxxPlatformUtils.DEFAULT_PLATFORM, Linker.LinkableDepType.STATIC_PIC, graphBuilder));
+            CxxPlatformUtils.DEFAULT_PLATFORM,
+            Linker.LinkableDepType.STATIC_PIC,
+            graphBuilder,
+            EmptyTargetConfiguration.INSTANCE));
     assertCxxLinkContainsNativeLinkableInput(
         getCxxLinkRule(ruleFinder, libs.get("libomnibus.so")),
         pathResolver,
         b.getNativeLinkableInput(
-            CxxPlatformUtils.DEFAULT_PLATFORM, Linker.LinkableDepType.STATIC_PIC, graphBuilder));
+            CxxPlatformUtils.DEFAULT_PLATFORM,
+            Linker.LinkableDepType.STATIC_PIC,
+            graphBuilder,
+            EmptyTargetConfiguration.INSTANCE));
   }
 
   @Test

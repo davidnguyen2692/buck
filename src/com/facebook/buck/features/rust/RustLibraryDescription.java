@@ -18,7 +18,7 @@ package com.facebook.buck.features.rust;
 
 import static com.facebook.buck.features.rust.RustCompileUtils.ruleToCrateName;
 
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.description.arg.CommonDescriptionArg;
 import com.facebook.buck.core.description.arg.HasDeclaredDeps;
 import com.facebook.buck.core.description.arg.HasDefaultPlatform;
@@ -29,6 +29,7 @@ import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.FlavorDomain;
 import com.facebook.buck.core.model.Flavored;
+import com.facebook.buck.core.model.TargetConfiguration;
 import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
 import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
@@ -45,6 +46,7 @@ import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.cxx.CxxDeps;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
+import com.facebook.buck.cxx.toolchain.linker.Linker.LinkableDepType;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableInput;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
@@ -102,7 +104,8 @@ public class RustLibraryDescription
       Iterable<Arg> linkerInputs,
       String crate,
       CrateType crateType,
-      Linker.LinkableDepType depType,
+      Optional<String> edition,
+      LinkableDepType depType,
       RustLibraryDescriptionArg args,
       Iterable<BuildRule> deps) {
     Pair<SourcePath, ImmutableSortedSet<SourcePath>> rootModuleAndSources =
@@ -129,12 +132,14 @@ public class RustLibraryDescription
         linkerInputs,
         crate,
         crateType,
+        edition,
         depType,
         rootModuleAndSources.getSecond(),
         rootModuleAndSources.getFirst(),
         rustBuckConfig.getForceRlib(),
         rustBuckConfig.getPreferStaticLibs(),
-        deps);
+        deps,
+        rustBuckConfig.getIncremental(rustPlatform.getFlavor().getName()));
   }
 
   @Override
@@ -154,8 +159,9 @@ public class RustLibraryDescription
         rustPlatform -> {
           ImmutableList.Builder<String> rustcArgs = ImmutableList.builder();
           RustCompileUtils.addFeatures(buildTarget, args.getFeatures(), rustcArgs);
-          rustcArgs.addAll(args.getRustcFlags());
+          RustCompileUtils.addTargetTripleForFlavor(rustPlatform.getFlavor(), rustcArgs);
           rustcArgs.addAll(rustPlatform.getRustLibraryFlags());
+          rustcArgs.addAll(args.getRustcFlags());
           return rustcArgs.build();
         };
 
@@ -206,6 +212,7 @@ public class RustLibraryDescription
           /* linkerInputs */ ImmutableList.of(),
           crate,
           crateType,
+          args.getEdition(),
           depType,
           args,
           allDeps.get(graphBuilder, platform.getCxxPlatform()));
@@ -278,6 +285,7 @@ public class RustLibraryDescription
                 /* linkerInputs */ ImmutableList.of(),
                 crate,
                 crateType,
+                args.getEdition(),
                 depType,
                 args,
                 allDeps.get(graphBuilder, rustPlatform.getCxxPlatform()));
@@ -317,7 +325,8 @@ public class RustLibraryDescription
                 /* linkerInputs */ ImmutableList.of(),
                 crate,
                 CrateType.DYLIB,
-                Linker.LinkableDepType.SHARED,
+                args.getEdition(),
+                LinkableDepType.SHARED,
                 args,
                 allDeps.get(graphBuilder, rustPlatform.getCxxPlatform()));
         libs.put(sharedLibrarySoname, sharedLibraryBuildRule.getSourcePathToOutput());
@@ -375,8 +384,8 @@ public class RustLibraryDescription
           CxxPlatform cxxPlatform,
           Linker.LinkableDepType depType,
           boolean forceLinkWhole,
-          ImmutableSet<LanguageExtensions> languageExtensions,
-          ActionGraphBuilder graphBuilder) {
+          ActionGraphBuilder graphBuilder,
+          TargetConfiguration targetConfiguration) {
         CrateType crateType;
 
         switch (depType) {
@@ -411,6 +420,7 @@ public class RustLibraryDescription
                 /* linkerInputs */ ImmutableList.of(),
                 crate,
                 crateType,
+                args.getEdition(),
                 depType,
                 args,
                 allDeps.get(graphBuilder, rustPlatform.getCxxPlatform()));
@@ -422,7 +432,7 @@ public class RustLibraryDescription
       }
 
       @Override
-      public Linkage getPreferredLinkage(CxxPlatform cxxPlatform, ActionGraphBuilder graphBuilder) {
+      public Linkage getPreferredLinkage(CxxPlatform cxxPlatform) {
         return args.getPreferredLinkage();
       }
 
@@ -449,7 +459,8 @@ public class RustLibraryDescription
                 /* linkerInputs */ ImmutableList.of(),
                 crate,
                 CrateType.CDYLIB,
-                Linker.LinkableDepType.SHARED,
+                args.getEdition(),
+                LinkableDepType.SHARED,
                 args,
                 allDeps.get(graphBuilder, rustPlatform.getCxxPlatform()));
         libs.put(sharedLibrarySoname, sharedLibraryBuildRule.getSourcePathToOutput());
@@ -468,11 +479,12 @@ public class RustLibraryDescription
     // Add parse-time deps for *all* platforms, as we don't know which platform will be
     // selected by a top-level binary rule (e.g. a Python binary transitively depending on
     // this library may choose platform "foo").
-    getRustToolchain()
-        .getRustPlatforms()
-        .getValues()
-        .stream()
-        .flatMap(p -> RichStream.from(RustCompileUtils.getPlatformParseTimeDeps(p)))
+    getRustToolchain().getRustPlatforms().getValues().stream()
+        .flatMap(
+            p ->
+                RichStream.from(
+                    RustCompileUtils.getPlatformParseTimeDeps(
+                        buildTarget.getTargetConfiguration(), p)))
         .forEach(targetGraphOnlyDepsBuilder::add);
   }
 
@@ -491,6 +503,8 @@ public class RustLibraryDescription
       extends CommonDescriptionArg, HasDeclaredDeps, HasSrcs, HasTests, HasDefaultPlatform {
     @Value.NaturalOrder
     ImmutableSortedSet<String> getFeatures();
+
+    Optional<String> getEdition();
 
     List<String> getRustcFlags();
 

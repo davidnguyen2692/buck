@@ -16,7 +16,7 @@
 
 package com.facebook.buck.features.lua;
 
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.description.attr.ImplicitDepsInferringDescription;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
@@ -61,7 +61,6 @@ import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.util.Optionals;
 import com.facebook.buck.util.RichStream;
 import com.facebook.buck.versions.VersionPropagator;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableListMultimap;
@@ -72,6 +71,7 @@ import com.google.common.collect.Multimaps;
 import java.io.File;
 import java.nio.file.Path;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Stream;
 import org.immutables.value.Value;
@@ -144,7 +144,7 @@ public class CxxLuaExtensionDescription
         ImmutableList.<CxxPreprocessorInput>builder()
             .add(
                 luaPlatform
-                    .getLuaCxxLibrary(graphBuilder)
+                    .getLuaCxxLibrary(graphBuilder, buildTarget.getTargetConfiguration())
                     .getCxxPreprocessorInput(cxxPlatform, graphBuilder))
             .addAll(
                 CxxDescriptionEnhancer.collectCxxPreprocessorInput(
@@ -167,7 +167,9 @@ public class CxxLuaExtensionDescription
                     ImmutableSet.of(),
                     CxxPreprocessables.getTransitiveCxxPreprocessorInput(
                         cxxPlatform, graphBuilder, deps),
-                    args.getRawHeaders()))
+                    args.getRawHeaders(),
+                    args.getIncludeDirectories(),
+                    projectFilesystem))
             .build();
 
     // Generate rule to build the object files.
@@ -243,7 +245,10 @@ public class CxxLuaExtensionDescription
         CxxLinkOptions.of(),
         RichStream.from(args.getCxxDeps().get(graphBuilder, cxxPlatform))
             .filter(NativeLinkable.class)
-            .concat(Stream.of(luaPlatform.getLuaCxxLibrary(graphBuilder)))
+            .concat(
+                Stream.of(
+                    luaPlatform.getLuaCxxLibrary(
+                        graphBuilder, buildTarget.getTargetConfiguration())))
             .toImmutableList(),
         args.getCxxRuntimeType(),
         Optional.empty(),
@@ -306,7 +311,7 @@ public class CxxLuaExtensionDescription
       public SourcePath getExtension(CxxPlatform cxxPlatform) {
         BuildRule rule =
             graphBuilder.requireRule(getBuildTarget().withAppendedFlavors(cxxPlatform.getFlavor()));
-        return Preconditions.checkNotNull(rule.getSourcePathToOutput());
+        return Objects.requireNonNull(rule.getSourcePathToOutput());
       }
 
       @Override
@@ -344,7 +349,7 @@ public class CxxLuaExtensionDescription
       }
 
       @Override
-      public Optional<Path> getNativeLinkTargetOutputPath(CxxPlatform cxxPlatform) {
+      public Optional<Path> getNativeLinkTargetOutputPath() {
         return Optional.empty();
       }
     };
@@ -365,7 +370,8 @@ public class CxxLuaExtensionDescription
 
       // Get any parse time deps from the C/C++ platforms.
       targetGraphOnlyDepsBuilder.addAll(
-          CxxPlatforms.getParseTimeDeps(luaPlatform.getCxxPlatform()));
+          CxxPlatforms.getParseTimeDeps(
+              buildTarget.getTargetConfiguration(), luaPlatform.getCxxPlatform()));
     }
   }
 

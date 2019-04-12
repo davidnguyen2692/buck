@@ -18,6 +18,7 @@ package com.facebook.buck.android;
 
 import com.facebook.buck.core.build.buildable.context.BuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
@@ -26,6 +27,7 @@ import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.attr.BuildOutputInitializer;
 import com.facebook.buck.core.rules.attr.InitializableFromDisk;
 import com.facebook.buck.core.rules.attr.SupportsInputBasedRuleKey;
+import com.facebook.buck.core.rules.common.BuildableSupport;
 import com.facebook.buck.core.rules.impl.AbstractBuildRule;
 import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
@@ -41,7 +43,6 @@ import com.facebook.buck.jvm.java.CompilerParameters;
 import com.facebook.buck.jvm.java.JarDirectoryStep;
 import com.facebook.buck.jvm.java.JarParameters;
 import com.facebook.buck.jvm.java.JavacToJarStepFactory;
-import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.step.StepExecutionResults;
@@ -53,6 +54,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
+import com.google.common.collect.Ordering;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.attribute.BasicFileAttributes;
@@ -87,7 +89,7 @@ public class DummyRDotJava extends AbstractBuildRule
   @SuppressWarnings("PMD.UnusedPrivateField")
   private final ImmutableList<SourcePath> abiInputs;
 
-  private final DefaultJavaAbiInfo javaAbiInfo;
+  private final JavaAbiInfo javaAbiInfo;
 
   public DummyRDotJava(
       BuildTarget buildTarget,
@@ -128,17 +130,9 @@ public class DummyRDotJava extends AbstractBuildRule
       boolean skipNonUnionRDotJava) {
     super(buildTarget, projectFilesystem);
 
-    // DummyRDotJava inherits no dependencies from its android_library beyond the compiler
-    // that is used to build it
-    buildDeps =
-        ImmutableSortedSet.<BuildRule>naturalOrder()
-            .addAll(ruleFinder.filterBuildRuleInputs(abiInputs))
-            .addAll(compileStepFactory.getBuildDeps(ruleFinder))
-            .build();
     // Sort the input so that we get a stable ABI for the same set of resources.
     this.androidResourceDeps =
-        androidResourceDeps
-            .stream()
+        androidResourceDeps.stream()
             .sorted(Comparator.comparing(HasAndroidResourceDeps::getBuildTarget))
             .collect(ImmutableList.toImmutableList());
     this.useOldStyleableFormat = useOldStyleableFormat;
@@ -149,8 +143,12 @@ public class DummyRDotJava extends AbstractBuildRule
     this.unionPackage = unionPackage;
     this.finalRName = finalRName;
     this.abiInputs = abiInputs;
-    this.javaAbiInfo = new DefaultJavaAbiInfo(getBuildTarget(), getSourcePathToOutput());
+    this.javaAbiInfo = new DefaultJavaAbiInfo(getSourcePathToOutput());
     buildOutputInitializer = new BuildOutputInitializer<>(getBuildTarget(), this);
+
+    buildDeps =
+        BuildableSupport.deriveDeps(this, ruleFinder)
+            .collect(ImmutableSortedSet.toImmutableSortedSet(Ordering.natural()));
   }
 
   private static ImmutableList<SourcePath> abiPaths(Iterable<HasAndroidResourceDeps> deps) {
@@ -284,7 +282,7 @@ public class DummyRDotJava extends AbstractBuildRule
         JarParameters.builder()
             .setJarPath(outputJar)
             .setEntriesToJar(ImmutableSortedSet.of(rDotJavaClassesFolder))
-            .setMergeManifests(true)
+            .setMergeManifests(false)
             .setHashEntries(true)
             .build();
     steps.add(new JarDirectoryStep(getProjectFilesystem(), jarParameters));
@@ -320,8 +318,7 @@ public class DummyRDotJava extends AbstractBuildRule
     }
 
     @Override
-    public StepExecutionResult execute(ExecutionContext context)
-        throws IOException, InterruptedException {
+    public StepExecutionResult execute(ExecutionContext context) throws IOException {
       try (ZipFile jar = new ZipFile(getProjectFilesystem().resolve(outputJar).toFile())) {
         for (ZipEntry zipEntry : Collections.list(jar.entries())) {
           if (zipEntry.getName().endsWith(".class")) {
@@ -371,7 +368,7 @@ public class DummyRDotJava extends AbstractBuildRule
     return BuildTargetPaths.getGenPath(filesystem, buildTarget, "__%s_dummyrdotjava_output__");
   }
 
-  private static Path getOutputJarPath(BuildTarget buildTarget, ProjectFilesystem filesystem) {
+  public static Path getOutputJarPath(BuildTarget buildTarget, ProjectFilesystem filesystem) {
     return getPathToOutputDir(buildTarget, filesystem)
         .resolve(String.format("%s.jar", buildTarget.getShortNameAndFlavorPostfix()));
   }

@@ -17,6 +17,7 @@
 package com.facebook.buck.features.halide;
 
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.TargetConfiguration;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.BuildRuleParams;
@@ -37,12 +38,12 @@ import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableInput;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.SourcePathArg;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.ImmutableSet;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.regex.Pattern;
 
@@ -132,7 +133,7 @@ public class HalideLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
     if (rule instanceof Archive) {
       return ((Archive) rule).toArg();
     } else {
-      return SourcePathArg.of(Preconditions.checkNotNull(rule.getSourcePathToOutput()));
+      return SourcePathArg.of(Objects.requireNonNull(rule.getSourcePathToOutput()));
     }
   }
 
@@ -141,8 +142,8 @@ public class HalideLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
       CxxPlatform cxxPlatform,
       Linker.LinkableDepType type,
       boolean forceLinkWhole,
-      ImmutableSet<LanguageExtensions> languageExtensions,
-      ActionGraphBuilder graphBuilder) {
+      ActionGraphBuilder graphBuilder,
+      TargetConfiguration targetConfiguration) {
     if (!isPlatformSupported(cxxPlatform)) {
       return NativeLinkableInput.of();
     }
@@ -153,8 +154,7 @@ public class HalideLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
   }
 
   @Override
-  public NativeLinkable.Linkage getPreferredLinkage(
-      CxxPlatform cxxPlatform, ActionGraphBuilder graphBuilder) {
+  public NativeLinkable.Linkage getPreferredLinkage(CxxPlatform cxxPlatform) {
     return NativeLinkable.Linkage.STATIC;
   }
 

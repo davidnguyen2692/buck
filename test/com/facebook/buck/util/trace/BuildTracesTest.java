@@ -22,8 +22,8 @@ import static org.junit.Assert.assertNotNull;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildId;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.log.InvocationInfo;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.util.timing.FakeClock;
 import com.facebook.buck.util.timing.SettableFakeClock;
 import com.facebook.buck.util.trace.BuildTraces.TraceAttributes;
@@ -216,7 +216,8 @@ public class BuildTracesTest {
                 commandName,
                 ImmutableList.of(),
                 ImmutableList.of(),
-                fs.getBuckPaths().getLogDir())
+                fs.getBuckPaths().getLogDir(),
+                false)
             .withTimestampMillis(TimeUnit.SECONDS.toMillis(seconds));
     return info.getLogDirectoryPath().resolve("build." + buildId + ".trace");
   }

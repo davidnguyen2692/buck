@@ -19,19 +19,20 @@ package com.facebook.buck.cxx;
 import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.not;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.core.build.context.BuildContext;
 import com.facebook.buck.core.build.context.FakeBuildContext;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.cell.TestCellPathResolver;
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.model.InternalFlavor;
 import com.facebook.buck.core.rulekey.RuleKey;
-import com.facebook.buck.core.rulekey.RuleKeyObjectSink;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.impl.FakeBuildRule;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.core.sourcepath.FakeSourcePath;
 import com.facebook.buck.core.sourcepath.PathSourcePath;
@@ -42,19 +43,20 @@ import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.core.toolchain.tool.impl.CommandTool;
 import com.facebook.buck.core.toolchain.tool.impl.HashedFileTool;
 import com.facebook.buck.cxx.toolchain.Compiler;
+import com.facebook.buck.cxx.toolchain.CxxBuckConfig.ToolType;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
 import com.facebook.buck.cxx.toolchain.DefaultCompiler;
 import com.facebook.buck.cxx.toolchain.GccCompiler;
 import com.facebook.buck.cxx.toolchain.GccPreprocessor;
 import com.facebook.buck.cxx.toolchain.Preprocessor;
+import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.rules.FakeBuildRule;
-import com.facebook.buck.rules.args.RuleKeyAppendableFunction;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
+import com.facebook.buck.rules.args.AddsToRuleKeyFunction;
 import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.facebook.buck.rules.keys.TestDefaultRuleKeyFactory;
 import com.facebook.buck.testutil.FakeFileHashCache;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.PathNormalizer;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
@@ -79,7 +81,7 @@ public class CxxPreprocessAndCompileTest {
     static final String COLOR_FLAG = "-use-color-in-compiler";
 
     public CompilerWithColorSupport(Tool tool) {
-      super(tool);
+      super(tool, false);
     }
 
     @Override
@@ -88,6 +90,7 @@ public class CxxPreprocessAndCompileTest {
     }
   }
 
+  private static final Optional<Boolean> DEFAULT_USE_ARG_FILE = Optional.empty();
   private static final CxxToolFlags DEFAULT_TOOL_FLAGS =
       CxxToolFlags.explicitBuilder()
           .addPlatformFlags(StringArg.of("-fsanitize=address"))
@@ -98,16 +101,11 @@ public class CxxPreprocessAndCompileTest {
   private static final CxxSource.Type DEFAULT_INPUT_TYPE = CxxSource.Type.CXX;
   private static final PathSourcePath DEFAULT_WORKING_DIR =
       FakeSourcePath.of(System.getProperty("user.dir"));
-  private static final RuleKeyAppendableFunction<FrameworkPath, Path>
-      DEFAULT_FRAMEWORK_PATH_SEARCH_PATH_FUNCTION =
-          new DefaultFramworkPathSearchPathAppendableFunction();
+  private static final AddsToRuleKeyFunction<FrameworkPath, Path>
+      DEFAULT_FRAMEWORK_PATH_SEARCH_PATH_FUNCTION = new DefaultFramworkPathSearchPathFunction();
 
-  private static class DefaultFramworkPathSearchPathAppendableFunction
-      implements RuleKeyAppendableFunction<FrameworkPath, Path> {
-    @Override
-    public void appendToRuleKey(RuleKeyObjectSink sink) {
-      // Do nothing.
-    }
+  private static class DefaultFramworkPathSearchPathFunction
+      implements AddsToRuleKeyFunction<FrameworkPath, Path> {
 
     @Override
     public Path apply(FrameworkPath input) {
@@ -130,7 +128,10 @@ public class CxxPreprocessAndCompileTest {
               () ->
                   PathSourcePath.of(
                       projectFilesystem,
-                      PathNormalizer.toWindowsPathIfNeeded(Paths.get("/root/compiler")))));
+                      PathNormalizer.toWindowsPathIfNeeded(Paths.get("/root/compiler")))),
+          ToolType.CXX,
+          false,
+          false);
   private Preprocessor PREPROCESSOR_WITH_COLOR_SUPPORT =
       new PreprocessorWithColorSupport(
           new HashedFileTool(
@@ -147,7 +148,7 @@ public class CxxPreprocessAndCompileTest {
                       PathNormalizer.toWindowsPathIfNeeded(Paths.get("/root/compiler")))));
 
   @Test
-  public void inputChangesCauseRuleKeyChangesForCompilation() throws Exception {
+  public void inputChangesCauseRuleKeyChangesForCompilation() {
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(new TestActionGraphBuilder());
     SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
     BuildTarget target = BuildTargetFactory.newInstance("//foo:bar");
@@ -195,7 +196,8 @@ public class CxxPreprocessAndCompileTest {
                     new CompilerDelegate(
                         CxxPlatformUtils.DEFAULT_COMPILER_DEBUG_PATH_SANITIZER,
                         DEFAULT_COMPILER,
-                        DEFAULT_TOOL_FLAGS),
+                        DEFAULT_TOOL_FLAGS,
+                        DEFAULT_USE_ARG_FILE),
                     DEFAULT_OUTPUT,
                     DEFAULT_INPUT,
                     DEFAULT_INPUT_TYPE,
@@ -217,8 +219,11 @@ public class CxxPreprocessAndCompileTest {
                                 PathSourcePath.of(
                                     projectFilesystem,
                                     PathNormalizer.toWindowsPathIfNeeded(
-                                        Paths.get("/root/different"))))),
-                        DEFAULT_TOOL_FLAGS),
+                                        Paths.get("/root/different")))),
+                            ToolType.CXX,
+                            false),
+                        DEFAULT_TOOL_FLAGS,
+                        DEFAULT_USE_ARG_FILE),
                     DEFAULT_OUTPUT,
                     DEFAULT_INPUT,
                     DEFAULT_INPUT_TYPE,
@@ -247,7 +252,8 @@ public class CxxPreprocessAndCompileTest {
                     new CompilerDelegate(
                         CxxPlatformUtils.DEFAULT_COMPILER_DEBUG_PATH_SANITIZER,
                         DEFAULT_COMPILER,
-                        DEFAULT_TOOL_FLAGS),
+                        DEFAULT_TOOL_FLAGS,
+                        DEFAULT_USE_ARG_FILE),
                     DEFAULT_OUTPUT,
                     DEFAULT_INPUT,
                     DEFAULT_INPUT_TYPE,
@@ -270,7 +276,8 @@ public class CxxPreprocessAndCompileTest {
                         CxxToolFlags.explicitBuilder()
                             .addPlatformFlags(StringArg.of("-different"))
                             .setRuleFlags(DEFAULT_TOOL_FLAGS.getRuleFlags())
-                            .build()),
+                            .build(),
+                        DEFAULT_USE_ARG_FILE),
                     DEFAULT_OUTPUT,
                     DEFAULT_INPUT,
                     DEFAULT_INPUT_TYPE,
@@ -292,7 +299,8 @@ public class CxxPreprocessAndCompileTest {
                         CxxToolFlags.explicitBuilder()
                             .setPlatformFlags(DEFAULT_TOOL_FLAGS.getPlatformFlags())
                             .addAllRuleFlags(StringArg.from("-other", "flags"))
-                            .build()),
+                            .build(),
+                        DEFAULT_USE_ARG_FILE),
                     DEFAULT_OUTPUT,
                     DEFAULT_INPUT,
                     DEFAULT_INPUT_TYPE,
@@ -311,7 +319,8 @@ public class CxxPreprocessAndCompileTest {
                     new CompilerDelegate(
                         CxxPlatformUtils.DEFAULT_COMPILER_DEBUG_PATH_SANITIZER,
                         DEFAULT_COMPILER,
-                        DEFAULT_TOOL_FLAGS),
+                        DEFAULT_TOOL_FLAGS,
+                        DEFAULT_USE_ARG_FILE),
                     DEFAULT_OUTPUT,
                     FakeSourcePath.of(
                         PathNormalizer.toWindowsPathIfNeeded(Paths.get("/root/different"))),
@@ -321,8 +330,7 @@ public class CxxPreprocessAndCompileTest {
   }
 
   @Test
-  public void preprocessorFlagsRuleKeyChangesCauseRuleKeyChangesForPreprocessing()
-      throws Exception {
+  public void preprocessorFlagsRuleKeyChangesCauseRuleKeyChangesForPreprocessing() {
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(new TestActionGraphBuilder());
     SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
     BuildTarget target = BuildTargetFactory.newInstance("//foo:bar");
@@ -379,7 +387,8 @@ public class CxxPreprocessAndCompileTest {
                     new CompilerDelegate(
                         CxxPlatformUtils.DEFAULT_COMPILER_DEBUG_PATH_SANITIZER,
                         DEFAULT_COMPILER,
-                        CxxToolFlags.of()),
+                        CxxToolFlags.of(),
+                        DEFAULT_USE_ARG_FILE),
                     DEFAULT_OUTPUT,
                     DEFAULT_INPUT,
                     DEFAULT_INPUT_TYPE,
@@ -419,7 +428,10 @@ public class CxxPreprocessAndCompileTest {
             projectFilesystem,
             ruleFinder,
             new CompilerDelegate(
-                CxxPlatformUtils.DEFAULT_COMPILER_DEBUG_PATH_SANITIZER, DEFAULT_COMPILER, flags),
+                CxxPlatformUtils.DEFAULT_COMPILER_DEBUG_PATH_SANITIZER,
+                DEFAULT_COMPILER,
+                flags,
+                DEFAULT_USE_ARG_FILE),
             outputName,
             FakeSourcePath.of(input.toString()),
             DEFAULT_INPUT_TYPE,
@@ -482,7 +494,8 @@ public class CxxPreprocessAndCompileTest {
             new CompilerDelegate(
                 CxxPlatformUtils.DEFAULT_COMPILER_DEBUG_PATH_SANITIZER,
                 DEFAULT_COMPILER,
-                CxxToolFlags.of()),
+                CxxToolFlags.of(),
+                DEFAULT_USE_ARG_FILE),
             DEFAULT_OUTPUT,
             fakeInput,
             DEFAULT_INPUT_TYPE,
@@ -490,7 +503,8 @@ public class CxxPreprocessAndCompileTest {
             CxxPlatformUtils.DEFAULT_COMPILER_DEBUG_PATH_SANITIZER);
     assertThat(
         cxxPreprocess.getInputsAfterBuildingLocally(context, cellPathResolver),
-        hasItem(preprocessor));
+        not(hasItem(preprocessor)));
+    assertFalse(cxxPreprocess.getCoveredByDepFilePredicate(pathResolver).test(preprocessor));
 
     CxxPreprocessAndCompile cxxCompile =
         CxxPreprocessAndCompile.compile(
@@ -499,14 +513,17 @@ public class CxxPreprocessAndCompileTest {
             ruleFinder,
             new CompilerDelegate(
                 CxxPlatformUtils.DEFAULT_COMPILER_DEBUG_PATH_SANITIZER,
-                new GccCompiler(compilerTool),
-                CxxToolFlags.of()),
+                new GccCompiler(compilerTool, ToolType.CXX, false),
+                CxxToolFlags.of(),
+                DEFAULT_USE_ARG_FILE),
             DEFAULT_OUTPUT,
             fakeInput,
             DEFAULT_INPUT_TYPE,
             CxxPlatformUtils.DEFAULT_COMPILER_DEBUG_PATH_SANITIZER);
     assertThat(
-        cxxCompile.getInputsAfterBuildingLocally(context, cellPathResolver), hasItem(compiler));
+        cxxCompile.getInputsAfterBuildingLocally(context, cellPathResolver),
+        not(hasItem(compiler)));
+    assertFalse(cxxCompile.getCoveredByDepFilePredicate(pathResolver).test(compiler));
   }
 
   @Test
@@ -522,7 +539,8 @@ public class CxxPreprocessAndCompileTest {
         new CompilerDelegate(
             CxxPlatformUtils.DEFAULT_COMPILER_DEBUG_PATH_SANITIZER,
             COMPILER_WITH_COLOR_SUPPORT,
-            CxxToolFlags.of());
+            CxxToolFlags.of(),
+            DEFAULT_USE_ARG_FILE);
 
     CxxPreprocessAndCompile buildRule =
         CxxPreprocessAndCompile.compile(
@@ -570,7 +588,8 @@ public class CxxPreprocessAndCompileTest {
             new CompilerDelegate(
                 CxxPlatformUtils.DEFAULT_COMPILER_DEBUG_PATH_SANITIZER,
                 COMPILER_WITH_COLOR_SUPPORT,
-                CxxToolFlags.of()),
+                CxxToolFlags.of(),
+                DEFAULT_USE_ARG_FILE),
             output,
             FakeSourcePath.of(input.toString()),
             DEFAULT_INPUT_TYPE,
@@ -596,5 +615,62 @@ public class CxxPreprocessAndCompileTest {
         projectFilesystem.resolve(
             PathNormalizer.toWindowsPathIfNeeded(Paths.get("foo/bar.m.gcno"))),
         output);
+  }
+
+  @Test
+  public void usesUnixPathSeparatorForCompile() {
+    // Setup some dummy values for inputs to the CxxPreprocessAndCompile.
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(new TestActionGraphBuilder());
+    SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
+    BuildContext context = FakeBuildContext.withSourcePathResolver(pathResolver);
+    BuildTarget target = BuildTargetFactory.newInstance("//foo:bar");
+    Path includePath = PathNormalizer.toWindowsPathIfNeeded(Paths.get("/foo/bar/zap"));
+    String includedPathStr = MorePaths.pathWithUnixSeparators(includePath);
+
+    CxxToolFlags flags =
+        CxxToolFlags.explicitBuilder()
+            .addPlatformFlags(StringArg.of("-ffunction-sections"))
+            .addRuleFlags(StringArg.of("-O3"))
+            .addRuleFlags(StringArg.of("-I " + includedPathStr))
+            .build();
+    String outputName = "baz\\test.o";
+    Path input = Paths.get("foo\\test.ii");
+
+    CxxPreprocessAndCompile buildRule =
+        CxxPreprocessAndCompile.compile(
+            target,
+            projectFilesystem,
+            ruleFinder,
+            new CompilerDelegate(
+                CxxPlatformUtils.DEFAULT_COMPILER_DEBUG_PATH_SANITIZER,
+                new GccCompiler(
+                    new HashedFileTool(
+                        () ->
+                            PathSourcePath.of(
+                                projectFilesystem,
+                                PathNormalizer.toWindowsPathIfNeeded(Paths.get("/root/compiler")))),
+                    ToolType.CXX,
+                    false),
+                flags,
+                DEFAULT_USE_ARG_FILE),
+            outputName,
+            FakeSourcePath.of(input.toString()),
+            DEFAULT_INPUT_TYPE,
+            CxxPlatformUtils.DEFAULT_COMPILER_DEBUG_PATH_SANITIZER);
+
+    ImmutableList<String> expectedCompileCommand =
+        ImmutableList.<String>builder()
+            .add(PathNormalizer.toWindowsPathIfNeeded(Paths.get("/root/compiler")).toString())
+            .add("-x", "c++")
+            .add("-ffunction-sections")
+            .add("-O3")
+            .add("-I " + MorePaths.pathWithUnixSeparators(includePath))
+            .add("-o", "buck-out/gen/foo/bar__/baz/test.o")
+            .add("-c")
+            .add(MorePaths.pathWithUnixSeparators(input.toString()))
+            .build();
+    ImmutableList<String> actualCompileCommand =
+        buildRule.makeMainStep(context, false).getCommand();
+    assertEquals(expectedCompileCommand, actualCompileCommand);
   }
 }

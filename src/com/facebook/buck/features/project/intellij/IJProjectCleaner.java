@@ -19,10 +19,11 @@ package com.facebook.buck.features.project.intellij;
 import com.facebook.buck.artifact_cache.config.ArtifactCacheBuckConfig;
 import com.facebook.buck.artifact_cache.config.DirCacheEntry;
 import com.facebook.buck.core.config.BuckConfig;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.log.Logger;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Ordering;
+import com.google.common.collect.Sets;
 import java.io.File;
 import java.io.FileFilter;
 import java.io.FilenameFilter;
@@ -54,7 +55,7 @@ public class IJProjectCleaner {
 
   private final ProjectFilesystem projectFilesystem;
 
-  private final Set<File> filesToKeep = new HashSet<>();
+  private final Set<File> filesToKeep = Sets.newConcurrentHashSet();
 
   public IJProjectCleaner(ProjectFilesystem projectFilesystem) {
     this.projectFilesystem = projectFilesystem;
@@ -68,8 +69,7 @@ public class IJProjectCleaner {
   public void writeFilesToKeepToFile(String filename) throws IOException {
     Files.write(
         projectFilesystem.resolve(filename),
-        filesToKeep
-            .stream()
+        filesToKeep.stream()
             .map(File::getAbsolutePath)
             .map(Paths::get)
             .map(projectFilesystem::relativize)
@@ -101,6 +101,7 @@ public class IJProjectCleaner {
 
   public void clean(
       BuckConfig buckConfig,
+      Path ideaConfigDir,
       Path librariesXmlBase,
       boolean runPostGenerationCleaner,
       boolean removeOldLibraries) {
@@ -131,6 +132,9 @@ public class IJProjectCleaner {
                         convertPathToFile(projectFilesystem.resolve("")),
                         IML_FILENAME_FILTER,
                         buckDirectories));
+                topLevelTasks.add(
+                    new CandidateFinderWithExclusions(
+                        ideaConfigDir.toFile(), IML_FILENAME_FILTER, buckDirectories));
               }
               topLevelTasks.add(
                   new CandidateFinder(convertPathToFile(librariesXmlBase), XML_FILENAME_FILTER));

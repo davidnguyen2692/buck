@@ -18,6 +18,7 @@ package com.facebook.buck.core.rules.impl;
 
 import com.facebook.buck.core.build.buildable.context.BuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.rulekey.RuleKeyObjectSink;
 import com.facebook.buck.core.rules.BuildRule;
@@ -33,7 +34,6 @@ import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.step.AbstractExecutionStep;
-import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.step.StepExecutionResults;
@@ -101,9 +101,7 @@ public class SymlinkTree extends AbstractBuildRule
     this.directoriesToMerge = directoriesToMerge;
 
     this.buildDeps =
-        directoriesToMerge
-            .values()
-            .stream()
+        directoriesToMerge.values().stream()
             .map(ruleFinder::getRule)
             .filter(Optional::isPresent)
             .map(Optional::get)
@@ -127,9 +125,7 @@ public class SymlinkTree extends AbstractBuildRule
     sink.setReflectively(
         "merge_dirs",
         // Turn our multimap into something properly ordered by path with the multimap values sorted
-        directoriesToMerge
-            .keySet()
-            .stream()
+        directoriesToMerge.keySet().stream()
             .collect(
                 ImmutableSortedMap.toImmutableSortedMap(
                     String::compareTo,
@@ -231,9 +227,7 @@ public class SymlinkTree extends AbstractBuildRule
                 category,
                 getProjectFilesystem(),
                 root,
-                directoriesToMerge
-                    .entries()
-                    .stream()
+                directoriesToMerge.entries().stream()
                     .collect(
                         ImmutableSetMultimap.toImmutableSetMultimap(
                             Entry::getKey,
@@ -296,9 +290,7 @@ public class SymlinkTree extends AbstractBuildRule
 
   @Override
   public Stream<BuildTarget> getRuntimeDeps(SourcePathRuleFinder ruleFinder) {
-    return links
-        .values()
-        .stream()
+    return links.values().stream()
         .map(ruleFinder::filterBuildRuleInputs)
         .flatMap(ImmutableSet::stream)
         .map(BuildRule::getBuildTarget);

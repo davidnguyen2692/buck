@@ -16,12 +16,13 @@
 
 package com.facebook.buck.features.apple.project;
 
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.containsString;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assume.assumeTrue;
 
 import com.facebook.buck.apple.AppleNativeIntegrationTestUtils;
 import com.facebook.buck.apple.toolchain.ApplePlatform;
-import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.testutil.ProcessResult;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.integration.BuckBuildLog;
@@ -35,12 +36,8 @@ import java.nio.file.Paths;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.ExpectedException;
 
 public class ProjectIntegrationTest {
-
-  @Rule public ExpectedException thrown = ExpectedException.none();
-
   @Rule public TemporaryPaths temporaryFolder = new TemporaryPaths();
 
   @Before
@@ -243,16 +240,17 @@ public class ProjectIntegrationTest {
   @Test
   public void testAttemptingToGenerateWorkspaceFromResourceTargetIsABuildError()
       throws IOException {
-    thrown.expect(HumanReadableException.class);
-    thrown.expectMessage(
-        "//res:res must be a xcode_workspace_config, apple_binary, apple_bundle, or apple_library");
-
     ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(
             this, "project_implicit_workspace_generation", temporaryFolder);
     workspace.setUp();
 
-    workspace.runBuckCommand("project", "//res:res");
+    ProcessResult processResult = workspace.runBuckCommand("project", "//res:res");
+    processResult.assertFailure();
+    assertThat(
+        processResult.getStderr(),
+        containsString(
+            "//res:res must be a xcode_workspace_config, apple_binary, apple_bundle, or apple_library"));
   }
 
   @Test
@@ -485,6 +483,32 @@ public class ProjectIntegrationTest {
     runXcodebuild(workspace, "Apps/TestApp.xcworkspace", "TestApp");
   }
 
+  @Test(timeout = 180000)
+  public void testBuckProjectWithAppleBundleTests() throws IOException, InterruptedException {
+    assumeTrue(Platform.detect() == Platform.MACOS);
+    assumeTrue(AppleNativeIntegrationTestUtils.isApplePlatformAvailable(ApplePlatform.MACOSX));
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(
+            this, "project_with_apple_bundle_test", temporaryFolder);
+    workspace.setUp();
+
+    ProcessResult result = workspace.runBuckCommand("project", "//app:bundle");
+    result.assertSuccess();
+
+    ProcessExecutor.Result xcodeTestResult =
+        workspace.runCommand(
+            "xcodebuild",
+            "-workspace",
+            "app/bundle.xcworkspace",
+            "-scheme",
+            "bundle",
+            "-destination 'platform=OS X,arch=x86_64'",
+            "clean",
+            "test");
+    xcodeTestResult.getStderr().ifPresent(System.err::print);
+    assertEquals("xcodebuild should succeed", 0, xcodeTestResult.getExitCode());
+  }
+
   @Test
   public void testBuckProjectWithEmbeddedCellBuckoutAndMergedHeaderMap()
       throws IOException, InterruptedException {
@@ -506,6 +530,65 @@ public class ProjectIntegrationTest {
     result.assertSuccess();
 
     runXcodebuild(workspace, "Apps/TestApp.xcworkspace", "TestApp");
+  }
+
+  @Test
+  public void testBuckProjectOtherCell() throws IOException, InterruptedException {
+    assumeTrue(Platform.detect() == Platform.MACOS);
+    assumeTrue(AppleNativeIntegrationTestUtils.isApplePlatformAvailable(ApplePlatform.MACOSX));
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(
+            this, "project_with_cell", temporaryFolder);
+    workspace.setUp();
+
+    ProcessResult result =
+        workspace.runBuckCommand(
+            "project",
+            "--config",
+            "project.embedded_cell_buck_out_enabled=true",
+            "--config",
+            "apple.merge_header_maps_in_xcode=true",
+            "--show-output",
+            "bar//Dep2:Dep2");
+    result.assertSuccess();
+
+    assertEquals(
+        "bar//Dep2:Dep2#default,static "
+            + Paths.get("bar", "Dep2", "Dep2.xcworkspace")
+            + System.lineSeparator(),
+        result.getStdout());
+  }
+
+  @Test
+  public void testBuckProjectWithSwiftDependencyOnModularObjectiveCLibrary()
+      throws IOException, InterruptedException {
+    assumeTrue(Platform.detect() == Platform.MACOS);
+    assumeTrue(AppleNativeIntegrationTestUtils.isApplePlatformAvailable(ApplePlatform.MACOSX));
+
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(
+            this, "project_with_swift_dependency_on_modular_objective_c_library", temporaryFolder);
+    workspace.setUp();
+
+    ProcessResult result = workspace.runBuckCommand("project", "//Apps:App");
+    result.assertSuccess();
+
+    runXcodebuild(workspace, "Apps/App.xcworkspace", "App");
+  }
+
+  @Test
+  public void testHalide() throws IOException {
+    assumeTrue(Platform.detect() == Platform.MACOS);
+    assumeTrue(
+        AppleNativeIntegrationTestUtils.isApplePlatformAvailable(ApplePlatform.IPHONESIMULATOR));
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "project_halide", temporaryFolder);
+    workspace.setUp();
+
+    ProcessResult result = workspace.runBuckCommand("project", "//Apps:workspace");
+    result.assertSuccess();
+
+    workspace.verify();
   }
 
   private void runXcodebuild(ProjectWorkspace workspace, String workspacePath, String schemeName)

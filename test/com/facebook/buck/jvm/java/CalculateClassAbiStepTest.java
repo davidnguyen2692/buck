@@ -19,10 +19,10 @@ package com.facebook.buck.jvm.java;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.jvm.java.abi.AbiGenerationMode;
-import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.TestExecutionContext;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
@@ -65,7 +65,7 @@ public class CalculateClassAbiStepTest {
     // investigate why the value is different.
     // NOTE: If this starts failing on CI for no obvious reason it's possible that the offset
     // calculation in ZipConstants.getFakeTime() does not account for DST correctly.
-    assertEquals("ba577a60079459621d63b1e3ce2290efb5b5cb5b", seenHash);
+    assertEquals("51b28115808a8684550a7b026154a94075358b68", seenHash);
 
     // Assert that the abiJar contains non-class resources (like txt files).
     ZipInspector inspector = new ZipInspector(abiJar);

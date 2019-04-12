@@ -34,6 +34,8 @@ import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.TestBuildRuleParams;
+import com.facebook.buck.core.rules.impl.DependencyAggregationTestUtil;
+import com.facebook.buck.core.rules.impl.FakeBuildRule;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.core.sourcepath.FakeSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
@@ -42,6 +44,7 @@ import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver
 import com.facebook.buck.core.toolchain.toolprovider.impl.BinaryBuildRuleToolProvider;
 import com.facebook.buck.cxx.toolchain.CompilerProvider;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
+import com.facebook.buck.cxx.toolchain.CxxBuckConfig.ToolType;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
 import com.facebook.buck.cxx.toolchain.CxxToolProvider;
@@ -49,14 +52,12 @@ import com.facebook.buck.cxx.toolchain.PicType;
 import com.facebook.buck.cxx.toolchain.PreprocessorProvider;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.rules.DependencyAggregationTestUtil;
-import com.facebook.buck.rules.FakeBuildRule;
+import com.facebook.buck.io.filesystem.impl.AllExistingProjectFilesystem;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.shell.ShBinary;
 import com.facebook.buck.shell.ShBinaryBuilder;
-import com.facebook.buck.testutil.AllExistingProjectFilesystem;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -413,12 +414,17 @@ public class CxxSourceRuleFactoryTest {
           CXX_PLATFORM
               .withCxxpp(
                   new PreprocessorProvider(
-                      new BinaryBuildRuleToolProvider(cxxpp.getBuildTarget(), ""),
-                      CxxToolProvider.Type.GCC))
+                      new BinaryBuildRuleToolProvider(
+                          cxxpp.getBuildTarget().getUnconfiguredBuildTargetView(), ""),
+                      CxxToolProvider.Type.GCC,
+                      ToolType.CXXPP))
               .withCxx(
                   new CompilerProvider(
-                      new BinaryBuildRuleToolProvider(cxx.getBuildTarget(), ""),
-                      CxxToolProvider.Type.GCC));
+                      new BinaryBuildRuleToolProvider(
+                          cxx.getBuildTarget().getUnconfiguredBuildTargetView(), ""),
+                      CxxToolProvider.Type.GCC,
+                      ToolType.CXX,
+                      false));
 
       CxxSourceRuleFactory cxxSourceRuleFactory =
           CxxSourceRuleFactory.builder()

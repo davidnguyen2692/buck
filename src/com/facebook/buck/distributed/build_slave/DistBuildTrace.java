@@ -16,9 +16,9 @@
 
 package com.facebook.buck.distributed.build_slave;
 
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.distributed.build_slave.DistributableBuildGraph.DistributableNode;
 import com.facebook.buck.distributed.thrift.StampedeId;
-import com.facebook.buck.log.Logger;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableSet;
 import java.io.IOException;
@@ -74,16 +74,14 @@ public class DistBuildTrace {
   @VisibleForTesting
   static Optional<RuleTrace> computeCriticalPaths(
       Map<String, List<RuleTrace>> rulesByMinionId, DistributableBuildGraph graph) {
-    if (rulesByMinionId.size() == 0) {
+    if (rulesByMinionId.isEmpty()) {
       return Optional.empty();
     }
 
     // Collect all RuleTrace(s) into a map by name, picking the entries that finished later,
     // if there are multiple entries for the same name.
     Map<String, RuleTrace> traceMap =
-        rulesByMinionId
-            .values()
-            .stream()
+        rulesByMinionId.values().stream()
             .flatMap(List::stream)
             .collect(
                 Collectors.toMap(
@@ -167,8 +165,7 @@ public class DistBuildTrace {
     }
 
     void recordItems(List<RuleTrace> rules) {
-      rules
-          .stream()
+      rules.stream()
           .sorted(Comparator.comparingLong(rule -> rule.startEpochMillis))
           .sequential()
           .forEach(

@@ -22,12 +22,12 @@ import static org.junit.Assume.assumeFalse;
 
 import com.facebook.buck.core.build.buildable.context.FakeBuildableContext;
 import com.facebook.buck.core.build.context.FakeBuildContext;
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.core.cell.TestCellBuilder;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.model.actiongraph.ActionGraphAndBuilder;
-import com.facebook.buck.core.model.actiongraph.computation.ActionGraphCache;
-import com.facebook.buck.core.model.actiongraph.computation.ActionGraphParallelizationMode;
+import com.facebook.buck.core.model.actiongraph.computation.ActionGraphProviderBuilder;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
@@ -37,14 +37,12 @@ import com.facebook.buck.core.sourcepath.FakeSourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.event.BuckEventBusForTests;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.jvm.java.KeystoreBuilder;
 import com.facebook.buck.jvm.java.KeystoreDescriptionArg;
-import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.TestExecutionContext;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.TemporaryPaths;
-import com.facebook.buck.util.CloseableMemoizedSupplier;
 import com.facebook.buck.util.RichStream;
 import com.facebook.buck.util.environment.Platform;
 import com.facebook.buck.util.timing.IncrementingFakeClock;
@@ -248,26 +246,19 @@ public class DuplicateResourcesTest {
             keystore);
 
     ActionGraphAndBuilder actionGraphAndBuilder =
-        new ActionGraphCache(1)
-            .getFreshActionGraph(
+        new ActionGraphProviderBuilder()
+            .withEventBus(
                 BuckEventBusForTests.newInstance(
-                    new IncrementingFakeClock(TimeUnit.SECONDS.toNanos(1))),
-                new DefaultTargetNodeToBuildRuleTransformer(),
-                targetGraph,
+                    new IncrementingFakeClock(TimeUnit.SECONDS.toNanos(1))))
+            .withCellProvider(
                 new TestCellBuilder()
                     .setToolchainProvider(
                         AndroidBinaryBuilder.createToolchainProviderForAndroidBinary())
                     .setFilesystem(filesystem)
                     .build()
-                    .getCellProvider(),
-                ActionGraphParallelizationMode.DISABLED,
-                false,
-                CloseableMemoizedSupplier.of(
-                    () -> {
-                      throw new IllegalStateException(
-                          "should not use parallel executor for single threaded action graph construction in test");
-                    },
-                    ignored -> {}));
+                    .getCellProvider())
+            .build()
+            .getFreshActionGraph(new DefaultTargetNodeToBuildRuleTransformer(), targetGraph);
 
     SourcePathResolver pathResolver =
         DefaultSourcePathResolver.from(
@@ -288,8 +279,7 @@ public class DuplicateResourcesTest {
                         new FakeBuildableContext()))
             .map(
                 steps ->
-                    steps
-                        .stream()
+                    steps.stream()
                         .filter(step -> step instanceof AaptStep)
                         .collect(ImmutableList.toImmutableList()))
             .filter(steps -> !steps.isEmpty())

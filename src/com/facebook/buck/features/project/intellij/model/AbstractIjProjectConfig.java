@@ -56,6 +56,10 @@ abstract class AbstractIjProjectConfig {
 
   public abstract Optional<String> getJavaModuleSdkType();
 
+  public abstract Optional<String> getPythonModuleSdkName();
+
+  public abstract Optional<String> getPythonModuleSdkType();
+
   public abstract Optional<String> getProjectLanguageLevel();
 
   public abstract List<String> getExcludedResourcePaths();
@@ -73,6 +77,8 @@ abstract class AbstractIjProjectConfig {
   public abstract boolean isIncludeTransitiveDependency();
 
   public abstract boolean isSkipBuildEnabled();
+
+  public abstract boolean isKeepModuleFilesInModuleDirsEnabled();
 
   public abstract AggregationMode getAggregationMode();
 
@@ -93,9 +99,17 @@ abstract class AbstractIjProjectConfig {
 
   public abstract boolean isGeneratingAndroidManifestEnabled();
 
+  public abstract boolean isGeneratingTargetInfoMapEnabled();
+
   public abstract Optional<String> getOutputUrl();
 
   public abstract Optional<Path> getExtraCompilerOutputModulesPath();
 
   public abstract Optional<String> getMinAndroidSdkVersion();
+
+  public abstract ImmutableSet<String> getIncludeTestPatterns();
+
+  public abstract ImmutableSet<String> getExcludeTestPatterns();
+
+  public abstract boolean isMultiCellModuleSupportEnabled();
 }

@@ -20,7 +20,6 @@ import com.facebook.buck.android.packageable.AndroidPackageable;
 import com.facebook.buck.android.packageable.AndroidPackageableCollector;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
-import com.facebook.buck.core.rules.common.BuildDeps;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.core.JavaAbis;
 import com.facebook.buck.jvm.core.JavaLibrary;
@@ -33,8 +32,8 @@ import com.facebook.buck.jvm.java.JavacOptions;
 import com.facebook.buck.jvm.java.JavacToJarStepFactory;
 import com.facebook.buck.jvm.java.RemoveClassesPatternsMatcher;
 import com.facebook.buck.jvm.java.ResourcesParameters;
-import com.facebook.buck.jvm.java.ZipArchiveDependencySupplier;
 import com.facebook.buck.jvm.java.abi.AbiGenerationMode;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
 import java.util.Optional;
@@ -59,7 +58,6 @@ class AndroidBuildConfigJavaLibrary extends DefaultJavaLibrary implements Androi
     super(
         buildTarget,
         projectFilesystem,
-        new BuildDeps(ImmutableSortedSet.of(androidBuildConfig)),
         new JarBuildStepsFactory(
             buildTarget,
             new JavacToJarStepFactory(javac, javacOptions, ExtraClasspathProvider.EMPTY),
@@ -68,14 +66,13 @@ class AndroidBuildConfigJavaLibrary extends DefaultJavaLibrary implements Androi
             ResourcesParameters.of(),
             /* manifest file */ Optional.empty(),
             /* postprocessClassesCommands */ ImmutableList.of(),
-            new ZipArchiveDependencySupplier(ImmutableSortedSet.of()),
             /* trackClassUsage */ javacOptions.trackClassUsage(),
             /* trackJavacPhaseEvents */ javacOptions.trackJavacPhaseEvents(),
-            ImmutableSortedSet.of(),
             /* classesToRemoveFromJar */ RemoveClassesPatternsMatcher.EMPTY,
             AbiGenerationMode.CLASS,
             AbiGenerationMode.CLASS,
-            null),
+            ImmutableList.of(),
+            false),
         ruleFinder,
         Optional.empty(),
         ImmutableSortedSet.of(androidBuildConfig),
@@ -88,8 +85,12 @@ class AndroidBuildConfigJavaLibrary extends DefaultJavaLibrary implements Androi
         /* tests */ ImmutableSortedSet.of(),
         /* requiredForSourceOnlyAbi */ false,
         UnusedDependenciesAction.IGNORE,
-        Optional.empty());
+        Optional.empty(),
+        null,
+        false,
+        false);
     this.androidBuildConfig = androidBuildConfig;
+    Preconditions.checkState(getBuildDeps().contains(androidBuildConfig));
   }
 
   /**

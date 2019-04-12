@@ -18,14 +18,12 @@ package com.facebook.buck.rules.macros;
 
 import static org.junit.Assert.assertThat;
 
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.cell.TestCellPathResolver;
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
-import com.facebook.buck.parser.BuildTargetPattern;
-import com.facebook.buck.parser.BuildTargetPatternParser;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.versions.FixedTargetNodeTranslator;
 import com.facebook.buck.versions.TargetNodeTranslator;
 import com.google.common.collect.ImmutableMap;
@@ -37,8 +35,6 @@ public class StringWithMacrosTest {
 
   private static final CellPathResolver CELL_PATH_RESOLVER =
       TestCellPathResolver.get(new FakeProjectFilesystem());
-  private static final BuildTargetPatternParser<BuildTargetPattern> PATTERN =
-      BuildTargetPatternParser.fullyQualified();
 
   @Test
   public void translateTargets() {
@@ -48,12 +44,12 @@ public class StringWithMacrosTest {
         new FixedTargetNodeTranslator(
             new DefaultTypeCoercerFactory(), ImmutableMap.of(target, newTarget));
     assertThat(
-        translator.translate(CELL_PATH_RESOLVER, PATTERN, StringWithMacrosUtils.format("--flag")),
+        translator.translate(CELL_PATH_RESOLVER, "", StringWithMacrosUtils.format("--flag")),
         Matchers.equalTo(Optional.empty()));
     assertThat(
         translator.translate(
             CELL_PATH_RESOLVER,
-            PATTERN,
+            "",
             StringWithMacrosUtils.format("--flag=%s", LocationMacro.of(target))),
         Matchers.equalTo(
             Optional.of(StringWithMacrosUtils.format("--flag=%s", LocationMacro.of(newTarget)))));

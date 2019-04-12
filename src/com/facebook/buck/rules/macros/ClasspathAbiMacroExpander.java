@@ -16,7 +16,7 @@
 
 package com.facebook.buck.rules.macros;
 
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.macros.MacroException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
@@ -27,7 +27,6 @@ import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.jvm.core.HasClasspathEntries;
 import com.facebook.buck.jvm.core.HasJavaAbi;
 import com.facebook.buck.rules.args.Arg;
-import com.facebook.buck.rules.args.WriteToFileArg;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Ordering;
 import java.io.File;
@@ -48,13 +47,6 @@ public class ClasspathAbiMacroExpander extends BuildTargetMacroExpander<Classpat
     return ClasspathAbiMacro.class;
   }
 
-  @Override
-  protected ClasspathAbiMacro parse(
-      BuildTarget target, CellPathResolver cellNames, ImmutableList<String> input)
-      throws MacroException {
-    return ClasspathAbiMacro.of(parseBuildTarget(target, cellNames, input));
-  }
-
   private HasClasspathEntries getHasClasspathEntries(BuildRule rule) throws MacroException {
     if (!(rule instanceof HasClasspathEntries)) {
       throw new MacroException(
@@ -63,11 +55,6 @@ public class ClasspathAbiMacroExpander extends BuildTargetMacroExpander<Classpat
               rule.getBuildTarget()));
     }
     return (HasClasspathEntries) rule;
-  }
-
-  @Override
-  public Arg makeExpandToFileArg(BuildTarget target, String prefix, Arg delegate) {
-    return new ClassPathWriteToFileArg(target, prefix, delegate);
   }
 
   /**
@@ -117,9 +104,7 @@ public class ClasspathAbiMacroExpander extends BuildTargetMacroExpander<Classpat
   protected Arg expand(ActionGraphBuilder graphBuilder, BuildRule inputRule) throws MacroException {
 
     ImmutableList<SourcePath> jarPaths =
-        getHasClasspathEntries(inputRule)
-            .getTransitiveClasspathDeps()
-            .stream()
+        getHasClasspathEntries(inputRule).getTransitiveClasspathDeps().stream()
             .filter(d -> d.getSourcePathToOutput() != null)
             .map(d -> getJarPath(d, graphBuilder))
             .filter(Objects::nonNull)
@@ -127,18 +112,6 @@ public class ClasspathAbiMacroExpander extends BuildTargetMacroExpander<Classpat
             .collect(ImmutableList.toImmutableList());
 
     return new AbiJarPathArg(jarPaths);
-  }
-
-  private static class ClassPathWriteToFileArg extends WriteToFileArg {
-
-    ClassPathWriteToFileArg(BuildTarget target, String prefix, Arg delegate) {
-      super(target, prefix, delegate);
-    }
-
-    @Override
-    protected String getContent(SourcePathResolver pathResolver) {
-      return "'" + super.getContent(pathResolver) + "'";
-    }
   }
 
   private class AbiJarPathArg implements Arg {
@@ -152,8 +125,7 @@ public class ClasspathAbiMacroExpander extends BuildTargetMacroExpander<Classpat
     @Override
     public void appendToCommandLine(Consumer<String> consumer, SourcePathResolver pathResolver) {
       consumer.accept(
-          classpath
-              .stream()
+          classpath.stream()
               .map(pathResolver::getAbsolutePath)
               .map(Object::toString)
               .sorted(Ordering.natural())

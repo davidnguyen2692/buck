@@ -23,7 +23,7 @@ import com.facebook.buck.distributed.thrift.MultiGetBuildSlaveLogDirResponse;
 import com.facebook.buck.distributed.thrift.StampedeId;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -84,7 +84,7 @@ public class BuildSlaveLogsMaterializerTest {
   private DistBuildService mockService;
 
   @Before
-  public void setUp() throws InterruptedException {
+  public void setUp() {
     projectFilesystem =
         TestProjectFilesystems.createProjectFilesystem(projectDir.getRoot().toPath());
     mockService = EasyMock.createMock(DistBuildService.class);

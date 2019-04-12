@@ -16,13 +16,17 @@
 
 package com.facebook.buck.rules.query;
 
+import com.facebook.buck.jvm.core.HasClasspathEntries;
+import com.facebook.buck.query.QueryBuildTarget;
 import com.facebook.buck.query.QueryEnvironment;
+import com.facebook.buck.query.QueryEnvironment.Argument;
 import com.facebook.buck.query.QueryEvaluator;
 import com.facebook.buck.query.QueryException;
 import com.facebook.buck.query.QueryTarget;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.ImmutableSortedSet;
+import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.Set;
 import java.util.function.Consumer;
@@ -35,7 +39,8 @@ import java.util.function.Consumer;
  *
  * <pre>       | CLASSPATH '(' expr ',' INTEGER ')'</pre>
  */
-public class ClasspathFunction implements QueryEnvironment.QueryFunction {
+public class ClasspathFunction
+    implements QueryEnvironment.QueryFunction<QueryTarget, QueryBuildTarget> {
   @Override
   public String getName() {
     return "classpath";
@@ -52,11 +57,18 @@ public class ClasspathFunction implements QueryEnvironment.QueryFunction {
         QueryEnvironment.ArgumentType.EXPRESSION, QueryEnvironment.ArgumentType.INTEGER);
   }
 
+  /**
+   * @param graphEnhancementQueryEnvironment must implement {@link GraphEnhancementQueryEnvironment}
+   *     or you will get a runtime {@link ClassCastException}.
+   */
   @Override
   public ImmutableSet<QueryTarget> eval(
-      QueryEvaluator evaluator, QueryEnvironment env, ImmutableList<QueryEnvironment.Argument> args)
+      QueryEvaluator<QueryBuildTarget> evaluator,
+      QueryEnvironment<QueryBuildTarget> graphEnhancementQueryEnvironment,
+      ImmutableList<Argument<QueryBuildTarget>> args)
       throws QueryException {
-    Preconditions.checkArgument(env instanceof GraphEnhancementQueryEnvironment);
+    GraphEnhancementQueryEnvironment env =
+        (GraphEnhancementQueryEnvironment) graphEnhancementQueryEnvironment;
     Set<QueryTarget> argumentSet = evaluator.eval(args.get(0).getExpression(), env);
 
     int depthBound = args.size() >= 2 ? args.get(1).getInteger() : Integer.MAX_VALUE;
@@ -72,12 +84,13 @@ public class ClasspathFunction implements QueryEnvironment.QueryFunction {
               next.add(queryTarget);
             }
           };
-      ((GraphEnhancementQueryEnvironment) env).getFirstOrderClasspath(current).forEach(consumer);
+      env.getFirstOrderClasspath(current).forEach(consumer);
       if (next.isEmpty()) {
         break;
       }
       current = next;
     }
-    return ImmutableSet.copyOf(result);
+    return env.restrictToInstancesOf(result, HasClasspathEntries.class)
+        .collect(ImmutableSortedSet.toImmutableSortedSet(Comparator.naturalOrder()));
   }
 }

@@ -24,6 +24,7 @@ import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.cell.TestCellBuilder;
 import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.config.FakeBuckConfig;
+import com.facebook.buck.core.io.ArchiveMemberPath;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.model.actiongraph.ActionGraph;
@@ -43,7 +44,6 @@ import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.distributed.testutil.FakeFileContentsProvider;
 import com.facebook.buck.distributed.thrift.BuildJobStateFileHashEntry;
 import com.facebook.buck.distributed.thrift.BuildJobStateFileHashes;
-import com.facebook.buck.io.ArchiveMemberPath;
 import com.facebook.buck.io.file.MostFiles;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
@@ -103,7 +103,7 @@ public class DistBuildFileHashesTest {
     protected final DistBuildFileHashes distributedBuildFileHashes;
 
     public Fixture(ProjectFilesystem first, ProjectFilesystem second)
-        throws InterruptedException, IOException, NoSuchBuildTargetException {
+        throws IOException, NoSuchBuildTargetException {
       projectFilesystem = first;
       javaFs = projectFilesystem.getRootPath().getFileSystem();
 
@@ -518,8 +518,7 @@ public class DistBuildFileHashesTest {
       List<BuildJobStateFileHashes> recordedHashes, int index) {
     Preconditions.checkArgument(index >= 0);
     Preconditions.checkArgument(index < recordedHashes.size());
-    return recordedHashes
-        .stream()
+    return recordedHashes.stream()
         .filter(hashes -> hashes.getCellIndex() == index)
         .findFirst()
         .get();
@@ -533,8 +532,7 @@ public class DistBuildFileHashesTest {
   private static String toDebugStringForAssert(List<BuildJobStateFileHashes> recordedHashes) {
     return Joiner.on("\n")
         .join(
-            recordedHashes
-                .stream()
+            recordedHashes.stream()
                 .map(ThriftUtil::thriftToDebugJson)
                 .collect(ImmutableList.toImmutableList()));
   }

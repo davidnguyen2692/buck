@@ -20,6 +20,7 @@ import static com.facebook.buck.rules.keys.RuleKeyScopedHasher.ContainerScope;
 import static com.facebook.buck.rules.keys.hasher.RuleKeyHasher.Container;
 import static com.facebook.buck.rules.keys.hasher.RuleKeyHasher.Wrapper;
 
+import com.facebook.buck.core.io.ArchiveMemberPath;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.RuleType;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
@@ -33,9 +34,8 @@ import com.facebook.buck.core.sourcepath.BuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.PathSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
-import com.facebook.buck.io.ArchiveMemberPath;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.log.Logger;
 import com.facebook.buck.log.thrift.ThriftRuleKeyLogger;
 import com.facebook.buck.log.thrift.rulekeys.FullRuleKey;
 import com.facebook.buck.rules.keys.hasher.CountingRuleKeyHasher;
@@ -277,8 +277,6 @@ public abstract class RuleKeyBuilder<RULE_KEY> extends AbstractRuleKeyBuilder<RU
       hasher.putRuleKey((RuleKey) val);
     } else if (val instanceof BuildTarget) {
       hasher.putBuildTarget((BuildTarget) val);
-    } else if (val instanceof SourceRoot) {
-      hasher.putSourceRoot((SourceRoot) val);
     } else if (val instanceof Sha1HashCode) {
       hasher.putSha1((Sha1HashCode) val);
     } else if (val instanceof byte[]) {

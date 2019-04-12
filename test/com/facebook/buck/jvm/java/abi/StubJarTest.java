@@ -18,6 +18,7 @@ package com.facebook.buck.jvm.java.abi;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotEquals;
+import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 import static org.junit.Assume.assumeThat;
 
@@ -30,6 +31,7 @@ import com.facebook.buck.jvm.java.JarDumper;
 import com.facebook.buck.jvm.java.JavacEventSinkToBuckEventBusBridge;
 import com.facebook.buck.jvm.java.testutil.compiler.CompilerTreeApiParameterized;
 import com.facebook.buck.jvm.java.testutil.compiler.TestCompiler;
+import com.facebook.buck.util.JavaVersion;
 import com.facebook.buck.util.sha1.Sha1HashCode;
 import com.facebook.buck.util.timing.FakeClock;
 import com.facebook.buck.util.unarchive.ArchiveFormat;
@@ -57,6 +59,8 @@ import java.util.SortedSet;
 import java.util.concurrent.Callable;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import javax.annotation.processing.AbstractProcessor;
 import javax.annotation.processing.Processor;
@@ -113,7 +117,8 @@ public class StubJarTest {
         .setSourceFile("A.java", "package com.example.buck; public class A {}")
         .addExpectedStub(
             "com/example/buck/A",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
             "public class com/example/buck/A {",
             "",
@@ -133,7 +138,8 @@ public class StubJarTest {
         .setSourceFile("A.java", "package com.example.buck; @Deprecated public class A {}")
         .addExpectedStub(
             "com/example/buck/A",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// DEPRECATED",
             "// access flags 0x20021",
             "public class com/example/buck/A {",
@@ -154,7 +160,8 @@ public class StubJarTest {
             "A.java", "package com.example.buck;", "/** @deprecated */", "public class A { }")
         .addExpectedStub(
             "com/example/buck/A",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// DEPRECATED",
             "// access flags 0x20021",
             "public class com/example/buck/A {",
@@ -178,7 +185,8 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/A",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
             "public class com/example/buck/A {",
             "",
@@ -216,7 +224,8 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/A",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
             "public class com/example/buck/A {",
             "",
@@ -247,7 +256,8 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/A",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
             "public class com/example/buck/A {",
             "",
@@ -273,7 +283,8 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/A",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
             "public class com/example/buck/A {",
             "",
@@ -300,7 +311,8 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/A",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
             "// signature <T:Ljava/lang/Object;>Ljava/lang/Object;",
             "// declaration: com/example/buck/A<T>",
@@ -329,10 +341,11 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/A",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
             "// signature <T:Ljava/util/ArrayList;U::Ljava/lang/CharSequence;V:TT;>Ljava/lang/Object;",
-            "// declaration: com/example/buck/A<T extends java.util.ArrayList, U extends java.lang.CharSequence, VT>",
+            "// declaration: com/example/buck/A<T extends java.util.ArrayList, U extends java.lang.CharSequence, V extends T>",
             "public class com/example/buck/A {",
             "",
             "",
@@ -377,10 +390,12 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/A$B",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
             "public class com/example/buck/A$B {",
             "",
+            "JDK11:  NESTHOST com/example/buck/A",
             "  // access flags 0x1",
             "  public INNERCLASS com/example/buck/A$B com/example/buck/A B",
             "",
@@ -389,10 +404,12 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/A$C",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
             "public class com/example/buck/A$C {",
             "",
+            "JDK11:  NESTHOST com/example/buck/A",
             "  // access flags 0x1",
             "  public INNERCLASS com/example/buck/A$C com/example/buck/A C",
             "",
@@ -401,10 +418,12 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/A$D",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
             "public class com/example/buck/A$D {",
             "",
+            "JDK11:  NESTHOST com/example/buck/A",
             "  // access flags 0x1",
             "  public INNERCLASS com/example/buck/A$D com/example/buck/A D",
             "",
@@ -413,10 +432,12 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/A$E",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
             "public class com/example/buck/A$E {",
             "",
+            "JDK11:  NESTHOST com/example/buck/A",
             "  // access flags 0x1",
             "  public INNERCLASS com/example/buck/A$E com/example/buck/A E",
             "",
@@ -431,10 +452,15 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/A",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
             "public class com/example/buck/A {",
             "",
+            "JDK11:  NESTMEMBER com/example/buck/A$B",
+            "JDK11:  NESTMEMBER com/example/buck/A$C",
+            "JDK11:  NESTMEMBER com/example/buck/A$D",
+            "JDK11:  NESTMEMBER com/example/buck/A$E",
             "  // access flags 0x1",
             "  public INNERCLASS com/example/buck/A$E com/example/buck/A E",
             "  // access flags 0x1",
@@ -474,10 +500,12 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/F$G",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x20",
             "class com/example/buck/F$G {",
             "",
+            "JDK11:  NESTHOST com/example/buck/F",
             "  // access flags 0x0",
             "  INNERCLASS com/example/buck/F$G com/example/buck/F G",
             "",
@@ -486,10 +514,12 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/F$H",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x20",
             "class com/example/buck/F$H {",
             "",
+            "JDK11:  NESTHOST com/example/buck/F",
             "  // access flags 0x0",
             "  INNERCLASS com/example/buck/F$H com/example/buck/F H",
             "",
@@ -498,10 +528,13 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/F",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x20",
             "class com/example/buck/F {",
             "",
+            "JDK11:  NESTMEMBER com/example/buck/F$G",
+            "JDK11:  NESTMEMBER com/example/buck/F$H",
             "  // access flags 0x0",
             "  INNERCLASS com/example/buck/F$H com/example/buck/F H",
             "  // access flags 0x0",
@@ -524,7 +557,8 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/A",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x601",
             "// signature <T:Ljava/lang/Object;>Ljava/lang/Object;",
             "// declaration: com/example/buck/A<T>",
@@ -669,9 +703,10 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/A",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
-            "public class com/example/buck/A extends com/example/buck/dep/Dep  {",
+            "public class com/example/buck/A extends com/example/buck/dep/Dep {",
             "",
             "",
             "  // access flags 0x1",
@@ -710,7 +745,8 @@ public class StubJarTest {
             "public class A { }")
         .addExpectedStub(
             "com/example/buck/A",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
             "public class com/example/buck/A {",
             "",
@@ -739,7 +775,8 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/A",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
             "public class com/example/buck/A {",
             "",
@@ -766,7 +803,8 @@ public class StubJarTest {
             "A.java", "package com.example.buck;", "public class A {", "  private A() { }", "}")
         .addExpectedStub(
             "com/example/buck/A",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
             "public class com/example/buck/A {",
             "",
@@ -790,7 +828,8 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/A",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
             "public class com/example/buck/A {",
             "",
@@ -814,10 +853,12 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/Outer$Inner",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
             "public class com/example/buck/Outer$Inner {",
             "",
+            "JDK11:  NESTHOST com/example/buck/Outer",
             "  // access flags 0x1",
             "  public INNERCLASS com/example/buck/Outer$Inner com/example/buck/Outer Inner",
             "",
@@ -826,10 +867,12 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/Outer",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
             "public class com/example/buck/Outer {",
             "",
+            "JDK11:  NESTMEMBER com/example/buck/Outer$Inner",
             "  // access flags 0x1",
             "  public INNERCLASS com/example/buck/Outer$Inner com/example/buck/Outer Inner",
             "",
@@ -854,10 +897,12 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/Outer$Inner$Nested",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
             "public class com/example/buck/Outer$Inner$Nested {",
             "",
+            "JDK11:  NESTHOST com/example/buck/Outer",
             "  // access flags 0x1",
             "  public INNERCLASS com/example/buck/Outer$Inner com/example/buck/Outer Inner",
             "  // access flags 0x1",
@@ -868,10 +913,12 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/Outer$Inner",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
             "public class com/example/buck/Outer$Inner {",
             "",
+            "JDK11:  NESTHOST com/example/buck/Outer",
             "  // access flags 0x1",
             "  public INNERCLASS com/example/buck/Outer$Inner com/example/buck/Outer Inner",
             "  // access flags 0x1",
@@ -882,10 +929,12 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/Outer",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
             "public class com/example/buck/Outer {",
             "",
+            "JDK11:  NESTMEMBER com/example/buck/Outer$Inner",
             "  // access flags 0x1",
             "  public INNERCLASS com/example/buck/Outer$Inner com/example/buck/Outer Inner",
             "",
@@ -906,7 +955,8 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/A",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
             "public class com/example/buck/A {",
             "",
@@ -931,7 +981,8 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/A",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
             "public class com/example/buck/A {",
             "",
@@ -953,7 +1004,8 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/A",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
             "// signature <T:Ljava/lang/Object;>Ljava/lang/Object;",
             "// declaration: com/example/buck/A<T>",
@@ -962,7 +1014,7 @@ public class StubJarTest {
             "",
             "  // access flags 0x1",
             "  // signature TT;",
-            "  // declaration: T",
+            "  // declaration: theField extends T",
             "  public Ljava/lang/Object; theField",
             "",
             "  // access flags 0x1",
@@ -983,7 +1035,8 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/A",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
             "// signature <T:Ljava/lang/Object;>Ljava/lang/Object;",
             "// declaration: com/example/buck/A<T>",
@@ -1046,7 +1099,8 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/A",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
             "public class com/example/buck/A {",
             "",
@@ -1076,7 +1130,8 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/A",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
             "public class com/example/buck/A {",
             "",
@@ -1107,7 +1162,8 @@ public class StubJarTest {
         .addCompilerOptions("-parameters")
         .addExpectedStub(
             "com/example/buck/A",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
             "public class com/example/buck/A {",
             "",
@@ -1136,7 +1192,8 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/A",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
             "public class com/example/buck/A {",
             "",
@@ -1146,6 +1203,7 @@ public class StubJarTest {
             "",
             "  // access flags 0x1",
             "  public peynir(Ljava/lang/String;I)V",
+            "    // annotable parameter count: 2 (visible)",
             "    @Lcom/example/buck/Foo;() // parameter 0",
             "}")
         .createAndCheckStubJar();
@@ -1165,7 +1223,8 @@ public class StubJarTest {
             "A.java", "package com.example.buck;", "public class A<@Foo.TypeAnnotation T> { }")
         .addExpectedStub(
             "com/example/buck/A",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
             "// signature <T:Ljava/lang/Object;>Ljava/lang/Object;",
             "// declaration: com/example/buck/A<T>",
@@ -1200,7 +1259,8 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/A",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
             "public class com/example/buck/A {",
             "",
@@ -1239,7 +1299,8 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/A",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
             "public class com/example/buck/A {",
             "",
@@ -1248,7 +1309,7 @@ public class StubJarTest {
             "",
             "  // access flags 0x0",
             "  // signature Ljava/util/List<Ljava/lang/String;>;",
-            "  // declaration: java.util.List<java.lang.String>",
+            "  // declaration: list extends java.util.List<java.lang.String>",
             "  Ljava/util/List; list",
             "  @Lcom/example/buck/Foo$TypeAnnotation;() : FIELD, 0; // invisible",
             "",
@@ -1271,7 +1332,8 @@ public class StubJarTest {
             "@interface SourceRetentionAnno { }")
         .addExpectedStub(
             "com/example/buck/A",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
             "public class com/example/buck/A {",
             "",
@@ -1281,9 +1343,10 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/SourceRetentionAnno",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x2600",
-            "abstract @interface com/example/buck/SourceRetentionAnno implements java/lang/annotation/Annotation  {",
+            "abstract @interface com/example/buck/SourceRetentionAnno implements java/lang/annotation/Annotation {",
             "",
             "",
             "  @Ljava/lang/annotation/Retention;(value=Ljava/lang/annotation/RetentionPolicy;.SOURCE)",
@@ -1304,7 +1367,8 @@ public class StubJarTest {
             "@interface ClassRetentionAnno { }")
         .addExpectedStub(
             "com/example/buck/A",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
             "public class com/example/buck/A {",
             "",
@@ -1316,9 +1380,10 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/ClassRetentionAnno",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x2600",
-            "abstract @interface com/example/buck/ClassRetentionAnno implements java/lang/annotation/Annotation  {",
+            "abstract @interface com/example/buck/ClassRetentionAnno implements java/lang/annotation/Annotation {",
             "",
             "",
             "  @Ljava/lang/annotation/Retention;(value=Ljava/lang/annotation/RetentionPolicy;.CLASS)",
@@ -1339,7 +1404,8 @@ public class StubJarTest {
             "@interface RuntimeRetentionAnno { }")
         .addExpectedStub(
             "com/example/buck/A",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
             "public class com/example/buck/A {",
             "",
@@ -1351,9 +1417,10 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/RuntimeRetentionAnno",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x2600",
-            "abstract @interface com/example/buck/RuntimeRetentionAnno implements java/lang/annotation/Annotation  {",
+            "abstract @interface com/example/buck/RuntimeRetentionAnno implements java/lang/annotation/Annotation {",
             "",
             "",
             "  @Ljava/lang/annotation/Retention;(value=Ljava/lang/annotation/RetentionPolicy;.RUNTIME)",
@@ -1374,9 +1441,10 @@ public class StubJarTest {
             "public @interface A {}")
         .addExpectedStub(
             "com/example/buck/A",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x2601",
-            "public abstract @interface com/example/buck/A implements java/lang/annotation/Annotation  {",
+            "public abstract @interface com/example/buck/A implements java/lang/annotation/Annotation {",
             "",
             "",
             "  @Lcom/example/buck/Foo;(primitiveValue=1)",
@@ -1397,9 +1465,10 @@ public class StubJarTest {
             "public @interface A {}")
         .addExpectedStub(
             "com/example/buck/A",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x2601",
-            "public abstract @interface com/example/buck/A implements java/lang/annotation/Annotation  {",
+            "public abstract @interface com/example/buck/A implements java/lang/annotation/Annotation {",
             "",
             "",
             "  @Lcom/example/buck/Foo;(stringArrayValue={\"1\", \"2\"})",
@@ -1418,9 +1487,10 @@ public class StubJarTest {
             "public @interface A {}")
         .addExpectedStub(
             "com/example/buck/A",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x2601",
-            "public abstract @interface com/example/buck/A implements java/lang/annotation/Annotation  {",
+            "public abstract @interface com/example/buck/A implements java/lang/annotation/Annotation {",
             "",
             "",
             "  @Ljava/lang/annotation/Retention;(value=Ljava/lang/annotation/RetentionPolicy;.RUNTIME)",
@@ -1443,9 +1513,10 @@ public class StubJarTest {
             "public @interface A {}")
         .addExpectedStub(
             "com/example/buck/A",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x2601",
-            "public abstract @interface com/example/buck/A implements java/lang/annotation/Annotation  {",
+            "public abstract @interface com/example/buck/A implements java/lang/annotation/Annotation {",
             "",
             "",
             "  @Lcom/example/buck/Foo;(typeValue=com.example.buck.Dependency.class)",
@@ -1470,9 +1541,10 @@ public class StubJarTest {
             "public @interface A {}")
         .addExpectedStub(
             "com/example/buck/A",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x2601",
-            "public abstract @interface com/example/buck/A implements java/lang/annotation/Annotation  {",
+            "public abstract @interface com/example/buck/A implements java/lang/annotation/Annotation {",
             "",
             "",
             "  @Lcom/example/buck/Foo;(runnableValues={com.example.buck.Dependency.class})",
@@ -1525,9 +1597,10 @@ public class StubJarTest {
             "public @interface A {}")
         .addExpectedStub(
             "com/example/buck/A",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x2601",
-            "public abstract @interface com/example/buck/A implements java/lang/annotation/Annotation  {",
+            "public abstract @interface com/example/buck/A implements java/lang/annotation/Annotation {",
             "",
             "",
             "  @Lcom/example/buck/Foo;(stringValue=\"string\")",
@@ -1546,9 +1619,10 @@ public class StubJarTest {
             "public @interface A {}")
         .addExpectedStub(
             "com/example/buck/A",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x2601",
-            "public abstract @interface com/example/buck/A implements java/lang/annotation/Annotation  {",
+            "public abstract @interface com/example/buck/A implements java/lang/annotation/Annotation {",
             "",
             "",
             "  @Ljava/lang/annotation/Target;(value={Ljava/lang/annotation/ElementType;.CONSTRUCTOR, Ljava/lang/annotation/ElementType;.FIELD})",
@@ -1570,9 +1644,10 @@ public class StubJarTest {
             "public @interface A {}")
         .addExpectedStub(
             "com/example/buck/A",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x2601",
-            "public abstract @interface com/example/buck/A implements java/lang/annotation/Annotation  {",
+            "public abstract @interface com/example/buck/A implements java/lang/annotation/Annotation {",
             "",
             "",
             "  @Lcom/example/buck/Foo;(annotationValue=@Ljava/lang/annotation/Retention;(value=Ljava/lang/annotation/RetentionPolicy;.RUNTIME))",
@@ -1594,9 +1669,10 @@ public class StubJarTest {
             "public @interface A {}")
         .addExpectedStub(
             "com/example/buck/A",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x2601",
-            "public abstract @interface com/example/buck/A implements java/lang/annotation/Annotation  {",
+            "public abstract @interface com/example/buck/A implements java/lang/annotation/Annotation {",
             "",
             "",
             "  @Lcom/example/buck/Foo;(annotationArrayValue={@Ljava/lang/annotation/Retention;(value=Ljava/lang/annotation/RetentionPolicy;.RUNTIME)})",
@@ -1625,9 +1701,10 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/Foo",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x2601",
-            "public abstract @interface com/example/buck/Foo implements java/lang/annotation/Annotation  {",
+            "public abstract @interface com/example/buck/Foo implements java/lang/annotation/Annotation {",
             "",
             "",
             "  // access flags 0x401",
@@ -1664,11 +1741,12 @@ public class StubJarTest {
             "A.java", "package com.example.buck;", "public enum A {", "  Value1,", "  Value2", "}")
         .addExpectedStub(
             "com/example/buck/A",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x4031",
             "// signature Ljava/lang/Enum<Lcom/example/buck/A;>;",
             "// declaration: com/example/buck/A extends java.lang.Enum<com.example.buck.A>",
-            "public final enum com/example/buck/A extends java/lang/Enum  {",
+            "public final enum com/example/buck/A extends java/lang/Enum {",
             "",
             "",
             "  // access flags 0x4019",
@@ -1704,11 +1782,12 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/A",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x4031",
             "// signature Ljava/lang/Enum<Lcom/example/buck/A;>;Ljava/util/Comparator<Lcom/example/buck/A;>;",
             "// declaration: com/example/buck/A extends java.lang.Enum<com.example.buck.A> implements java.util.Comparator<com.example.buck.A>",
-            "public final enum com/example/buck/A extends java/lang/Enum  implements java/util/Comparator  {",
+            "public final enum com/example/buck/A extends java/lang/Enum implements java/util/Comparator {",
             "",
             "",
             "  // access flags 0x4019",
@@ -1750,15 +1829,19 @@ public class StubJarTest {
             "}")
         .addExpectedFullAbi(
             "com/example/buck/A",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x4421",
             "// signature Ljava/lang/Enum<Lcom/example/buck/A;>;",
             "// declaration: com/example/buck/A extends java.lang.Enum<com.example.buck.A>",
             // abstract flag is removed in the stub:
-            "public abstract enum com/example/buck/A extends java/lang/Enum  {",
+            "public abstract enum com/example/buck/A extends java/lang/Enum {",
             "",
-            "  // access flags 0x4008",
-            "  static enum INNERCLASS com/example/buck/A$1 null null",
+            "JDK11:  NESTMEMBER com/example/buck/A$1",
+            "JDK8:  // access flags 0x4008",
+            "JDK8:  static enum INNERCLASS com/example/buck/A$1 null null",
+            "JDK11:  // access flags 0x4010",
+            "JDK11:  final enum INNERCLASS com/example/buck/A$1 null null",
             "",
             "  // access flags 0x4019",
             "  public final static enum Lcom/example/buck/A; Value1",
@@ -1780,19 +1863,20 @@ public class StubJarTest {
             "  // access flags 0x401",
             "  public abstract run()V",
             "",
-            "  // access flags 0x1000",
-            "  synthetic <init>(Ljava/lang/String;ILcom/example/buck/A$1;)V",
-            "",
+            "JDK8:  // access flags 0x1000",
+            "JDK8:  synthetic <init>(Ljava/lang/String;ILcom/example/buck/A$1;)V",
+            "JDK8:",
             "  // access flags 0x8",
             "  static <clinit>()V",
             "}")
         .addExpectedStub(
             "com/example/buck/A",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x4421",
             "// signature Ljava/lang/Enum<Lcom/example/buck/A;>;",
             "// declaration: com/example/buck/A extends java.lang.Enum<com.example.buck.A>",
-            "public abstract enum com/example/buck/A extends java/lang/Enum  {",
+            "public abstract enum com/example/buck/A extends java/lang/Enum {",
             "",
             "",
             "  // access flags 0x4019",
@@ -1827,15 +1911,19 @@ public class StubJarTest {
             "}")
         .addExpectedFullAbi(
             "com/example/buck/A",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x4421",
             "// signature Ljava/lang/Enum<Lcom/example/buck/A;>;Ljava/lang/Runnable;",
             "// declaration: com/example/buck/A extends java.lang.Enum<com.example.buck.A> implements java.lang.Runnable",
             // abstract flag is removed in the stub:
-            "public abstract enum com/example/buck/A extends java/lang/Enum  implements java/lang/Runnable  {",
+            "public abstract enum com/example/buck/A extends java/lang/Enum implements java/lang/Runnable {",
             "",
-            "  // access flags 0x4008",
-            "  static enum INNERCLASS com/example/buck/A$1 null null",
+            "JDK11:  NESTMEMBER com/example/buck/A$1",
+            "JDK8:  // access flags 0x4008",
+            "JDK8:  static enum INNERCLASS com/example/buck/A$1 null null",
+            "JDK11:  // access flags 0x4010",
+            "JDK11:  final enum INNERCLASS com/example/buck/A$1 null null",
             "",
             "  // access flags 0x4019",
             "  public final static enum Lcom/example/buck/A; Value1",
@@ -1854,19 +1942,20 @@ public class StubJarTest {
             "  // declaration: void <init>()",
             "  private <init>(Ljava/lang/String;I)V",
             "",
-            "  // access flags 0x1000",
-            "  synthetic <init>(Ljava/lang/String;ILcom/example/buck/A$1;)V",
-            "",
+            "JDK8:  // access flags 0x1000",
+            "JDK8:  synthetic <init>(Ljava/lang/String;ILcom/example/buck/A$1;)V",
+            "JDK8:",
             "  // access flags 0x8",
             "  static <clinit>()V",
             "}")
         .addExpectedStub(
             "com/example/buck/A",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x4421",
             "// signature Ljava/lang/Enum<Lcom/example/buck/A;>;Ljava/lang/Runnable;",
             "// declaration: com/example/buck/A extends java.lang.Enum<com.example.buck.A> implements java.lang.Runnable",
-            "public abstract enum com/example/buck/A extends java/lang/Enum  implements java/lang/Runnable  {",
+            "public abstract enum com/example/buck/A extends java/lang/Enum implements java/lang/Runnable {",
             "",
             "",
             "  // access flags 0x4019",
@@ -1898,10 +1987,12 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/A$B",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
             "public class com/example/buck/A$B {",
             "",
+            "JDK11:  NESTHOST com/example/buck/A",
             "  // access flags 0x1",
             "  public INNERCLASS com/example/buck/A$B com/example/buck/A B",
             "",
@@ -1916,10 +2007,12 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/A",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
             "public class com/example/buck/A {",
             "",
+            "JDK11:  NESTMEMBER com/example/buck/A$B",
             "  // access flags 0x1",
             "  public INNERCLASS com/example/buck/A$B com/example/buck/A B",
             "",
@@ -1943,10 +2036,12 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/A$B",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
             "public class com/example/buck/A$B {",
             "",
+            "JDK11:  NESTHOST com/example/buck/A",
             "  // access flags 0x4",
             "  protected INNERCLASS com/example/buck/A$B com/example/buck/A B",
             "",
@@ -1961,10 +2056,12 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/A",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
             "public class com/example/buck/A {",
             "",
+            "JDK11:  NESTMEMBER com/example/buck/A$B",
             "  // access flags 0x4",
             "  protected INNERCLASS com/example/buck/A$B com/example/buck/A B",
             "",
@@ -1988,10 +2085,12 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/A$B",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x20",
             "class com/example/buck/A$B {",
             "",
+            "JDK11:  NESTHOST com/example/buck/A",
             "  // access flags 0x0",
             "  INNERCLASS com/example/buck/A$B com/example/buck/A B",
             "",
@@ -2006,10 +2105,12 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/A",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
             "public class com/example/buck/A {",
             "",
+            "JDK11:  NESTMEMBER com/example/buck/A$B",
             "  // access flags 0x0",
             "  INNERCLASS com/example/buck/A$B com/example/buck/A B",
             "",
@@ -2036,10 +2137,12 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/A$B",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x20",
             "class com/example/buck/A$B {",
             "",
+            "JDK11:  NESTHOST com/example/buck/A",
             "  // access flags 0x2",
             "  private INNERCLASS com/example/buck/A$B com/example/buck/A B",
             "",
@@ -2054,10 +2157,12 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/A",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
             "public class com/example/buck/A {",
             "",
+            "JDK11:  NESTMEMBER com/example/buck/A$B",
             "  // access flags 0x2",
             "  private INNERCLASS com/example/buck/A$B com/example/buck/A B",
             "",
@@ -2078,12 +2183,14 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/A$B",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x4031",
             "// signature Ljava/lang/Enum<Lcom/example/buck/A$B;>;",
             "// declaration: com/example/buck/A$B extends java.lang.Enum<com.example.buck.A$B>",
-            "public final enum com/example/buck/A$B extends java/lang/Enum  {",
+            "public final enum com/example/buck/A$B extends java/lang/Enum {",
             "",
+            "JDK11:  NESTHOST com/example/buck/A",
             "  // access flags 0x4019",
             "  public final static enum INNERCLASS com/example/buck/A$B com/example/buck/A B",
             "",
@@ -2101,10 +2208,12 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/A",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
             "public class com/example/buck/A {",
             "",
+            "JDK11:  NESTMEMBER com/example/buck/A$B",
             "  // access flags 0x4019",
             "  public final static enum INNERCLASS com/example/buck/A$B com/example/buck/A B",
             "",
@@ -2130,18 +2239,22 @@ public class StubJarTest {
             "}")
         .addExpectedFullAbi(
             "com/example/buck/A$B",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x4421",
             "// signature Ljava/lang/Enum<Lcom/example/buck/A$B;>;Ljava/lang/Runnable;",
             "// declaration: com/example/buck/A$B extends java.lang.Enum<com.example.buck.A$B> implements java.lang.Runnable",
-            "public abstract enum com/example/buck/A$B extends java/lang/Enum  implements java/lang/Runnable  {",
+            "public abstract enum com/example/buck/A$B extends java/lang/Enum implements java/lang/Runnable {",
             "",
+            "JDK11:  NESTHOST com/example/buck/A",
             "  // access flags 0x4409",
             "  public static abstract enum INNERCLASS com/example/buck/A$B com/example/buck/A B",
-            "  // access flags 0x4008",
-            "  static enum INNERCLASS com/example/buck/A$B$1 null null",
-            "  // access flags 0x1008",
-            "  static synthetic INNERCLASS com/example/buck/A$1 null null",
+            "JDK8:  // access flags 0x4008",
+            "JDK8:  static enum INNERCLASS com/example/buck/A$B$1 null null",
+            "JDK11:  // access flags 0x4010",
+            "JDK11:  final enum INNERCLASS com/example/buck/A$B$1 null null",
+            "JDK8:  // access flags 0x1008",
+            "JDK8:  static synthetic INNERCLASS com/example/buck/A$1 null null",
             "",
             "  // access flags 0x4019",
             "  public final static enum Lcom/example/buck/A$B; Value",
@@ -2160,20 +2273,22 @@ public class StubJarTest {
             "  // declaration: void <init>()",
             "  private <init>(Ljava/lang/String;I)V",
             "",
-            "  // access flags 0x1000",
-            "  synthetic <init>(Ljava/lang/String;ILcom/example/buck/A$1;)V",
-            "",
+            "JDK8:  // access flags 0x1000",
+            "JDK8:  synthetic <init>(Ljava/lang/String;ILcom/example/buck/A$1;)V",
+            "JDK8:",
             "  // access flags 0x8",
             "  static <clinit>()V",
             "}")
         .addExpectedStub(
             "com/example/buck/A$B",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x4421",
             "// signature Ljava/lang/Enum<Lcom/example/buck/A$B;>;Ljava/lang/Runnable;",
             "// declaration: com/example/buck/A$B extends java.lang.Enum<com.example.buck.A$B> implements java.lang.Runnable",
-            "public abstract enum com/example/buck/A$B extends java/lang/Enum  implements java/lang/Runnable  {",
+            "public abstract enum com/example/buck/A$B extends java/lang/Enum implements java/lang/Runnable {",
             "",
+            "JDK11:  NESTHOST com/example/buck/A",
             "  // access flags 0x4409",
             "  public static abstract enum INNERCLASS com/example/buck/A$B com/example/buck/A B",
             "",
@@ -2191,24 +2306,31 @@ public class StubJarTest {
             "}")
         .addExpectedFullAbi(
             "com/example/buck/A",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
             "public class com/example/buck/A {",
             "",
-            "  // access flags 0x1008",
-            "  static synthetic INNERCLASS com/example/buck/A$1 null null",
+            "JDK11:  NESTMEMBER com/example/buck/A$B",
+            "JDK11:  NESTMEMBER com/example/buck/A$B$1",
+            "JDK8:  // access flags 0x1008",
+            "JDK8:  static synthetic INNERCLASS com/example/buck/A$1 null null",
             "  // access flags 0x4409",
             "  public static abstract enum INNERCLASS com/example/buck/A$B com/example/buck/A B",
+            "JDK11:  // access flags 0x4010",
+            "JDK11:  final enum INNERCLASS com/example/buck/A$B$1 null null",
             "",
             "  // access flags 0x1",
             "  public <init>()V",
             "}")
         .addExpectedStub(
             "com/example/buck/A",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
             "public class com/example/buck/A {",
             "",
+            "JDK11:  NESTMEMBER com/example/buck/A$B",
             "  // access flags 0x4409",
             "  public static abstract enum INNERCLASS com/example/buck/A$B com/example/buck/A B",
             "",
@@ -2235,10 +2357,12 @@ public class StubJarTest {
             "}")
         .addExpectedFullAbi(
             "com/example/buck/A$B$C$D",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
             "public class com/example/buck/A$B$C$D {",
             "",
+            "JDK11:  NESTHOST com/example/buck/A",
             "  // access flags 0x1",
             "  public INNERCLASS com/example/buck/A$B com/example/buck/A B",
             "  // access flags 0x1",
@@ -2254,10 +2378,12 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/A$B$C$D",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
             "public class com/example/buck/A$B$C$D {",
             "",
+            "JDK11:  NESTHOST com/example/buck/A",
             "  // access flags 0x1",
             "  public INNERCLASS com/example/buck/A$B com/example/buck/A B",
             "  // access flags 0x1",
@@ -2270,10 +2396,12 @@ public class StubJarTest {
             "}")
         .addExpectedFullAbi(
             "com/example/buck/A$B$C",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
             "public class com/example/buck/A$B$C {",
             "",
+            "JDK11:  NESTHOST com/example/buck/A",
             "  // access flags 0x1",
             "  public INNERCLASS com/example/buck/A$B com/example/buck/A B",
             "  // access flags 0x1",
@@ -2295,10 +2423,12 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/A$B$C",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
             "public class com/example/buck/A$B$C {",
             "",
+            "JDK11:  NESTHOST com/example/buck/A",
             "  // access flags 0x1",
             "  public INNERCLASS com/example/buck/A$B com/example/buck/A B",
             "  // access flags 0x1",
@@ -2317,10 +2447,12 @@ public class StubJarTest {
             "}")
         .addExpectedFullAbi(
             "com/example/buck/A$B",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
             "public class com/example/buck/A$B {",
             "",
+            "JDK11:  NESTHOST com/example/buck/A",
             "  // access flags 0x1",
             "  public INNERCLASS com/example/buck/A$B com/example/buck/A B",
             "  // access flags 0x1",
@@ -2334,10 +2466,12 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/A$B",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
             "public class com/example/buck/A$B {",
             "",
+            "JDK11:  NESTHOST com/example/buck/A",
             "  // access flags 0x1",
             "  public INNERCLASS com/example/buck/A$B com/example/buck/A B",
             "  // access flags 0x1",
@@ -2348,22 +2482,32 @@ public class StubJarTest {
             "}")
         .addExpectedFullAbi(
             "com/example/buck/A",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
             "public class com/example/buck/A {",
             "",
+            "JDK11:  NESTMEMBER com/example/buck/A$B",
+            "JDK11:  NESTMEMBER com/example/buck/A$B$C",
+            "JDK11:  NESTMEMBER com/example/buck/A$B$C$D",
             "  // access flags 0x1",
             "  public INNERCLASS com/example/buck/A$B com/example/buck/A B",
+            "JDK11:  // access flags 0x1",
+            "JDK11:  public INNERCLASS com/example/buck/A$B$C com/example/buck/A$B C",
+            "JDK11:  // access flags 0x1",
+            "JDK11:  public INNERCLASS com/example/buck/A$B$C$D com/example/buck/A$B$C D",
             "",
             "  // access flags 0x1",
             "  public <init>()V",
             "}")
         .addExpectedStub(
             "com/example/buck/A",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
             "public class com/example/buck/A {",
             "",
+            "JDK11:  NESTMEMBER com/example/buck/A$B",
             "  // access flags 0x1",
             "  public INNERCLASS com/example/buck/A$B com/example/buck/A B",
             "",
@@ -2391,10 +2535,12 @@ public class StubJarTest {
             "}")
         .addExpectedFullAbi(
             "com/example/buck/A$Inner",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x20",
             "class com/example/buck/A$Inner {",
             "",
+            "JDK11:  NESTHOST com/example/buck/A",
             // An innerclass entry is present for B$C and B$C$D even though they're not inner
             // classes
             // of A, so that the compiler and runtime know how to interpret the name B$C or B$C$D.
@@ -2416,10 +2562,12 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/A$Inner",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x20",
             "class com/example/buck/A$Inner {",
             "",
+            "JDK11:  NESTHOST com/example/buck/A",
             "  // access flags 0x0",
             "  INNERCLASS com/example/buck/A$Inner com/example/buck/A Inner",
             // Inenrclass entries for references to other classes are sorted. Otherwise the order
@@ -2437,10 +2585,12 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/A",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
             "public class com/example/buck/A {",
             "",
+            "JDK11:  NESTMEMBER com/example/buck/A$Inner",
             "  // access flags 0x0",
             "  INNERCLASS com/example/buck/A$Inner com/example/buck/A Inner",
             "",
@@ -2449,10 +2599,12 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/B$C$D",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
             "public class com/example/buck/B$C$D {",
             "",
+            "JDK11:  NESTHOST com/example/buck/B",
             "  // access flags 0x1",
             "  public INNERCLASS com/example/buck/B$C com/example/buck/B C",
             "  // access flags 0x1",
@@ -2463,10 +2615,12 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/B$C",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
             "public class com/example/buck/B$C {",
             "",
+            "JDK11:  NESTHOST com/example/buck/B",
             "  // access flags 0x1",
             "  public INNERCLASS com/example/buck/B$C com/example/buck/B C",
             "  // access flags 0x1",
@@ -2477,10 +2631,12 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/B",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x20",
             "class com/example/buck/B {",
             "",
+            "JDK11:  NESTMEMBER com/example/buck/B$C",
             "  // access flags 0x1",
             "  public INNERCLASS com/example/buck/B$C com/example/buck/B C",
             "",
@@ -2508,10 +2664,12 @@ public class StubJarTest {
             "}")
         .addExpectedFullAbi(
             "com/example/buck/A$Inner",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x20",
             "class com/example/buck/A$Inner {",
             "",
+            "JDK11:  NESTHOST com/example/buck/A",
             // An innerclass entry is present for B$C and B$C$D even though they're not inner
             // classes
             // of A, so that the compiler and runtime know how to interpret the name B$C or B$C$D.
@@ -2533,10 +2691,12 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/A$Inner",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x20",
             "class com/example/buck/A$Inner {",
             "",
+            "JDK11:  NESTHOST com/example/buck/A",
             "  // access flags 0x0",
             "  INNERCLASS com/example/buck/A$Inner com/example/buck/A Inner",
             // Inenrclass entries for references to other classes are sorted. Otherwise the order
@@ -2554,10 +2714,12 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/A",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
             "public class com/example/buck/A {",
             "",
+            "JDK11:  NESTMEMBER com/example/buck/A$Inner",
             "  // access flags 0x0",
             "  INNERCLASS com/example/buck/A$Inner com/example/buck/A Inner",
             "",
@@ -2566,10 +2728,12 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/B$C$D",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
             "public class com/example/buck/B$C$D {",
             "",
+            "JDK11:  NESTHOST com/example/buck/B",
             "  // access flags 0x9",
             "  public static INNERCLASS com/example/buck/B$C com/example/buck/B C",
             "  // access flags 0x9",
@@ -2580,10 +2744,12 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/B$C",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
             "public class com/example/buck/B$C {",
             "",
+            "JDK11:  NESTHOST com/example/buck/B",
             "  // access flags 0x9",
             "  public static INNERCLASS com/example/buck/B$C com/example/buck/B C",
             "  // access flags 0x9",
@@ -2594,10 +2760,12 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/B",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x20",
             "class com/example/buck/B {",
             "",
+            "JDK11:  NESTMEMBER com/example/buck/B$C",
             "  // access flags 0x9",
             "  public static INNERCLASS com/example/buck/B$C com/example/buck/B C",
             "",
@@ -2625,10 +2793,12 @@ public class StubJarTest {
             "}")
         .addExpectedFullAbi(
             "com/example/buck/A$Inner",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x20",
             "class com/example/buck/A$Inner {",
             "",
+            "JDK11:  NESTHOST com/example/buck/A",
             // An innerclass entry is present for B$C and B$C$D even though they're not inner
             // classes
             // of A, so that the compiler and runtime know how to interpret the name B$C or B$C$D.
@@ -2650,10 +2820,12 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/A$Inner",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x20",
             "class com/example/buck/A$Inner {",
             "",
+            "JDK11:  NESTHOST com/example/buck/A",
             "  // access flags 0x0",
             "  INNERCLASS com/example/buck/A$Inner com/example/buck/A Inner",
             "  // access flags 0x9",
@@ -2669,10 +2841,12 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/A",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
             "public class com/example/buck/A {",
             "",
+            "JDK11:  NESTMEMBER com/example/buck/A$Inner",
             "  // access flags 0x0",
             "  INNERCLASS com/example/buck/A$Inner com/example/buck/A Inner",
             "",
@@ -2681,12 +2855,14 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/B$C$D",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x4031",
             "// signature Ljava/lang/Enum<Lcom/example/buck/B$C$D;>;",
             "// declaration: com/example/buck/B$C$D extends java.lang.Enum<com.example.buck.B$C$D>",
-            "public final enum com/example/buck/B$C$D extends java/lang/Enum  {",
+            "public final enum com/example/buck/B$C$D extends java/lang/Enum {",
             "",
+            "JDK11:  NESTHOST com/example/buck/B",
             "  // access flags 0x9",
             "  public static INNERCLASS com/example/buck/B$C com/example/buck/B C",
             "  // access flags 0x4019",
@@ -2706,10 +2882,12 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/B$C",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
             "public class com/example/buck/B$C {",
             "",
+            "JDK11:  NESTHOST com/example/buck/B",
             "  // access flags 0x9",
             "  public static INNERCLASS com/example/buck/B$C com/example/buck/B C",
             "  // access flags 0x4019",
@@ -2720,10 +2898,12 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/B",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x20",
             "class com/example/buck/B {",
             "",
+            "JDK11:  NESTMEMBER com/example/buck/B$C",
             "  // access flags 0x9",
             "  public static INNERCLASS com/example/buck/B$C com/example/buck/B C",
             "",
@@ -2748,7 +2928,8 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/A",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
             "public class com/example/buck/A {",
             "",
@@ -2780,10 +2961,12 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/A$State",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
             "public class com/example/buck/A$State {",
             "",
+            "JDK11:  NESTHOST com/example/buck/A",
             "  // access flags 0x9",
             "  public static INNERCLASS com/example/buck/A$State com/example/buck/A State",
             "",
@@ -2792,12 +2975,14 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/A",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
             "public class com/example/buck/A {",
             "",
             "",
             "  @Lcom/example/buck/state/State;() // invisible",
+            "JDK11:  NESTMEMBER com/example/buck/A$State",
             "  // access flags 0x9",
             "  public static INNERCLASS com/example/buck/A$State com/example/buck/A State",
             "",
@@ -2833,7 +3018,8 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/A",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
             "public class com/example/buck/A {",
             "",
@@ -2875,7 +3061,8 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/A",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
             "public class com/example/buck/A {",
             "",
@@ -2924,16 +3111,20 @@ public class StubJarTest {
     if (testingMode == MODE_SOURCE_BASED_MISSING_DEPS) {
       tester
           .addExpectedCompileError(
-              "A.java:2: error: cannot access com.example.buck.imported.ImportedBase\n"
-                  + "import static com.example.buck.imported.Imported.Inner;\n"
-                  + "^\n"
-                  + "  class file for com.example.buck.imported.ImportedBase not found")
+              "JDK8:A.java:2: error: cannot access com.example.buck.imported.ImportedBase",
+              "JDK11:A.java:2: error: cannot find symbol",
+              "import static com.example.buck.imported.Imported.Inner;",
+              "^",
+              "JDK8:  class file for com.example.buck.imported.ImportedBase not found",
+              "JDK11:  symbol:   static Inner",
+              "JDK11:  location: class com.example.buck.imported.Imported")
           .createStubJar();
     } else {
       tester
           .addExpectedStub(
               "com/example/buck/A",
-              "// class version 52.0 (52)",
+              "JDK8:// class version 52.0 (52)",
+              "JDK11:// class version 55.0 (55)",
               "// access flags 0x21",
               "public class com/example/buck/A {",
               "",
@@ -2968,11 +3159,12 @@ public class StubJarTest {
             "  public Inner field;",
             "}")
         .addExpectedCompileError(
-            "A.java:2: error: cannot find symbol\n"
-                + "import static com.example.buck.imported.Imported.Inner;\n"
-                + "^\n"
-                + "  symbol:   static Inner\n"
-                + "  location: class")
+            "A.java:2: error: cannot find symbol",
+            "import static com.example.buck.imported.Imported.Inner;",
+            "^",
+            "  symbol:   static Inner",
+            "JDK8:  location: class",
+            "JDK11:  location: class com.example.buck.imported.Imported")
         .createStubJar();
   }
 
@@ -2993,7 +3185,8 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/A",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
             "public class com/example/buck/A {",
             "",
@@ -3007,9 +3200,10 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/Anno",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x2600",
-            "abstract @interface com/example/buck/Anno implements java/lang/annotation/Annotation  {",
+            "abstract @interface com/example/buck/Anno implements java/lang/annotation/Annotation {",
             "",
             "",
             "  // access flags 0x401",
@@ -3019,10 +3213,12 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/B$Inner",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x20",
             "class com/example/buck/B$Inner {",
             "",
+            "JDK11:  NESTHOST com/example/buck/B",
             "  // access flags 0x0",
             "  INNERCLASS com/example/buck/B$Inner com/example/buck/B Inner",
             "",
@@ -3031,10 +3227,12 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/B",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x20",
             "class com/example/buck/B {",
             "",
+            "JDK11:  NESTMEMBER com/example/buck/B$Inner",
             "  // access flags 0x0",
             "  INNERCLASS com/example/buck/B$Inner com/example/buck/B Inner",
             "",
@@ -3060,7 +3258,8 @@ public class StubJarTest {
             "}")
         .addExpectedFullAbi(
             "com/example/buck/A",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
             "public class com/example/buck/A {",
             "",
@@ -3078,7 +3277,8 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/A",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
             "public class com/example/buck/A {",
             "",
@@ -3111,10 +3311,12 @@ public class StubJarTest {
             "}")
         .addExpectedFullAbi(
             "com/example/buck/A$B",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
-            "public class com/example/buck/A$B extends com/example/buck/C  {",
+            "public class com/example/buck/A$B extends com/example/buck/C {",
             "",
+            "JDK11:  NESTHOST com/example/buck/A",
             "  // access flags 0x8",
             "  static INNERCLASS com/example/buck/C$D com/example/buck/C D",
             "  // access flags 0x1",
@@ -3131,10 +3333,12 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/A$B",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
-            "public class com/example/buck/A$B extends com/example/buck/C  {",
+            "public class com/example/buck/A$B extends com/example/buck/C {",
             "",
+            "JDK11:  NESTHOST com/example/buck/A",
             "  // access flags 0x1",
             "  public INNERCLASS com/example/buck/A$B com/example/buck/A B",
             // TODO: Why is this backwards wrt the full API?
@@ -3149,10 +3353,12 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/A",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
             "public class com/example/buck/A {",
             "",
+            "JDK11:  NESTMEMBER com/example/buck/A$B",
             "  // access flags 0x1",
             "  public INNERCLASS com/example/buck/A$B com/example/buck/A B",
             "",
@@ -3161,10 +3367,12 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/C$D",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x20",
             "class com/example/buck/C$D {",
             "",
+            "JDK11:  NESTHOST com/example/buck/C",
             "  // access flags 0x8",
             "  static INNERCLASS com/example/buck/C$D com/example/buck/C D",
             "",
@@ -3173,10 +3381,12 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/C",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x20",
             "class com/example/buck/C {",
             "",
+            "JDK11:  NESTMEMBER com/example/buck/C$D",
             "  // access flags 0x8",
             "  static INNERCLASS com/example/buck/C$D com/example/buck/C D",
             "",
@@ -3203,10 +3413,12 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/A$B",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
             "public class com/example/buck/A$B {",
             "",
+            "JDK11:  NESTHOST com/example/buck/A",
             "  // access flags 0x9",
             "  public static INNERCLASS com/example/buck/A$B com/example/buck/A B",
             "",
@@ -3221,10 +3433,12 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/A",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
             "public class com/example/buck/A {",
             "",
+            "JDK11:  NESTMEMBER com/example/buck/A$B",
             "  // access flags 0x9",
             "  public static INNERCLASS com/example/buck/A$B com/example/buck/A B",
             "",
@@ -3247,7 +3461,8 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/A",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
             "public class com/example/buck/A {",
             "",
@@ -3275,7 +3490,8 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/A",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
             "public class com/example/buck/A {",
             "",
@@ -3302,7 +3518,8 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/A",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
             "public class com/example/buck/A {",
             "",
@@ -3317,7 +3534,8 @@ public class StubJarTest {
   }
 
   @Test
-  public void preservesAnnotationsOnInnerClassConstructorParameters() throws IOException {
+  public void preservesRuntimeInvisibleAnnotationsOnInnerClassConstructorParameters()
+      throws IOException {
     tester
         .setSourceFile(
             "A.java",
@@ -3330,24 +3548,28 @@ public class StubJarTest {
             "@interface Anno {}")
         .addExpectedStub(
             "com/example/buck/A$Inner",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
             "public class com/example/buck/A$Inner {",
             "",
+            "JDK11:  NESTHOST com/example/buck/A",
             "  // access flags 0x1",
             "  public INNERCLASS com/example/buck/A$Inner com/example/buck/A Inner",
             "",
             "  // access flags 0x1",
             "  public <init>(Lcom/example/buck/A;Ljava/lang/String;)V",
-            "    @Ljava/lang/Synthetic;() // invisible, parameter 0",
-            "    @Lcom/example/buck/Anno;() // invisible, parameter 1",
+            "    // annotable parameter count: 1 (invisible)",
+            "    @Lcom/example/buck/Anno;() // invisible, parameter 0",
             "}")
         .addExpectedStub(
             "com/example/buck/A",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
             "public class com/example/buck/A {",
             "",
+            "JDK11:  NESTMEMBER com/example/buck/A$Inner",
             "  // access flags 0x1",
             "  public INNERCLASS com/example/buck/A$Inner com/example/buck/A Inner",
             "",
@@ -3356,10 +3578,137 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/Anno",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x2600",
-            "abstract @interface com/example/buck/Anno implements java/lang/annotation/Annotation  {",
+            "abstract @interface com/example/buck/Anno implements java/lang/annotation/Annotation {",
             "",
+            "}")
+        .createAndCheckStubJar();
+  }
+
+  @Test
+  public void preservesRuntimeVisibleAnnotationsOnInnerClassConstructorParameters()
+      throws IOException {
+    tester
+        .setSourceFile(
+            "A.java",
+            "package com.example.buck;",
+            "import java.lang.annotation.*;",
+            "public class A {",
+            "  public class Inner {",
+            "    public Inner(@RuntimeRetentionAnno String param) { }",
+            "  }",
+            "}",
+            "@Retention(RetentionPolicy.RUNTIME)",
+            "@interface RuntimeRetentionAnno {}")
+        .addExpectedStub(
+            "com/example/buck/A$Inner",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
+            "// access flags 0x21",
+            "public class com/example/buck/A$Inner {",
+            "",
+            "JDK11:  NESTHOST com/example/buck/A",
+            "  // access flags 0x1",
+            "  public INNERCLASS com/example/buck/A$Inner com/example/buck/A Inner",
+            "",
+            "  // access flags 0x1",
+            "  public <init>(Lcom/example/buck/A;Ljava/lang/String;)V",
+            "    // annotable parameter count: 1 (visible)",
+            "    @Lcom/example/buck/RuntimeRetentionAnno;() // parameter 0",
+            "}")
+        .addExpectedStub(
+            "com/example/buck/A",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
+            "// access flags 0x21",
+            "public class com/example/buck/A {",
+            "",
+            "JDK11:  NESTMEMBER com/example/buck/A$Inner",
+            "  // access flags 0x1",
+            "  public INNERCLASS com/example/buck/A$Inner com/example/buck/A Inner",
+            "",
+            "  // access flags 0x1",
+            "  public <init>()V",
+            "}")
+        .addExpectedStub(
+            "com/example/buck/RuntimeRetentionAnno",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
+            "// access flags 0x2600",
+            "abstract @interface com/example/buck/RuntimeRetentionAnno implements java/lang/annotation/Annotation {",
+            "",
+            "",
+            "  @Ljava/lang/annotation/Retention;(value=Ljava/lang/annotation/RetentionPolicy;.RUNTIME)",
+            "}")
+        .createAndCheckStubJar();
+  }
+
+  @Test
+  public void preservesMultipleAnnotationsOnInnerClassConstructorParameters() throws IOException {
+    tester
+        .setSourceFile(
+            "A.java",
+            "package com.example.buck;",
+            "import java.lang.annotation.*;",
+            "public class A {",
+            "  public class Inner {",
+            "    public Inner(String param1, @Anno String param2, @RuntimeRetentionAnno String param3) { }",
+            "  }",
+            "}",
+            "@interface Anno {}",
+            "@Retention(RetentionPolicy.RUNTIME)",
+            "@interface RuntimeRetentionAnno {}")
+        .addExpectedStub(
+            "com/example/buck/A$Inner",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
+            "// access flags 0x21",
+            "public class com/example/buck/A$Inner {",
+            "",
+            "JDK11:  NESTHOST com/example/buck/A",
+            "  // access flags 0x1",
+            "  public INNERCLASS com/example/buck/A$Inner com/example/buck/A Inner",
+            "",
+            "  // access flags 0x1",
+            "  public <init>(Lcom/example/buck/A;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V",
+            "    // annotable parameter count: 3 (visible)",
+            "    @Lcom/example/buck/RuntimeRetentionAnno;() // parameter 2",
+            "    // annotable parameter count: 3 (invisible)",
+            "    @Lcom/example/buck/Anno;() // invisible, parameter 1",
+            "}")
+        .addExpectedStub(
+            "com/example/buck/A",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
+            "// access flags 0x21",
+            "public class com/example/buck/A {",
+            "",
+            "JDK11:  NESTMEMBER com/example/buck/A$Inner",
+            "  // access flags 0x1",
+            "  public INNERCLASS com/example/buck/A$Inner com/example/buck/A Inner",
+            "",
+            "  // access flags 0x1",
+            "  public <init>()V",
+            "}")
+        .addExpectedStub(
+            "com/example/buck/Anno",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
+            "// access flags 0x2600",
+            "abstract @interface com/example/buck/Anno implements java/lang/annotation/Annotation {",
+            "",
+            "}")
+        .addExpectedStub(
+            "com/example/buck/RuntimeRetentionAnno",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
+            "// access flags 0x2600",
+            "abstract @interface com/example/buck/RuntimeRetentionAnno implements java/lang/annotation/Annotation {",
+            "",
+            "",
+            "  @Ljava/lang/annotation/Retention;(value=Ljava/lang/annotation/RetentionPolicy;.RUNTIME)",
             "}")
         .createAndCheckStubJar();
   }
@@ -3378,10 +3727,12 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/A$B",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
             "public class com/example/buck/A$B {",
             "",
+            "JDK11:  NESTHOST com/example/buck/A",
             "  // access flags 0x1",
             "  public INNERCLASS com/example/buck/A$B com/example/buck/A B",
             "",
@@ -3390,10 +3741,12 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/A",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
             "public class com/example/buck/A {",
             "",
+            "JDK11:  NESTMEMBER com/example/buck/A$B",
             "  // access flags 0x1",
             "  public INNERCLASS com/example/buck/A$B com/example/buck/A B",
             "",
@@ -3450,7 +3803,8 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/A",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x601",
             "public abstract interface com/example/buck/A {",
             "",
@@ -3503,7 +3857,8 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/A",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
             "public class com/example/buck/A {",
             "",
@@ -3994,14 +4349,15 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/PrivateTest",
-            "// class version 52.0 (52)\n"
-                + "// access flags 0x21\n"
-                + "public class com/example/buck/PrivateTest {\n"
-                + "\n"
-                + "\n"
-                + "  // access flags 0x2\n"
-                + "  private <init>()V\n"
-                + "}")
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
+            "// access flags 0x21",
+            "public class com/example/buck/PrivateTest {",
+            "",
+            "",
+            "  // access flags 0x2",
+            "  private <init>()V",
+            "}")
         .createAndCheckStubJar()
         .addStubJarToClasspath()
         .setSourceFile(
@@ -4033,7 +4389,8 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/A",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
             "public class com/example/buck/A {",
             "",
@@ -4060,7 +4417,8 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/A",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
             "public class com/example/buck/A {",
             "",
@@ -4091,7 +4449,8 @@ public class StubJarTest {
             "}")
         .addExpectedFullAbi(
             "com/example/buck/A",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
             "public class com/example/buck/A {",
             "",
@@ -4107,7 +4466,8 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/A",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
             "public class com/example/buck/A {",
             "",
@@ -4156,7 +4516,8 @@ public class StubJarTest {
         .setStubJar(stubJarPath)
         .addExpectedStub(
             "com/example/buck/A",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
             "public class com/example/buck/A {",
             "",
@@ -4182,7 +4543,11 @@ public class StubJarTest {
     DeterministicManifest expectedManifest = new DeterministicManifest(manifest);
     expectedManifest.setManifestAttribute("Manifest-Version", "1.0");
     expectedManifest.setEntryAttribute(
-        "com/example/buck/A.class", "Murmur3-128-Digest", "6ddaf37b8a78b7ae705f31d1512c13c6");
+        "com/example/buck/A.class",
+        "Murmur3-128-Digest",
+        JavaVersion.getMajorVersion() >= 11
+            ? "a52865fe9a9d028824cc5f50b3bc2f77"
+            : "6ddaf37b8a78b7ae705f31d1512c13c6");
 
     tester
         .setSourceFile("A.java", "package com.example.buck;", "public class A { }")
@@ -4190,7 +4555,8 @@ public class StubJarTest {
         .setExpectedStubManifest(expectedManifest)
         .addExpectedStub(
             "com/example/buck/A",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
             "public class com/example/buck/A {",
             "",
@@ -4214,7 +4580,8 @@ public class StubJarTest {
             "}")
         .addExpectedFullAbi(
             "com/example/buck/A",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
             "public class com/example/buck/A {",
             "",
@@ -4233,7 +4600,8 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/A",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
             "public class com/example/buck/A {",
             "",
@@ -4263,12 +4631,14 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/A$E",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x4030",
             "// signature Ljava/lang/Enum<Lcom/example/buck/A$E;>;",
             "// declaration: com/example/buck/A$E extends java.lang.Enum<com.example.buck.A$E>",
-            "final enum com/example/buck/A$E extends java/lang/Enum  {",
+            "final enum com/example/buck/A$E extends java/lang/Enum {",
             "",
+            "JDK11:  NESTHOST com/example/buck/A",
             "  // access flags 0x4018",
             "  final static enum INNERCLASS com/example/buck/A$E com/example/buck/A E",
             "",
@@ -4286,10 +4656,13 @@ public class StubJarTest {
             "}")
         .addExpectedFullAbi(
             "com/example/buck/A",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
             "public class com/example/buck/A {",
             "",
+            "JDK11:  NESTMEMBER com/example/buck/A$1",
+            "JDK11:  NESTMEMBER com/example/buck/A$E",
             "  // access flags 0x1008",
             "  static synthetic INNERCLASS com/example/buck/A$1 null null",
             // Should not include this class
@@ -4304,10 +4677,12 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/A",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
             "public class com/example/buck/A {",
             "",
+            "JDK11:  NESTMEMBER com/example/buck/A$E",
             "  // access flags 0x4018",
             "  final static enum INNERCLASS com/example/buck/A$E com/example/buck/A E",
             "",
@@ -4326,7 +4701,8 @@ public class StubJarTest {
         .setSourceFile("package-info.java", "@Deprecated", "package com.example.buck;")
         .addExpectedStub(
             "com/example/buck/package-info",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x1600",
             "abstract synthetic interface com/example/buck/package-info {",
             "",
@@ -4356,7 +4732,8 @@ public class StubJarTest {
         .setSourceFile("package-info.java", "@A.Anno", "package com.example.buck;")
         .addExpectedStub(
             "com/example/buck/package-info",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x1600",
             "abstract synthetic interface com/example/buck/package-info {",
             "",
@@ -4375,14 +4752,18 @@ public class StubJarTest {
             "A.java", "package com.example.buck;", "public enum A {", "  Value1 { }", "}")
         .addExpectedFullAbi(
             "com/example/buck/A",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x4021",
             "// signature Ljava/lang/Enum<Lcom/example/buck/A;>;",
             "// declaration: com/example/buck/A extends java.lang.Enum<com.example.buck.A>",
-            "public enum com/example/buck/A extends java/lang/Enum  {",
+            "public enum com/example/buck/A extends java/lang/Enum {",
             "",
-            "  // access flags 0x4008",
-            "  static enum INNERCLASS com/example/buck/A$1 null null",
+            "JDK11:  NESTMEMBER com/example/buck/A$1",
+            "JDK8:  // access flags 0x4008",
+            "JDK8:  static enum INNERCLASS com/example/buck/A$1 null null",
+            "JDK11:  // access flags 0x4010",
+            "JDK11:  final enum INNERCLASS com/example/buck/A$1 null null",
             "",
             "  // access flags 0x4019",
             "  public final static enum Lcom/example/buck/A; Value1",
@@ -4400,9 +4781,9 @@ public class StubJarTest {
             "  // signature ()V",
             "  // declaration: void <init>()",
             "  private <init>(Ljava/lang/String;I)V",
-            "",
-            "  // access flags 0x1000",
-            "  synthetic <init>(Ljava/lang/String;ILcom/example/buck/A$1;)V",
+            "JDK8:",
+            "JDK8:  // access flags 0x1000",
+            "JDK8:  synthetic <init>(Ljava/lang/String;ILcom/example/buck/A$1;)V",
             // Should not include this method
             "",
             "  // access flags 0x8",
@@ -4410,11 +4791,12 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/A",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x4021",
             "// signature Ljava/lang/Enum<Lcom/example/buck/A;>;",
             "// declaration: com/example/buck/A extends java.lang.Enum<com.example.buck.A>",
-            "public enum com/example/buck/A extends java/lang/Enum  {",
+            "public enum com/example/buck/A extends java/lang/Enum {",
             "",
             "",
             "  // access flags 0x4019",
@@ -4446,11 +4828,12 @@ public class StubJarTest {
             "}")
         .addExpectedFullAbi(
             "com/example/buck/A",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
             "// signature Ljava/lang/Object;Ljava/lang/Comparable<Lcom/example/buck/A;>;",
             "// declaration: com/example/buck/A implements java.lang.Comparable<com.example.buck.A>",
-            "public class com/example/buck/A implements java/lang/Comparable  {",
+            "public class com/example/buck/A implements java/lang/Comparable {",
             "",
             "",
             "  // access flags 0x1",
@@ -4464,11 +4847,12 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/A",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
             "// signature Ljava/lang/Object;Ljava/lang/Comparable<Lcom/example/buck/A;>;",
             "// declaration: com/example/buck/A implements java.lang.Comparable<com.example.buck.A>",
-            "public class com/example/buck/A implements java/lang/Comparable  {",
+            "public class com/example/buck/A implements java/lang/Comparable {",
             "",
             "",
             "  // access flags 0x1",
@@ -4504,11 +4888,12 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/A",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
             "// signature Lcom/example/buck/Super<Ljava/lang/String;>;",
             "// declaration: com/example/buck/A extends com.example.buck.Super<java.lang.String>",
-            "public class com/example/buck/A extends com/example/buck/Super  {",
+            "public class com/example/buck/A extends com/example/buck/Super {",
             "",
             "",
             "  // access flags 0x1",
@@ -4525,11 +4910,12 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/Super",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x20",
             "// signature <T::Ljava/lang/CharSequence;>Ljava/lang/Object;Ljava/lang/Comparable<TT;>;",
             "// declaration: com/example/buck/Super<T extends java.lang.CharSequence> implements java.lang.Comparable<T>",
-            "class com/example/buck/Super implements java/lang/Comparable  {",
+            "class com/example/buck/Super implements java/lang/Comparable {",
             "",
             "",
             "  // access flags 0x0",
@@ -4574,11 +4960,12 @@ public class StubJarTest {
             "}")
         .addExpectedFullAbi(
             "com/example/buck/A",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
             "// signature Lcom/example/buck/Super<Ljava/lang/String;Ljava/lang/String;>;",
             "// declaration: com/example/buck/A extends com.example.buck.Super<java.lang.String, java.lang.String>",
-            "public class com/example/buck/A extends com/example/buck/Super  {",
+            "public class com/example/buck/A extends com/example/buck/Super {",
             "",
             "",
             "  // access flags 0x1",
@@ -4592,11 +4979,12 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/A",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
             "// signature Lcom/example/buck/Super<Ljava/lang/String;Ljava/lang/String;>;",
             "// declaration: com/example/buck/A extends com.example.buck.Super<java.lang.String, java.lang.String>",
-            "public class com/example/buck/A extends com/example/buck/Super  {",
+            "public class com/example/buck/A extends com/example/buck/Super {",
             "",
             "",
             "  // access flags 0x1",
@@ -4641,9 +5029,10 @@ public class StubJarTest {
         .addCompilerOptions("-parameters")
         .addExpectedFullAbi(
             "com/example/buck/A",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
-            "public class com/example/buck/A extends com/example/buck/Super  {",
+            "public class com/example/buck/A extends com/example/buck/Super {",
             "",
             "",
             "  // access flags 0x1",
@@ -4653,6 +5042,7 @@ public class StubJarTest {
             "  public getThis(I)Lcom/example/buck/A; throws java/io/IOException ",
             "    // parameter final  i",
             "  @Lcom/example/buck/Anno;() // invisible",
+            "    // annotable parameter count: 1 (invisible)",
             "    @Lcom/example/buck/Anno;() // invisible, parameter 0",
             "",
             "  // access flags 0x81",
@@ -4667,13 +5057,15 @@ public class StubJarTest {
             "  public synthetic bridge getThis(I)Lcom/example/buck/Super; throws java/lang/Exception ",
             "    // parameter final synthetic  i",
             "  @Lcom/example/buck/Anno;() // invisible",
+            "    // annotable parameter count: 1 (invisible)",
             "    @Lcom/example/buck/Anno;() // invisible, parameter 0",
             "}")
         .addExpectedStub(
             "com/example/buck/A",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
-            "public class com/example/buck/A extends com/example/buck/Super  {",
+            "public class com/example/buck/A extends com/example/buck/Super {",
             "",
             "",
             "  // access flags 0x1",
@@ -4683,6 +5075,7 @@ public class StubJarTest {
             "  public getThis(I)Lcom/example/buck/A; throws java/io/IOException ",
             "    // parameter final  i",
             "  @Lcom/example/buck/Anno;() // invisible",
+            "    // annotable parameter count: 1 (invisible)",
             "    @Lcom/example/buck/Anno;() // invisible, parameter 0",
             "",
             "  // access flags 0x81",
@@ -4697,6 +5090,7 @@ public class StubJarTest {
             "  public synthetic bridge getThis(I)Lcom/example/buck/Super; throws java/lang/Exception ",
             "    // parameter final synthetic  i",
             "  @Lcom/example/buck/Anno;() // invisible",
+            "    // annotable parameter count: 1 (invisible)",
             "    @Lcom/example/buck/Anno;() // invisible, parameter 0",
             "}")
         .createAndCheckStubJar();
@@ -4735,9 +5129,10 @@ public class StubJarTest {
             "A.java", "package com.example.buck;", "public abstract class A extends Super {", "}")
         .addExpectedFullAbi(
             "com/example/buck/A",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x421",
-            "public abstract class com/example/buck/A extends com/example/buck/Super  {",
+            "public abstract class com/example/buck/A extends com/example/buck/Super {",
             "",
             "",
             "  // access flags 0x1",
@@ -4754,9 +5149,10 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/A",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x421",
-            "public abstract class com/example/buck/A extends com/example/buck/Super  {",
+            "public abstract class com/example/buck/A extends com/example/buck/Super {",
             "",
             "",
             "  // access flags 0x1",
@@ -4803,9 +5199,10 @@ public class StubJarTest {
             "}")
         .addExpectedFullAbi(
             "com/example/buck/A",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
-            "public class com/example/buck/A extends com/example/buck/Super  {",
+            "public class com/example/buck/A extends com/example/buck/Super {",
             "",
             "",
             "  // access flags 0x1",
@@ -4816,9 +5213,10 @@ public class StubJarTest {
             "}")
         .addExpectedStub(
             "com/example/buck/A",
-            "// class version 52.0 (52)",
+            "JDK8:// class version 52.0 (52)",
+            "JDK11:// class version 55.0 (55)",
             "// access flags 0x21",
-            "public class com/example/buck/A extends com/example/buck/Super  {",
+            "public class com/example/buck/A extends com/example/buck/Super {",
             "",
             "",
             "  // access flags 0x1",
@@ -4917,6 +5315,7 @@ public class StubJarTest {
     private Path stubJarPath;
     private Path fullJarPath;
     private boolean issueAPWarnings;
+    private Pattern javaVersionSpecificPattern = Pattern.compile("^JDK(\\d+):.*");
 
     public Tester() {
       expectedStubDirectory.add("META-INF/");
@@ -4960,7 +5359,7 @@ public class StubJarTest {
 
     public Tester addExpectedFullAbi(String classBinaryName, String... abiLines) {
       String filePath = classBinaryName + ".class";
-      expectedFullAbis.put(filePath, Arrays.asList(abiLines));
+      expectedFullAbis.put(filePath, filterLinesForCurrentJavaVersion(abiLines));
       return this;
     }
 
@@ -4973,12 +5372,29 @@ public class StubJarTest {
       }
 
       expectedStubDirectory.add(filePath);
-      expectedStubs.put(filePath, Arrays.asList(stubLines));
+      expectedStubs.put(filePath, filterLinesForCurrentJavaVersion(stubLines));
       return this;
     }
 
-    public Tester addExpectedCompileError(String compileError) {
-      expectedCompileErrors.add(compileError);
+    private List<String> filterLinesForCurrentJavaVersion(String[] lines) {
+      List<String> result = new ArrayList<>();
+      for (String line : lines) {
+        Matcher m = javaVersionSpecificPattern.matcher(line);
+        if (m.matches()) {
+          if (Integer.parseInt(m.group(1)) == JavaVersion.getMajorVersion()) {
+            String s = line.substring(line.indexOf(':') + 1);
+            result.add(s);
+          }
+        } else {
+          result.add(line);
+        }
+      }
+      return result;
+    }
+
+    public Tester addExpectedCompileError(String... compileErrorLines) {
+      expectedCompileErrors.add(
+          String.join("\n", filterLinesForCurrentJavaVersion(compileErrorLines)));
       return this;
     }
 
@@ -5088,9 +5504,13 @@ public class StubJarTest {
                       return false;
                     }
                   }));
+          assertTrue(
+              "unsupported Java version",
+              JavaVersion.getMajorVersion() == 8 || JavaVersion.getMajorVersion() == 11);
           StubGenerator generator =
               new StubGenerator(
-                  SourceVersion.RELEASE_8,
+                  SourceVersionUtils.getSourceVersionFromTarget(
+                      String.valueOf(JavaVersion.getMajorVersion())),
                   testCompiler.getElements(),
                   testCompiler.getTypes(),
                   testCompiler.getMessager(),
@@ -5109,9 +5529,7 @@ public class StubJarTest {
             jarBuilder.createJarFile(stubJar);
           } else {
             List<String> actualCompileErrors =
-                testCompiler
-                    .getErrorMessages()
-                    .stream()
+                testCompiler.getErrorMessages().stream()
                     .map(
                         diagnostic ->
                             diagnostic.substring(diagnostic.lastIndexOf(File.separatorChar) + 1))
@@ -5184,9 +5602,7 @@ public class StubJarTest {
         compiler.compile();
         if (!expectedCompileErrors.isEmpty()) {
           List<String> actualCompileErrors =
-              compiler
-                  .getErrorMessages()
-                  .stream()
+              compiler.getErrorMessages().stream()
                   .map(
                       diagnostic ->
                           diagnostic.substring(diagnostic.lastIndexOf(File.separatorChar) + 1))

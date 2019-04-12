@@ -16,7 +16,7 @@
 
 package com.facebook.buck.features.haskell;
 
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.description.arg.CommonDescriptionArg;
 import com.facebook.buck.core.description.arg.HasDeclaredDeps;
 import com.facebook.buck.core.description.attr.ImplicitDepsInferringDescription;
@@ -26,6 +26,7 @@ import com.facebook.buck.core.model.FlavorConvertible;
 import com.facebook.buck.core.model.FlavorDomain;
 import com.facebook.buck.core.model.Flavored;
 import com.facebook.buck.core.model.InternalFlavor;
+import com.facebook.buck.core.model.TargetConfiguration;
 import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
 import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
@@ -56,7 +57,6 @@ import com.facebook.buck.cxx.TransitiveCxxPreprocessorInputCache;
 import com.facebook.buck.cxx.toolchain.ArchiveContents;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
-import com.facebook.buck.cxx.toolchain.PicType;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableInput;
@@ -184,22 +184,20 @@ public class HaskellLibraryDescription
             deps,
             depType,
             hsProfile);
+    String staticLibraryName =
+        CxxDescriptionEnhancer.getStaticLibraryName(
+            target.withoutFlavors(HaskellDescriptionUtils.PROF),
+            Optional.empty(),
+            platform.getCxxPlatform().getStaticLibraryExtension(),
+            hsProfile ? "_p" : "",
+            cxxBuckConfig.isUniqueLibraryNameEnabled());
     return Archive.from(
         target,
         projectFilesystem,
         graphBuilder,
         ruleFinder,
         platform.getCxxPlatform(),
-        cxxBuckConfig.getArchiveContents(),
-        CxxDescriptionEnhancer.getStaticLibraryPath(
-            projectFilesystem,
-            target.withoutFlavors(HaskellDescriptionUtils.PROF),
-            platform.getFlavor(),
-            depType == Linker.LinkableDepType.STATIC ? PicType.PDC : PicType.PIC,
-            Optional.empty(),
-            platform.getCxxPlatform().getStaticLibraryExtension(),
-            hsProfile ? "_p" : "",
-            cxxBuckConfig.isUniqueLibraryNameEnabled()),
+        staticLibraryName,
         compileRule.getObjects(),
         // TODO(#20466393): Currently, GHC produces nono-deterministically sized object files.
         // This means that it's possible to get a thin archive fetched from cache originating from
@@ -210,7 +208,7 @@ public class HaskellLibraryDescription
         // affect on build efficiency, and since this issue appears to only manifest by a size
         // mismatch with what is embedded in thin archives, just disable caching when using thin
         // archives.
-        /* cacheable */ cxxBuckConfig.getArchiveContents() != ArchiveContents.THIN);
+        /* cacheable */ platform.getCxxPlatform().getArchiveContents() != ArchiveContents.THIN);
   }
 
   private Archive requireStaticLibrary(
@@ -406,7 +404,7 @@ public class HaskellLibraryDescription
         projectFilesystem,
         baseParams,
         ruleFinder,
-        platform.getPackager().resolve(graphBuilder),
+        platform.getPackager().resolve(graphBuilder, target.getTargetConfiguration()),
         platform.getHaskellVersion(),
         depType,
         getPackageInfo(platform, target),
@@ -501,7 +499,7 @@ public class HaskellLibraryDescription
       @Override
       public Iterable<BuildRule> visit(BuildRule rule) {
         ImmutableSet.Builder<BuildRule> traverse = ImmutableSet.builder();
-        if (rule instanceof HaskellCompileDep || rule instanceof PrebuiltHaskellLibrary) {
+        if (rule instanceof HaskellCompileDep) {
           HaskellCompileDep haskellCompileDep = (HaskellCompileDep) rule;
 
           // Get haddock-interfaces
@@ -552,7 +550,7 @@ public class HaskellLibraryDescription
                 platform,
                 "srcs",
                 args.getSrcs()),
-            platform.getHaddock().resolve(graphBuilder),
+            platform.getHaddock().resolve(graphBuilder, baseTarget.getTargetConfiguration()),
             args.getHaddockFlags(),
             args.getCompilerFlags(),
             platform.getLinkerFlags(),
@@ -562,7 +560,7 @@ public class HaskellLibraryDescription
             getPackageInfo(platform, baseTarget),
             platform,
             CxxSourceTypes.getPreprocessor(platform.getCxxPlatform(), CxxSource.Type.C)
-                .resolve(graphBuilder),
+                .resolve(graphBuilder, baseTarget.getTargetConfiguration()),
             ppFlagsBuilder.build()));
   }
 
@@ -779,7 +777,8 @@ public class HaskellLibraryDescription
               args.getCompilerFlags(),
               Optional.empty(),
               Optional.empty(),
-              ImmutableList.of());
+              ImmutableList.of(),
+              args.isEnableProfiling());
       }
 
       throw new IllegalStateException(
@@ -822,7 +821,7 @@ public class HaskellLibraryDescription
         HaskellHaddockLibRule rule = (HaskellHaddockLibRule) graphBuilder.requireRule(target);
         return HaskellHaddockInput.builder()
             .addAllInterfaces(rule.getInterfaces())
-            .addAllOutputDirs(rule.getOutputDirs())
+            .addAllHaddockOutputDirs(rule.getHaddockOutputDirs())
             .build();
       }
 
@@ -898,8 +897,8 @@ public class HaskellLibraryDescription
           CxxPlatform cxxPlatform,
           Linker.LinkableDepType type,
           boolean forceLinkWhole,
-          ImmutableSet<LanguageExtensions> languageExtensions,
-          ActionGraphBuilder graphBuilder) {
+          ActionGraphBuilder graphBuilder,
+          TargetConfiguration targetConfiguration) {
         Iterable<Arg> linkArgs;
         switch (type) {
           case STATIC:
@@ -920,7 +919,10 @@ public class HaskellLibraryDescription
                     args.isEnableProfiling());
             linkArgs =
                 args.getLinkWhole() || forceLinkWhole
-                    ? cxxPlatform.getLd().resolve(graphBuilder).linkWhole(archive.toArg())
+                    ? cxxPlatform
+                        .getLd()
+                        .resolve(graphBuilder, targetConfiguration)
+                        .linkWhole(archive.toArg(), pathResolver)
                     : ImmutableList.of(archive.toArg());
             break;
           case SHARED:
@@ -946,7 +948,7 @@ public class HaskellLibraryDescription
       }
 
       @Override
-      public Linkage getPreferredLinkage(CxxPlatform cxxPlatform, ActionGraphBuilder graphBuilder) {
+      public Linkage getPreferredLinkage(CxxPlatform cxxPlatform) {
         return args.getPreferredLinkage();
       }
 
@@ -999,6 +1001,7 @@ public class HaskellLibraryDescription
       ImmutableCollection.Builder<BuildTarget> extraDepsBuilder,
       ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
     HaskellDescriptionUtils.getParseTimeDeps(
+        buildTarget.getTargetConfiguration(),
         getHaskellPlatformsProvider().getHaskellPlatforms().getValues(),
         targetGraphOnlyDepsBuilder);
   }
@@ -1021,8 +1024,7 @@ public class HaskellLibraryDescription
     HADDOCK(InternalFlavor.of("haddock"));
 
     public static final ImmutableSet<Flavor> FLAVOR_VALUES =
-        ImmutableList.copyOf(Type.values())
-            .stream()
+        ImmutableList.copyOf(Type.values()).stream()
             .map(Type::getFlavor)
             .collect(ImmutableSet.toImmutableSet());
 

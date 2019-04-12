@@ -24,6 +24,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import java.util.HashSet;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 
@@ -43,16 +44,14 @@ public class IjModuleGraph {
   }
 
   public ImmutableSet<IjModule> getModules() {
-    return deps.keySet()
-        .stream()
+    return deps.keySet().stream()
         .filter(dep -> dep instanceof IjModule)
         .map(IjModule.class::cast)
         .collect(ImmutableSet.toImmutableSet());
   }
 
   public ImmutableSet<IjLibrary> getLibraries() {
-    return deps.keySet()
-        .stream()
+    return deps.keySet().stream()
         .filter(node -> node instanceof IjLibrary)
         .map(IjLibrary.class::cast)
         .collect(ImmutableSet.toImmutableSet());
@@ -64,24 +63,20 @@ public class IjModuleGraph {
 
   public ImmutableMap<IjModule, DependencyType> getDependentModulesFor(IjModule source) {
     ImmutableMap<IjProjectElement, DependencyType> deps = getDepsFor(source);
-    return deps.keySet()
-        .stream()
+    return deps.keySet().stream()
         .filter(dep -> dep instanceof IjModule)
         .map(module -> (IjModule) module)
         .collect(
-            ImmutableMap.toImmutableMap(
-                k -> k, input -> Preconditions.checkNotNull(deps.get(input))));
+            ImmutableMap.toImmutableMap(k -> k, input -> Objects.requireNonNull(deps.get(input))));
   }
 
   public ImmutableMap<IjLibrary, DependencyType> getDependentLibrariesFor(IjModule source) {
     ImmutableMap<IjProjectElement, DependencyType> deps = getDepsFor(source);
-    return deps.keySet()
-        .stream()
+    return deps.keySet().stream()
         .filter(dep -> dep instanceof IjLibrary)
         .map(library -> (IjLibrary) library)
         .collect(
-            ImmutableMap.toImmutableMap(
-                k -> k, input -> Preconditions.checkNotNull(deps.get(input))));
+            ImmutableMap.toImmutableMap(k -> k, input -> Objects.requireNonNull(deps.get(input))));
   }
 
   private static void checkNamesAreUnique(

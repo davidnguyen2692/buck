@@ -19,12 +19,12 @@ package com.facebook.buck.artifact_cache;
 import com.facebook.buck.core.exceptions.handler.HumanReadableExceptionAugmentor;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.rulekey.RuleKey;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.event.ArtifactCompressionEvent;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.io.file.BorrowablePath;
 import com.facebook.buck.io.file.MostFiles;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.log.Logger;
 import com.facebook.buck.util.CloseableHolder;
 import com.facebook.buck.util.ErrorLogger;
 import com.facebook.buck.util.NamedTemporaryFile;
@@ -32,6 +32,7 @@ import com.facebook.buck.util.exceptions.BuckUncheckedExecutionException;
 import com.facebook.buck.util.zip.ZipConstants;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
+import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
@@ -65,15 +66,27 @@ public class ArtifactUploader {
       ImmutableMap<String, String> buildMetadata,
       SortedSet<Path> pathsToIncludeInArchive,
       BuildTarget buildTarget,
-      ProjectFilesystem projectFilesystem) {
-    NamedTemporaryFile archive =
-        getTemporaryArtifactArchive(
-            buildTarget, projectFilesystem, ruleKeys, eventBus, pathsToIncludeInArchive);
+      ProjectFilesystem projectFilesystem,
+      long buildTimeMs) {
+    NamedTemporaryFile archive;
+    try {
+      archive =
+          getTemporaryArtifactArchive(
+              buildTarget, projectFilesystem, ruleKeys, eventBus, pathsToIncludeInArchive);
+    } catch (BuckUncheckedExecutionException e) {
+      LOG.error(e.getMessage());
+      LOG.debug(e.toString() + "\n" + Throwables.getStackTraceAsString(e));
+      return Futures.immediateFuture(null);
+    }
 
     // Store the artifact, including any additional metadata.
     ListenableFuture<Void> storeFuture =
         artifactCache.store(
-            ArtifactInfo.builder().setRuleKeys(ruleKeys).setMetadata(buildMetadata).build(),
+            ArtifactInfo.builder()
+                .setRuleKeys(ruleKeys)
+                .setMetadata(buildMetadata)
+                .setBuildTimeMs(buildTimeMs)
+                .build(),
             BorrowablePath.borrowablePath(archive.get()));
     Futures.addCallback(
         storeFuture,

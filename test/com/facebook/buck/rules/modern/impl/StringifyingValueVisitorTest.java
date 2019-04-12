@@ -43,13 +43,27 @@ public class StringifyingValueVisitorTest extends AbstractValueVisitorTest {
   public void set() {
     assertEquals(
         "present:Set<\n"
-            + "  string(!)\n"
             + "  string(hello)\n"
             + "  string(world)\n"
+            + "  string(!)\n"
             + ">\n"
             + "empty:Set<\n"
             + ">",
         stringify(new WithSet()));
+  }
+
+  @Override
+  @Test
+  public void sortedSet() {
+    assertEquals(
+        "present:SortedSet<\n"
+            + "  string(1world)\n"
+            + "  string(2!)\n"
+            + "  string(3hello)\n"
+            + ">\n"
+            + "empty:SortedSet<\n"
+            + ">",
+        stringify(new WithSortedSet()));
   }
 
   @Override
@@ -150,9 +164,9 @@ public class StringifyingValueVisitorTest extends AbstractValueVisitorTest {
     assertEquals(
         "value:Optional<\n"
             + "  List<\n"
-            + "    Set<\n"
+            + "    SortedSet<\n"
             + "    >\n"
-            + "    Set<\n"
+            + "    SortedSet<\n"
             + "      SourcePath(//some/build:target)\n"
             + "      SourcePath(/project/root/some/path)\n"
             + "    >\n"
@@ -177,11 +191,24 @@ public class StringifyingValueVisitorTest extends AbstractValueVisitorTest {
     assertEquals(
         "target:path(/project/other)Optional<\n"
             + "  string(other)\n"
-            + ">string(//some)string(target)Set<\n"
+            + ">string(//some)string(target)SortedSet<\n"
             + "  string(flavor1)\n"
             + "  string(flavor2)\n"
-            + ">",
+            + ">configuration<targetPlatform(//platform:platform)>",
         stringify(new WithBuildTarget()));
+  }
+
+  @Test
+  @Override
+  public void buildTargetWithEmptyConfiguration() {
+    assertEquals(
+        "target:path(/project/other)Optional<\n"
+            + "  string(other)\n"
+            + ">string(//some)string(target)SortedSet<\n"
+            + "  string(flavor1)\n"
+            + "  string(flavor2)\n"
+            + ">configuration<>",
+        stringify(new WithBuildTargetWithEmptyConfiguration()));
   }
 
   private String stringify(Buildable value) {
@@ -192,13 +219,13 @@ public class StringifyingValueVisitorTest extends AbstractValueVisitorTest {
 
   @Override
   @Test
-  public void pattern() throws Exception {
+  public void pattern() {
     assertEquals("pattern:string(abcd)", stringify(new WithPattern()));
   }
 
   @Override
   @Test
-  public void anEnum() throws Exception {
+  public void anEnum() {
     assertEquals(
         "type:string(GOOD)\n" + "otherType:Optional<\n" + "  string(BAD)\n" + ">",
         stringify(new WithEnum()));
@@ -206,7 +233,7 @@ public class StringifyingValueVisitorTest extends AbstractValueVisitorTest {
 
   @Override
   @Test
-  public void nonHashableSourcePathContainer() throws Exception {
+  public void nonHashableSourcePathContainer() {
     assertEquals(
         "container:SourcePath(/project/root/some/path)",
         stringify(new WithNonHashableSourcePathContainer()));
@@ -214,11 +241,34 @@ public class StringifyingValueVisitorTest extends AbstractValueVisitorTest {
 
   @Override
   @Test
-  public void sortedMap() throws Exception {
+  public void map() {
     assertEquals(
         "emptyMap:Map<\n"
             + ">\n"
             + "pathMap:Map<\n"
+            + "  key<\n"
+            + "    string(path)\n"
+            + "  >\n"
+            + "  value<\n"
+            + "    SourcePath(/project/root/some/path)\n"
+            + "  >\n"
+            + "  key<\n"
+            + "    string(target)\n"
+            + "  >\n"
+            + "  value<\n"
+            + "    SourcePath(Pair(other//some:target#flavor1,flavor2, other.path))\n"
+            + "  >\n"
+            + ">",
+        stringify(new WithMap()));
+  }
+
+  @Override
+  @Test
+  public void sortedMap() {
+    assertEquals(
+        "emptyMap:SortedMap<\n"
+            + ">\n"
+            + "pathMap:SortedMap<\n"
             + "  key<\n"
             + "    string(path)\n"
             + "  >\n"
@@ -237,7 +287,7 @@ public class StringifyingValueVisitorTest extends AbstractValueVisitorTest {
 
   @Override
   @Test
-  public void supplier() throws Exception {
+  public void supplier() {
     assertEquals(
         "stringSupplier:string(string)\n" + "weakPath:SourcePath(/project/root/some.path)",
         stringify(new WithSupplier()));
@@ -245,7 +295,7 @@ public class StringifyingValueVisitorTest extends AbstractValueVisitorTest {
 
   @Override
   @Test
-  public void nullable() throws Exception {
+  public void nullable() {
     assertEquals(
         "nullString:null\n" + "nullPath:null\n" + "nonNullPath:SourcePath(/project/root/some.path)",
         stringify(new WithNullable()));
@@ -253,7 +303,7 @@ public class StringifyingValueVisitorTest extends AbstractValueVisitorTest {
 
   @Override
   @Test
-  public void either() throws Exception {
+  public void either() {
     assertEquals(
         "leftString:boolean(true)string(left)\n"
             + "rightPath:boolean(false)SourcePath(/project/root/some.path)",
@@ -262,13 +312,13 @@ public class StringifyingValueVisitorTest extends AbstractValueVisitorTest {
 
   @Override
   @Test
-  public void excluded() throws Exception {
+  public void excluded() {
     assertEquals("excluded:\n" + "nullNotAnnoted:", stringify(new WithExcluded()));
   }
 
   @Override
   @Test
-  public void immutables() throws Exception {
+  public void immutables() {
     assertEquals(
         "tupleInterfaceData:com.facebook.buck.rules.modern.impl.TupleInterfaceData<\n"
             + "  first:SourcePath(/project/root/first.path)\n"
@@ -291,13 +341,13 @@ public class StringifyingValueVisitorTest extends AbstractValueVisitorTest {
 
   @Override
   @Test
-  public void stringified() throws Exception {
+  public void stringified() {
     assertEquals("stringified:", stringify(new WithStringified()));
   }
 
   @Override
   @Test
-  public void wildcards() throws Exception {
+  public void wildcards() {
     assertEquals(
         "path:Optional.empty()\n"
             + "appendables:List<\n"

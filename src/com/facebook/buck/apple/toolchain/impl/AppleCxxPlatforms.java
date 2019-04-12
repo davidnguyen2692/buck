@@ -35,10 +35,13 @@ import com.facebook.buck.core.sourcepath.PathSourcePath;
 import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.core.toolchain.tool.impl.VersionedTool;
 import com.facebook.buck.core.toolchain.toolprovider.impl.ConstantToolProvider;
+import com.facebook.buck.core.util.log.Logger;
+import com.facebook.buck.cxx.toolchain.ArchiveContents;
 import com.facebook.buck.cxx.toolchain.ArchiverProvider;
 import com.facebook.buck.cxx.toolchain.BsdArchiver;
 import com.facebook.buck.cxx.toolchain.CompilerProvider;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
+import com.facebook.buck.cxx.toolchain.CxxBuckConfig.ToolType;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatforms;
 import com.facebook.buck.cxx.toolchain.CxxToolProvider;
@@ -53,7 +56,6 @@ import com.facebook.buck.cxx.toolchain.linker.DefaultLinkerProvider;
 import com.facebook.buck.cxx.toolchain.linker.LinkerProvider;
 import com.facebook.buck.cxx.toolchain.linker.Linkers;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.log.Logger;
 import com.facebook.buck.swift.toolchain.SwiftPlatform;
 import com.facebook.buck.swift.toolchain.impl.SwiftPlatformFactory;
 import com.facebook.buck.util.Optionals;
@@ -63,6 +65,7 @@ import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableBiMap;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableMultimap;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
@@ -225,9 +228,7 @@ public class AppleCxxPlatforms {
     versions.add(targetSdk.getVersion());
 
     ImmutableList<String> toolchainVersions =
-        targetSdk
-            .getToolchains()
-            .stream()
+        targetSdk.getToolchains().stream()
             .map(AppleToolchain::getVersion)
             .flatMap(Optionals::toStream)
             .collect(ImmutableList.toImmutableList());
@@ -290,12 +291,14 @@ public class AppleCxxPlatforms {
             .getStubBinaryPath()
             .map(input -> sdkPaths.getSdkPath().resolve(input));
 
-    CxxBuckConfig config = new CxxBuckConfig(buckConfig);
-
     UserFlavor targetFlavor =
         UserFlavor.of(
             Flavor.replaceInvalidCharacters(targetSdk.getName() + "-" + targetArchitecture),
             String.format("SDK: %s, architecture: %s", targetSdk.getName(), targetArchitecture));
+    CxxBuckConfig config =
+        appleConfig.useFlavoredCxxSections()
+            ? new CxxBuckConfig(buckConfig, targetFlavor)
+            : new CxxBuckConfig(buckConfig);
 
     ImmutableBiMap.Builder<Path, String> sanitizerPaths = ImmutableBiMap.builder();
     sanitizerPaths.put(sdkPaths.getSdkPath(), "APPLE_SDKROOT");
@@ -306,8 +309,10 @@ public class AppleCxxPlatforms {
 
     // https://github.com/facebook/buck/pull/1168: add the root cell's absolute path to the quote
     // include path, and also force it to be sanitized by all user rule keys.
-    sanitizerPaths.put(filesystem.getRootPath(), ".");
-    cflagsBuilder.add("-iquote", filesystem.getRootPath().toString());
+    if (appleConfig.addCellPathToIquotePath()) {
+      sanitizerPaths.put(filesystem.getRootPath(), ".");
+      cflagsBuilder.add("-iquote", filesystem.getRootPath().toString());
+    }
 
     DebugPathSanitizer compilerDebugPathSanitizer =
         new PrefixMapDebugPathSanitizer(
@@ -367,17 +372,32 @@ public class AppleCxxPlatforms {
     }
 
     PreprocessorProvider aspp =
-        new PreprocessorProvider(new ConstantToolProvider(clangPath), CxxToolProvider.Type.CLANG);
+        new PreprocessorProvider(
+            new ConstantToolProvider(clangPath), CxxToolProvider.Type.CLANG, ToolType.ASPP);
     CompilerProvider as =
-        new CompilerProvider(new ConstantToolProvider(clangPath), CxxToolProvider.Type.CLANG);
+        new CompilerProvider(
+            new ConstantToolProvider(clangPath),
+            CxxToolProvider.Type.CLANG,
+            ToolType.AS,
+            config.getUseDetailedUntrackedHeaderMessages());
     PreprocessorProvider cpp =
-        new PreprocessorProvider(new ConstantToolProvider(clangPath), CxxToolProvider.Type.CLANG);
+        new PreprocessorProvider(
+            new ConstantToolProvider(clangPath), CxxToolProvider.Type.CLANG, ToolType.CPP);
     CompilerProvider cc =
-        new CompilerProvider(new ConstantToolProvider(clangPath), CxxToolProvider.Type.CLANG);
+        new CompilerProvider(
+            new ConstantToolProvider(clangPath),
+            CxxToolProvider.Type.CLANG,
+            ToolType.CC,
+            config.getUseDetailedUntrackedHeaderMessages());
     PreprocessorProvider cxxpp =
-        new PreprocessorProvider(new ConstantToolProvider(clangXxPath), CxxToolProvider.Type.CLANG);
+        new PreprocessorProvider(
+            new ConstantToolProvider(clangXxPath), CxxToolProvider.Type.CLANG, ToolType.CXXPP);
     CompilerProvider cxx =
-        new CompilerProvider(new ConstantToolProvider(clangXxPath), CxxToolProvider.Type.CLANG);
+        new CompilerProvider(
+            new ConstantToolProvider(clangXxPath),
+            CxxToolProvider.Type.CLANG,
+            ToolType.CXX,
+            config.getUseDetailedUntrackedHeaderMessages());
     ImmutableList.Builder<String> whitelistBuilder = ImmutableList.builder();
     whitelistBuilder.add("^" + Pattern.quote(sdkPaths.getSdkPath().toString()) + "\\/.*");
     whitelistBuilder.add(
@@ -409,13 +429,19 @@ public class AppleCxxPlatforms {
             cpp,
             cxxpp,
             new DefaultLinkerProvider(
-                LinkerProvider.Type.DARWIN, new ConstantToolProvider(clangXxPath)),
+                LinkerProvider.Type.DARWIN,
+                new ConstantToolProvider(clangXxPath),
+                config.shouldCacheLinks()),
             ImmutableList.<String>builder().addAll(cflags).addAll(ldflagsBuilder.build()).build(),
+            ImmutableMultimap.of(),
             strip,
             ArchiverProvider.from(new BsdArchiver(ar)),
+            ArchiveContents.NORMAL,
             Optional.of(new ConstantToolProvider(ranlib)),
             new PosixNmSymbolNameTool(nm),
             cflagsBuilder.build(),
+            ImmutableList.of(),
+            cflags,
             ImmutableList.of(),
             cflags,
             ImmutableList.of(),
@@ -428,6 +454,8 @@ public class AppleCxxPlatforms {
             macros,
             Optional.empty(),
             headerVerification,
+            config.getPublicHeadersSymlinksEnabled(),
+            config.getPrivateHeadersSymlinksEnabled(),
             PicType.PIC);
 
     ApplePlatform applePlatform = targetSdk.getApplePlatform();
@@ -511,13 +539,10 @@ public class AppleCxxPlatforms {
             swiftStdlibToolParamsBuilder.build(),
             filesystem);
 
-    if (swiftc.isPresent()) {
-      return Optional.of(
-          SwiftPlatformFactory.build(
-              platformName, sdkPaths.getToolchainPaths(), swiftc.get(), swiftStdLibTool));
-    } else {
-      return Optional.empty();
-    }
+    return swiftc.map(
+        tool ->
+            SwiftPlatformFactory.build(
+                platformName, sdkPaths.getToolchainPaths(), tool, swiftStdLibTool));
   }
 
   private static Optional<Tool> getOptionalTool(

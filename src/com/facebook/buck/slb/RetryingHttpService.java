@@ -15,10 +15,10 @@
  */
 package com.facebook.buck.slb;
 
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.counters.CounterRegistry;
 import com.facebook.buck.counters.IntegerCounter;
 import com.facebook.buck.event.BuckEventBus;
-import com.facebook.buck.log.Logger;
 import com.facebook.buck.util.exceptions.RetryingException;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -99,8 +99,7 @@ public class RetryingHttpService implements HttpService {
         return response;
 
       } catch (IOException exception) {
-        LOG.warn(
-            exception, "encountered an exception while connecting to the service for %s", path);
+        LOG.verbose("encountered an exception while connecting to the service for %s", path);
         allExceptions.add(exception);
       }
 

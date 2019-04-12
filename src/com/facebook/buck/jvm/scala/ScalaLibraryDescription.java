@@ -16,7 +16,7 @@
 
 package com.facebook.buck.jvm.scala;
 
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.description.attr.ImplicitDepsInferringDescription;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
@@ -60,6 +60,7 @@ public class ScalaLibraryDescription
   private final ToolchainProvider toolchainProvider;
   private final ScalaBuckConfig scalaBuckConfig;
   private final JavaBuckConfig javaBuckConfig;
+  private final JavacFactory javacFactory;
 
   public ScalaLibraryDescription(
       ToolchainProvider toolchainProvider,
@@ -68,6 +69,7 @@ public class ScalaLibraryDescription
     this.toolchainProvider = toolchainProvider;
     this.scalaBuckConfig = scalaBuckConfig;
     this.javaBuckConfig = javaBuckConfig;
+    this.javacFactory = JavacFactory.getDefault(toolchainProvider);
   }
 
   @Override
@@ -123,7 +125,6 @@ public class ScalaLibraryDescription
                 .getByName(JavacOptionsProvider.DEFAULT_NAME, JavacOptionsProvider.class)
                 .getJavacOptions(),
             buildTarget,
-            context.getProjectFilesystem(),
             context.getActionGraphBuilder(),
             args);
 
@@ -138,7 +139,7 @@ public class ScalaLibraryDescription
                 scalaBuckConfig,
                 javaBuckConfig,
                 args,
-                JavacFactory.getDefault(toolchainProvider))
+                javacFactory)
             .setJavacOptions(javacOptions)
             .build();
 
@@ -170,9 +171,11 @@ public class ScalaLibraryDescription
       ImmutableCollection.Builder<BuildTarget> extraDepsBuilder,
       ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
     extraDepsBuilder
-        .add(scalaBuckConfig.getScalaLibraryTarget())
-        .addAll(scalaBuckConfig.getCompilerPlugins());
-    Optionals.addIfPresent(scalaBuckConfig.getScalacTarget(), extraDepsBuilder);
+        .add(scalaBuckConfig.getScalaLibraryTarget(buildTarget.getTargetConfiguration()))
+        .addAll(scalaBuckConfig.getCompilerPlugins(buildTarget.getTargetConfiguration()));
+    Optionals.addIfPresent(
+        scalaBuckConfig.getScalacTarget(buildTarget.getTargetConfiguration()), extraDepsBuilder);
+    javacFactory.addParseTimeDeps(targetGraphOnlyDepsBuilder, constructorArg);
   }
 
   public interface CoreArg extends JavaLibraryDescription.CoreArg {

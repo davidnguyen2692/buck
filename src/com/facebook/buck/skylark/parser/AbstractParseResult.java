@@ -18,13 +18,12 @@ package com.facebook.buck.skylark.parser;
 
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.skylark.io.GlobSpec;
+import com.facebook.buck.skylark.io.GlobSpecWithResult;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSortedSet;
-import com.google.devtools.build.lib.vfs.Path;
+import com.google.common.collect.ImmutableSet;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import org.immutables.value.Value;
 
 /** Parse result containing build rules defined in build file and supporting metadata. */
@@ -32,19 +31,19 @@ import org.immutables.value.Value;
 @BuckStyleImmutable
 abstract class AbstractParseResult {
   /**
-   * Returns a list of map instances where keys represent rule parameters and values represent rule
-   * arguments.
+   * Returns rules organized in a map where a key is a rule name and the value is a map with keys
+   * representing rule parameters and values representing rule arguments.
    *
    * <p>For example {"name": "my_rule", ...}
    */
   @Value.Parameter
-  public abstract ImmutableList<Map<String, Object>> getRawRules();
+  public abstract ImmutableMap<String, Map<String, Object>> getRawRules();
   /**
    * Returns a set of extension paths that were loaded explicitly or transitively when parsing
    * current build file.
    */
   @Value.Parameter
-  public abstract ImmutableSortedSet<Path> getLoadedPaths();
+  public abstract ImmutableSet<String> getLoadedPaths();
 
   /**
    * Returns all configuration options accessed during parsing of the build file.
@@ -55,7 +54,7 @@ abstract class AbstractParseResult {
   public abstract ImmutableMap<String, ImmutableMap<String, Optional<String>>>
       getReadConfigurationOptions();
 
-  /** @return A mapping from a {@link GlobSpec} to the corresponding set of expanded paths. */
+  /** @return A list of {@link GlobSpec} with the corresponding set of expanded paths. */
   @Value.Parameter
-  public abstract ImmutableMap<GlobSpec, Set<String>> getGlobManifest();
+  public abstract ImmutableList<GlobSpecWithResult> getGlobManifestWithResult();
 }

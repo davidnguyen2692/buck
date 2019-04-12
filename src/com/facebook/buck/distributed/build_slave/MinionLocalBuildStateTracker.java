@@ -16,8 +16,8 @@
 package com.facebook.buck.distributed.build_slave;
 
 import com.facebook.buck.core.build.engine.BuildResult;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.distributed.thrift.WorkUnit;
-import com.facebook.buck.log.Logger;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import java.util.ArrayList;
@@ -171,7 +171,7 @@ public class MinionLocalBuildStateTracker {
 
       // Anything left is an unexpected cache miss.
       if (depsWithCacheMisses.size() > 0) {
-        LOG.warn(
+        LOG.info(
             "Got [%d] cache misses for direct dependencies of target [%s], built them locally.",
             depsWithCacheMisses.size(), target);
         minionBuildProgressTracker.onUnexpectedCacheMiss(depsWithCacheMisses.size());

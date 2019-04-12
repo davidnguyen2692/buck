@@ -24,9 +24,11 @@ import com.facebook.buck.core.build.context.BuildContext;
 import com.facebook.buck.core.build.context.FakeBuildContext;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
+import com.facebook.buck.core.model.EmptyTargetConfiguration;
 import com.facebook.buck.core.model.InternalFlavor;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.impl.FakeBuildRule;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.core.sourcepath.FakeSourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
@@ -35,9 +37,8 @@ import com.facebook.buck.cxx.toolchain.Compiler;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
 import com.facebook.buck.cxx.toolchain.GccPreprocessor;
 import com.facebook.buck.cxx.toolchain.Preprocessor;
-import com.facebook.buck.rules.FakeBuildRule;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.step.Step;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
@@ -52,13 +53,19 @@ public class CxxPrecompiledHeaderTest {
     BuildTarget target = BuildTargetFactory.newInstance("//foo:bar");
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     Preprocessor preprocessorSupportingPch =
-        new GccPreprocessor(CxxPlatformUtils.DEFAULT_PLATFORM.getCpp().resolve(graphBuilder)) {
+        new GccPreprocessor(
+            CxxPlatformUtils.DEFAULT_PLATFORM
+                .getCpp()
+                .resolve(graphBuilder, EmptyTargetConfiguration.INSTANCE)) {
           @Override
           public boolean supportsPrecompiledHeaders() {
             return true;
           }
         };
-    Compiler compiler = CxxPlatformUtils.DEFAULT_PLATFORM.getCxx().resolve(graphBuilder);
+    Compiler compiler =
+        CxxPlatformUtils.DEFAULT_PLATFORM
+            .getCxx()
+            .resolve(graphBuilder, EmptyTargetConfiguration.INSTANCE);
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
     SourcePathResolver sourcePathResolver = DefaultSourcePathResolver.from(ruleFinder);
     CxxPrecompiledHeader precompiledHeader =
@@ -81,7 +88,8 @@ public class CxxPrecompiledHeaderTest {
             new CompilerDelegate(
                 CxxPlatformUtils.DEFAULT_COMPILER_DEBUG_PATH_SANITIZER,
                 compiler,
-                CxxToolFlags.of()),
+                CxxToolFlags.of(),
+                Optional.empty()),
             CxxToolFlags.of(),
             FakeSourcePath.of("foo.h"),
             CxxSource.Type.C,

@@ -18,6 +18,7 @@ package com.facebook.buck.cxx.toolchain;
 
 import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.config.FakeBuckConfig;
+import com.facebook.buck.core.model.EmptyTargetConfiguration;
 import com.facebook.buck.core.model.FlavorDomain;
 import com.facebook.buck.core.model.InternalFlavor;
 import com.facebook.buck.core.rules.BuildRuleResolver;
@@ -25,6 +26,7 @@ import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.core.toolchain.tool.impl.CommandTool;
 import com.facebook.buck.core.toolchain.toolprovider.impl.ConstantToolProvider;
+import com.facebook.buck.cxx.toolchain.CxxBuckConfig.ToolType;
 import com.facebook.buck.cxx.toolchain.linker.DefaultLinkerProvider;
 import com.facebook.buck.cxx.toolchain.linker.LinkerProvider;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
@@ -47,11 +49,15 @@ public class CxxPlatformUtils {
 
   private static final Tool DEFAULT_TOOL = new CommandTool.Builder().build();
 
-  private static final PreprocessorProvider DEFAULT_PREPROCESSOR_PROVIDER =
-      new PreprocessorProvider(new ConstantToolProvider(DEFAULT_TOOL), CxxToolProvider.Type.GCC);
+  private static PreprocessorProvider defaultPreprocessorProvider(ToolType toolType) {
+    return new PreprocessorProvider(
+        new ConstantToolProvider(DEFAULT_TOOL), CxxToolProvider.Type.GCC, toolType);
+  }
 
-  private static final CompilerProvider DEFAULT_COMPILER_PROVIDER =
-      new CompilerProvider(new ConstantToolProvider(DEFAULT_TOOL), CxxToolProvider.Type.GCC);
+  private static CompilerProvider defaultCompilerProvider(ToolType toolType) {
+    return new CompilerProvider(
+        new ConstantToolProvider(DEFAULT_TOOL), CxxToolProvider.Type.GCC, toolType, false);
+  }
 
   public static final DebugPathSanitizer DEFAULT_COMPILER_DEBUG_PATH_SANITIZER =
       new MungingDebugPathSanitizer(250, File.separatorChar, Paths.get("."), ImmutableBiMap.of());
@@ -59,24 +65,26 @@ public class CxxPlatformUtils {
   public static final DebugPathSanitizer DEFAULT_ASSEMBLER_DEBUG_PATH_SANITIZER =
       new MungingDebugPathSanitizer(250, File.separatorChar, Paths.get("."), ImmutableBiMap.of());
 
+  public static final InternalFlavor DEFAULT_PLATFORM_FLAVOR = InternalFlavor.of("default");
   public static final CxxPlatform DEFAULT_PLATFORM =
       CxxPlatform.builder()
-          .setFlavor(InternalFlavor.of("default"))
-          .setAs(DEFAULT_COMPILER_PROVIDER)
-          .setAspp(DEFAULT_PREPROCESSOR_PROVIDER)
-          .setCc(DEFAULT_COMPILER_PROVIDER)
-          .setCpp(DEFAULT_PREPROCESSOR_PROVIDER)
-          .setCxx(DEFAULT_COMPILER_PROVIDER)
-          .setCxxpp(DEFAULT_PREPROCESSOR_PROVIDER)
-          .setCuda(DEFAULT_COMPILER_PROVIDER)
-          .setCudapp(DEFAULT_PREPROCESSOR_PROVIDER)
-          .setAsm(DEFAULT_COMPILER_PROVIDER)
-          .setAsmpp(DEFAULT_PREPROCESSOR_PROVIDER)
+          .setFlavor(DEFAULT_PLATFORM_FLAVOR)
+          .setAs(defaultCompilerProvider(ToolType.AS))
+          .setAspp(defaultPreprocessorProvider(ToolType.ASPP))
+          .setCc(defaultCompilerProvider(ToolType.CC))
+          .setCpp(defaultPreprocessorProvider(ToolType.CPP))
+          .setCxx(defaultCompilerProvider(ToolType.CXX))
+          .setCxxpp(defaultPreprocessorProvider(ToolType.CXXPP))
+          .setCuda(defaultCompilerProvider(ToolType.CUDA))
+          .setCudapp(defaultPreprocessorProvider(ToolType.CUDAPP))
+          .setAsm(defaultCompilerProvider(ToolType.ASM))
+          .setAsmpp(defaultPreprocessorProvider(ToolType.ASMPP))
           .setLd(
               new DefaultLinkerProvider(
-                  LinkerProvider.Type.GNU, new ConstantToolProvider(DEFAULT_TOOL)))
+                  LinkerProvider.Type.GNU, new ConstantToolProvider(DEFAULT_TOOL), true))
           .setStrip(DEFAULT_TOOL)
           .setAr(ArchiverProvider.from(new GnuArchiver(DEFAULT_TOOL)))
+          .setArchiveContents(ArchiveContents.NORMAL)
           .setRanlib(new ConstantToolProvider(DEFAULT_TOOL))
           .setSymbolNameTool(new PosixNmSymbolNameTool(DEFAULT_TOOL))
           .setSharedLibraryExtension("so")
@@ -89,9 +97,11 @@ public class CxxPlatformUtils {
           .setPublicHeadersSymlinksEnabled(true)
           .setPrivateHeadersSymlinksEnabled(true)
           .build();
+  public static final UnresolvedCxxPlatform DEFAULT_UNRESOLVED_PLATFORM =
+      new StaticUnresolvedCxxPlatform(DEFAULT_PLATFORM);
 
-  public static final FlavorDomain<CxxPlatform> DEFAULT_PLATFORMS =
-      FlavorDomain.of("C/C++ Platform", DEFAULT_PLATFORM);
+  public static final FlavorDomain<UnresolvedCxxPlatform> DEFAULT_PLATFORMS =
+      FlavorDomain.of("C/C++ Platform", DEFAULT_UNRESOLVED_PLATFORM);
 
   public static CxxPlatform build(CxxBuckConfig config) {
     return DefaultCxxPlatforms.build(Platform.detect(), config);
@@ -108,11 +118,13 @@ public class CxxPlatformUtils {
     return DefaultCxxPlatforms.build(Platform.detect(), new CxxBuckConfig(buckConfig));
   }
 
-  public static HeaderMode getHeaderModeForDefaultPlatform(Path root)
-      throws InterruptedException, IOException {
+  public static HeaderMode getHeaderModeForDefaultPlatform(Path root) throws IOException {
     BuildRuleResolver ruleResolver = new TestActionGraphBuilder();
     CxxPlatform defaultPlatform = getDefaultPlatform(root);
-    return defaultPlatform.getCpp().resolve(ruleResolver).supportsHeaderMaps()
+    return defaultPlatform
+            .getCpp()
+            .resolve(ruleResolver, EmptyTargetConfiguration.INSTANCE)
+            .supportsHeaderMaps()
         ? HeaderMode.SYMLINK_TREE_WITH_HEADER_MAP
         : HeaderMode.SYMLINK_TREE_ONLY;
   }

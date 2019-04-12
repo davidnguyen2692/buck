@@ -16,8 +16,8 @@
 
 package com.facebook.buck.cli;
 
+import com.facebook.buck.cli.BuildCommand.BuildRunResult;
 import com.facebook.buck.command.Build;
-import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
@@ -34,16 +34,17 @@ import com.facebook.buck.util.MoreSuppliers;
 import com.facebook.buck.util.ProcessExecutorParams;
 import com.facebook.buck.util.json.ObjectMappers;
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import java.io.Closeable;
-import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.function.Supplier;
 import javax.annotation.Nullable;
@@ -96,43 +97,38 @@ public final class RunCommand extends AbstractCommand {
     return arguments.get().size() > 0;
   }
 
-  /** @return the normalized target name for command to run. */
-  private String getTarget(BuckConfig buckConfig) {
-    return Iterables.getOnlyElement(
-        getCommandLineBuildTargetNormalizer(buckConfig).normalize(arguments.get().get(0)));
-  }
-
   @Override
   public String getShortDescription() {
     return "runs a target as a command";
   }
 
   @Override
-  public ExitCode runWithoutHelp(CommandRunnerParams params)
-      throws IOException, InterruptedException {
+  public ExitCode runWithoutHelp(CommandRunnerParams params) throws Exception {
     if (!hasTargetSpecified()) {
       throw new CommandLineException(
           "no target given to run\nuse: buck run <target> <arg1> <arg2>...");
     }
 
+    BuildTarget target =
+        Iterables.getOnlyElement(
+            convertArgumentsToBuildTargets(
+                params, Collections.singletonList(arguments.get().get(0))));
+
     // Make sure the target is built.
-    BuildCommand buildCommand =
-        new BuildCommand(ImmutableList.of(getTarget(params.getBuckConfig())));
+    BuildCommand buildCommand = new BuildCommand(ImmutableList.of(target.toString()));
+    BuildRunResult buildResult;
     try (Closeable contextCloser = buildCommand.prepareExecutionContext(params)) {
-      ExitCode exitCode = buildCommand.runWithoutHelp(params);
-      if (exitCode != ExitCode.SUCCESS) {
-        return exitCode;
+      buildResult = buildCommand.runWithoutHelpInternal(params);
+      if (buildResult.getExitCode() != ExitCode.SUCCESS) {
+        return buildResult.getExitCode();
       }
     }
 
-    String targetName = getTarget(params.getBuckConfig());
-    BuildTarget target =
-        Iterables.getOnlyElement(
-            getBuildTargets(params.getCell().getCellPathResolver(), ImmutableSet.of(targetName)));
-
     Build build = buildCommand.getBuild();
-    BuildRule targetRule;
-    targetRule = build.getGraphBuilder().requireRule(target);
+    ImmutableSet<BuildTarget> buildTargets = buildResult.getBuildTargets();
+    Preconditions.checkState(buildTargets.size() == 1, "built targets: %s", buildTargets);
+    BuildTarget buildTarget = buildTargets.asList().get(0);
+    BuildRule targetRule = build.getGraphBuilder().requireRule(buildTarget);
     BinaryBuildRule binaryBuildRule = null;
     if (targetRule instanceof BinaryBuildRule) {
       binaryBuildRule = (BinaryBuildRule) targetRule;
@@ -142,9 +138,7 @@ public final class RunCommand extends AbstractCommand {
           .getBuckEventBus()
           .post(
               ConsoleEvent.severe(
-                  "target "
-                      + targetName
-                      + " is not a binary rule (only binary rules can be `run`)"));
+                  "target " + target + " is not a binary rule (only binary rules can be `run`)"));
       return ExitCode.BUILD_ERROR;
     }
 

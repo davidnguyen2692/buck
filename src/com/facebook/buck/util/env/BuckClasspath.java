@@ -49,17 +49,23 @@ public class BuckClasspath {
     return envVarValue;
   }
 
+  // BUCK_TEST_CLASSPATH_FILE is internal variable, no need to use EnvVariablesProvider
+  @SuppressWarnings("PMD.BlacklistedSystemGetenv")
   private static Optional<String> getBuckTestClasspath() {
     String envVarValue = System.getenv(TEST_ENV_VAR_NAME);
     return Optional.ofNullable(envVarValue);
   }
 
   @Nullable
+  // BUCK_CLASSPATH is internal variable, no need to use EnvVariablesProvider
+  @SuppressWarnings("PMD.BlacklistedSystemGetenv")
   public static String getBuckClasspathFromEnvVarOrNull() {
     return System.getenv(ENV_VAR_NAME);
   }
 
   @Nullable
+  // CLASSPATH is internal variable, no need to use EnvVariablesProvider
+  @SuppressWarnings("PMD.BlacklistedSystemGetenv")
   public static String getBuckBootstrapClasspathFromEnvVarOrNull() {
     return System.getenv(BOOTSTRAP_ENV_VAR_NAME);
   }
@@ -128,8 +134,7 @@ public class BuckClasspath {
   }
 
   private static ImmutableList<Path> filterAntClasspaths(ImmutableList<Path> classpaths) {
-    return classpaths
-        .stream()
+    return classpaths.stream()
         .filter(
             path ->
                 !path.startsWith("src") && !path.startsWith("src-gen") && !path.startsWith("build"))
@@ -137,8 +142,7 @@ public class BuckClasspath {
   }
 
   private static ImmutableList<Path> readClasspaths(Path classpathsFile) throws IOException {
-    return Files.readAllLines(classpathsFile)
-        .stream()
+    return Files.readAllLines(classpathsFile).stream()
         .filter(line -> !line.startsWith("#"))
         .map(Paths::get)
         .map(Path::toAbsolutePath)

@@ -44,7 +44,6 @@ import com.facebook.buck.core.sourcepath.SourceWithFlags;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.cxx.CxxLibraryBuilder;
-import com.facebook.buck.features.project.intellij.aggregation.AggregationMode;
 import com.facebook.buck.features.project.intellij.model.DependencyType;
 import com.facebook.buck.features.project.intellij.model.IjLibrary;
 import com.facebook.buck.features.project.intellij.model.IjLibraryFactoryResolver;
@@ -57,6 +56,7 @@ import com.facebook.buck.features.project.intellij.model.folders.IjFolder;
 import com.facebook.buck.features.project.intellij.model.folders.SourceFolder;
 import com.facebook.buck.features.project.intellij.model.folders.TestFolder;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.jvm.core.JavaPackageFinder;
 import com.facebook.buck.jvm.groovy.GroovyLibraryBuilder;
 import com.facebook.buck.jvm.java.DefaultJavaPackageFinder;
@@ -65,7 +65,6 @@ import com.facebook.buck.jvm.java.JavaLibraryBuilder;
 import com.facebook.buck.jvm.java.JavaTestBuilder;
 import com.facebook.buck.jvm.java.JvmLibraryArg;
 import com.facebook.buck.jvm.kotlin.FauxKotlinLibraryBuilder;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -626,7 +625,9 @@ public class DefaultIjModuleFactoryTest {
 
   @Test
   public void testAndroidPrebuiltAar() {
-    SourcePath androidSupportBinaryPath = FakeSourcePath.of("third_party/java/support/support.aar");
+    SourcePath androidSupportBinaryPath =
+        FakeSourcePath.of(
+            "buck-out/bin/third_party/java/support/__unpack_support#aar_unzip__/classes.jar");
     Path androidSupportSourcesPath = Paths.get("third_party/java/support/support-sources.jar");
     String androidSupportJavadocUrl = "file:///support/docs";
     TargetNode<?> androidPrebuiltAar =
@@ -672,21 +673,15 @@ public class DefaultIjModuleFactoryTest {
 
   private IjModuleFactory createIjModuleFactory(BuckConfig buckConfig) {
     ProjectFilesystem projectFilesystem = new FakeProjectFilesystem();
-    IjProjectConfig projectConfig =
+    IjProjectConfig.Builder builder =
         buckConfig == null
-            ? IjProjectBuckConfig.create(
-                FakeBuckConfig.builder().build(),
-                AggregationMode.AUTO,
-                null,
-                "",
-                "",
-                false,
-                false,
-                false,
-                false,
-                true)
-            : IjProjectBuckConfig.create(
-                buckConfig, AggregationMode.AUTO, null, "", "", false, false, false, false, true);
+            ? IjTestProjectConfig.createBuilder(FakeBuckConfig.builder().build())
+            : IjTestProjectConfig.createBuilder(buckConfig);
+    IjProjectConfig projectConfig =
+        builder
+            .setKeepModuleFilesInModuleDirsEnabled(false)
+            .setExcludeArtifactsEnabled(false)
+            .build();
     JavaPackageFinder packageFinder =
         (buckConfig == null)
             ? DefaultJavaPackageFinder.createDefaultJavaPackageFinder(Collections.emptyList())

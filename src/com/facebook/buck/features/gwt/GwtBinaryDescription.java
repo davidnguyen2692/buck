@@ -16,10 +16,11 @@
 
 package com.facebook.buck.features.gwt;
 
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.description.arg.CommonDescriptionArg;
 import com.facebook.buck.core.description.arg.HasDeclaredDeps;
+import com.facebook.buck.core.description.attr.ImplicitDepsInferringDescription;
 import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.model.impl.ImmutableBuildTarget;
 import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
 import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
@@ -32,16 +33,22 @@ import com.facebook.buck.core.util.graph.AbstractBreadthFirstTraversal;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.features.gwt.GwtBinary.Style;
 import com.facebook.buck.jvm.core.JavaLibrary;
+import com.facebook.buck.jvm.java.JavaOptions;
 import com.facebook.buck.jvm.java.toolchain.JavaOptionsProvider;
-import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableCollection.Builder;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalInt;
+import java.util.function.Supplier;
 import org.immutables.value.Value;
 
-public class GwtBinaryDescription implements DescriptionWithTargetGraph<GwtBinaryDescriptionArg> {
+/** Description for gwt_binary. */
+public class GwtBinaryDescription
+    implements DescriptionWithTargetGraph<GwtBinaryDescriptionArg>,
+        ImplicitDepsInferringDescription<GwtBinaryDescriptionArg> {
 
   /** Default value for {@link GwtBinaryDescriptionArg#style}. */
   private static final Style DEFAULT_STYLE = Style.OBF;
@@ -58,10 +65,10 @@ public class GwtBinaryDescription implements DescriptionWithTargetGraph<GwtBinar
   /** This value is taken from GWT's source code: http://bit.ly/1nZtmMv */
   private static final Integer DEFAULT_OPTIMIZE = Integer.valueOf(9);
 
-  private final ToolchainProvider toolchainProvider;
+  private final Supplier<JavaOptions> javaOptions;
 
   public GwtBinaryDescription(ToolchainProvider toolchainProvider) {
-    this.toolchainProvider = toolchainProvider;
+    this.javaOptions = JavaOptionsProvider.getDefaultJavaOptions(toolchainProvider);
   }
 
   @Override
@@ -92,51 +99,50 @@ public class GwtBinaryDescription implements DescriptionWithTargetGraph<GwtBinar
           return ImmutableSet.of();
         }
 
-        // If the java library doesn't generate any output, it doesn't contribute a GwtModule
         JavaLibrary javaLibrary = (JavaLibrary) rule;
+        Iterable<BuildRule> ruleDeps = javaLibrary.getDepsForTransitiveClasspathEntries();
+
+        // If the java library doesn't generate any output, it doesn't contribute a GwtModule
         if (javaLibrary.getSourcePathToOutput() == null) {
-          return rule.getBuildDeps();
+          return ruleDeps;
         }
 
-        Optional<BuildRule> gwtModule;
-        if (javaLibrary.getSourcePathToOutput() != null) {
-          gwtModule =
-              Optional.of(
-                  graphBuilder.computeIfAbsent(
-                      ImmutableBuildTarget.of(
-                          javaLibrary.getBuildTarget().checkUnflavored(),
-                          ImmutableSet.of(JavaLibrary.GWT_MODULE_FLAVOR)),
-                      gwtModuleTarget -> {
-                        ImmutableSortedSet<SourcePath> filesForGwtModule =
-                            ImmutableSortedSet.<SourcePath>naturalOrder()
-                                .addAll(javaLibrary.getSources())
-                                .addAll(javaLibrary.getResources())
-                                .build();
-                        ImmutableSortedSet<BuildRule> deps =
-                            ImmutableSortedSet.copyOf(
-                                ruleFinder.filterBuildRuleInputs(filesForGwtModule));
+        BuildRule gwtModule =
+            graphBuilder.computeIfAbsent(
+                javaLibrary
+                    .getBuildTarget()
+                    .assertUnflavored()
+                    .withFlavors(JavaLibrary.GWT_MODULE_FLAVOR),
+                gwtModuleTarget -> {
+                  ImmutableSortedSet<SourcePath> filesForGwtModule =
+                      ImmutableSortedSet.<SourcePath>naturalOrder()
+                          .addAll(javaLibrary.getSources())
+                          .addAll(javaLibrary.getResources())
+                          .build();
+                  ImmutableSortedSet<BuildRule> deps =
+                      ImmutableSortedSet.copyOf(
+                          ruleFinder.filterBuildRuleInputs(filesForGwtModule));
 
-                        return new GwtModule(
-                            gwtModuleTarget,
-                            context.getProjectFilesystem(),
-                            params.withDeclaredDeps(deps).withoutExtraDeps(),
-                            ruleFinder,
-                            filesForGwtModule);
-                      }));
-        } else {
-          gwtModule = Optional.empty();
-        }
+                  return new GwtModule(
+                      gwtModuleTarget,
+                      context.getProjectFilesystem(),
+                      params.withDeclaredDeps(deps).withoutExtraDeps(),
+                      ruleFinder,
+                      filesForGwtModule,
+                      javaLibrary.getResourcesRoot());
+                });
 
-        // Note that gwtModule could be absent if javaLibrary is a rule with no srcs of its own,
-        // but a rule that exists only as a collection of deps.
-        if (gwtModule.isPresent()) {
-          extraDeps.add(gwtModule.get());
-          gwtModuleJarsBuilder.add(
-              Preconditions.checkNotNull(gwtModule.get().getSourcePathToOutput()));
+        extraDeps.add(gwtModule);
+        gwtModuleJarsBuilder.add(Objects.requireNonNull(gwtModule.getSourcePathToOutput()));
+
+        Optional<SourcePath> generatedCode = javaLibrary.getGeneratedAnnotationSourcePath();
+        if (generatedCode.isPresent()) {
+          extraDeps.add(javaLibrary);
+          gwtModuleJarsBuilder.add(generatedCode.get());
         }
 
         // Traverse all of the deps of this rule.
-        return rule.getBuildDeps();
+        return ruleDeps;
       }
     }.start();
 
@@ -145,10 +151,9 @@ public class GwtBinaryDescription implements DescriptionWithTargetGraph<GwtBinar
         context.getProjectFilesystem(),
         params.withExtraDeps(extraDeps.build()),
         args.getModules(),
-        toolchainProvider
-            .getByName(JavaOptionsProvider.DEFAULT_NAME, JavaOptionsProvider.class)
-            .getJavaOptions()
-            .getJavaRuntimeLauncher(),
+        javaOptions
+            .get()
+            .getJavaRuntimeLauncher(graphBuilder, buildTarget.getTargetConfiguration()),
         args.getVmArgs(),
         args.getStyle().orElse(DEFAULT_STYLE),
         args.getDraftCompile().orElse(DEFAULT_DRAFT_COMPILE),
@@ -157,6 +162,18 @@ public class GwtBinaryDescription implements DescriptionWithTargetGraph<GwtBinar
         args.getStrict().orElse(DEFAULT_STRICT),
         args.getExperimentalArgs(),
         gwtModuleJarsBuilder.build());
+  }
+
+  @Override
+  public void findDepsForTargetFromConstructorArgs(
+      BuildTarget buildTarget,
+      CellPathResolver cellRoots,
+      GwtBinaryDescriptionArg constructorArg,
+      Builder<BuildTarget> extraDepsBuilder,
+      Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
+    javaOptions
+        .get()
+        .addParseTimeDeps(targetGraphOnlyDepsBuilder, buildTarget.getTargetConfiguration());
   }
 
   @BuckStyleImmutable

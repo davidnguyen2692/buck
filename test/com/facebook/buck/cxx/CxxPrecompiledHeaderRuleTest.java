@@ -33,6 +33,7 @@ import com.facebook.buck.core.cell.TestCellPathResolver;
 import com.facebook.buck.core.config.FakeBuckConfig;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
+import com.facebook.buck.core.model.EmptyTargetConfiguration;
 import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
@@ -40,6 +41,7 @@ import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.TestBuildRuleParams;
+import com.facebook.buck.core.rules.impl.FakeBuildRule;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.core.rules.transformer.TargetNodeToBuildRuleTransformer;
 import com.facebook.buck.core.rules.transformer.impl.DefaultTargetNodeToBuildRuleTransformer;
@@ -49,11 +51,14 @@ import com.facebook.buck.core.sourcepath.PathSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
+import com.facebook.buck.core.toolchain.tool.impl.HashedFileTool;
+import com.facebook.buck.core.toolchain.toolprovider.impl.ConstantToolProvider;
 import com.facebook.buck.cxx.toolchain.Compiler;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
+import com.facebook.buck.cxx.toolchain.CxxBuckConfig.ToolType;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
-import com.facebook.buck.cxx.toolchain.CxxToolProvider;
+import com.facebook.buck.cxx.toolchain.CxxToolProvider.Type;
 import com.facebook.buck.cxx.toolchain.LinkerMapMode;
 import com.facebook.buck.cxx.toolchain.PicType;
 import com.facebook.buck.cxx.toolchain.PreprocessorProvider;
@@ -62,11 +67,10 @@ import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableInput;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
-import com.facebook.buck.rules.FakeBuildRule;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.step.Step;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.integration.BuckBuildLog;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
@@ -105,7 +109,7 @@ public class CxxPrecompiledHeaderRuleTest {
   private CxxPlatform platformNotSupportingPch;
 
   @Before
-  public void setUp() throws InterruptedException, IOException {
+  public void setUp() throws IOException {
     CxxPrecompiledHeaderTestUtils.assumePrecompiledHeadersAreSupported();
 
     filesystem = TestProjectFilesystems.createProjectFilesystem(tmp.getRoot());
@@ -115,8 +119,10 @@ public class CxxPrecompiledHeaderRuleTest {
 
     preprocessorSupportingPch =
         new PreprocessorProvider(
-            PathSourcePath.of(filesystem, Paths.get("foopp")),
-            Optional.of(CxxToolProvider.Type.CLANG));
+            new ConstantToolProvider(
+                new HashedFileTool(PathSourcePath.of(filesystem, Paths.get("foopp")))),
+            Type.CLANG,
+            ToolType.CPP);
 
     platformSupportingPch =
         CxxPlatformUtils.build(CXX_CONFIG_PCH_ENABLED).withCpp(preprocessorSupportingPch);
@@ -137,7 +143,10 @@ public class CxxPrecompiledHeaderRuleTest {
   public final SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
   public final BuildContext context = FakeBuildContext.withSourcePathResolver(pathResolver);
 
-  public final Compiler compiler = CxxPlatformUtils.DEFAULT_PLATFORM.getCxx().resolve(graphBuilder);
+  public final Compiler compiler =
+      CxxPlatformUtils.DEFAULT_PLATFORM
+          .getCxx()
+          .resolve(graphBuilder, EmptyTargetConfiguration.INSTANCE);
 
   public BuildTarget newTarget(String fullyQualifiedName) {
     return BuildTargetFactory.newInstance(fullyQualifiedName);
@@ -700,5 +709,38 @@ public class CxxPrecompiledHeaderRuleTest {
     }
     assertNotNull(pchHashC);
     assertNotEquals(pchHashA, pchHashC);
+  }
+
+  @Test
+  public void conflictingHeaderBasenameWhitelistIsPropagated() {
+    BuildTarget pchTarget = newTarget("//test:pch");
+    CxxPrecompiledHeaderTemplate pch = newPCH(pchTarget);
+    graphBuilder.addToIndex(pch);
+
+    ImmutableSortedSet<String> conflictingHeaderBasenameWhitelist = ImmutableSortedSet.of("foo");
+
+    BuildTarget libTarget = newTarget("//test:lib");
+    CxxSourceRuleFactory factory1 =
+        newFactoryBuilder(libTarget, new FakeProjectFilesystem(), "-flag-for-factory")
+            .setPrecompiledHeader(DefaultBuildTargetSourcePath.of(pchTarget))
+            .setCxxPlatform(
+                CxxPlatformUtils.DEFAULT_PLATFORM.withConflictingHeaderBasenameWhitelist(
+                    conflictingHeaderBasenameWhitelist))
+            .build();
+    CxxPreprocessAndCompile lib =
+        factory1.requirePreprocessAndCompileBuildRule(
+            "lib.cpp", newCxxSourceBuilder().setPath(FakeSourcePath.of("lib.cpp")).build());
+    graphBuilder.addToIndex(lib);
+
+    CxxPrecompiledHeader pchInstance = null;
+    for (BuildRule dep : lib.getBuildDeps()) {
+      if (dep instanceof CxxPrecompiledHeader) {
+        pchInstance = (CxxPrecompiledHeader) dep;
+      }
+    }
+    assertNotNull(pchInstance);
+    assertThat(
+        pchInstance.getPreprocessorDelegate().getConflictingHeadersBasenameWhitelist(),
+        Matchers.equalTo(conflictingHeaderBasenameWhitelist));
   }
 }

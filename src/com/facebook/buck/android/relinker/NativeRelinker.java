@@ -18,12 +18,11 @@ package com.facebook.buck.android.relinker;
 import com.facebook.buck.android.AndroidLinkableMetadata;
 import com.facebook.buck.android.toolchain.ndk.NdkCxxPlatform;
 import com.facebook.buck.android.toolchain.ndk.TargetCpuType;
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.InternalFlavor;
 import com.facebook.buck.core.rules.BuildRule;
-import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.common.BuildRuleDependencyVisitors;
 import com.facebook.buck.core.sourcepath.BuildTargetSourcePath;
@@ -49,6 +48,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
@@ -66,7 +66,6 @@ import java.util.regex.Pattern;
  * linker to only export those symbols that are referenced by a higher library.
  */
 public class NativeRelinker {
-  private final BuildRuleParams buildRuleParams;
   private final BuildTarget buildTarget;
   private final SourcePathResolver resolver;
   private final CxxBuckConfig cxxBuckConfig;
@@ -82,7 +81,6 @@ public class NativeRelinker {
   public NativeRelinker(
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
-      BuildRuleParams buildRuleParams,
       CellPathResolver cellPathResolver,
       SourcePathResolver resolver,
       SourcePathRuleFinder ruleFinder,
@@ -99,7 +97,6 @@ public class NativeRelinker {
         !linkableLibs.isEmpty() || !linkableLibsAssets.isEmpty(),
         "There should be at least one native library to relink.");
 
-    this.buildRuleParams = buildRuleParams;
     this.resolver = resolver;
     this.cxxBuckConfig = cxxBuckConfig;
     this.nativePlatforms = nativePlatforms;
@@ -234,9 +231,7 @@ public class NativeRelinker {
 
   private RelinkerRule makeRelinkerRule(
       TargetCpuType cpuType, SourcePath source, ImmutableList<RelinkerRule> relinkerDeps) {
-    Function<RelinkerRule, SourcePath> getSymbolsNeeded = RelinkerRule::getSymbolsNeededPath;
     String libname = resolver.getAbsolutePath(source).getFileName().toString();
-    BuildRuleParams relinkerParams = buildRuleParams.copyAppendingExtraDeps(relinkerDeps);
     BuildRule baseRule = ruleFinder.getRule(source).orElse(null);
     ImmutableList<Arg> linkerArgs = ImmutableList.of();
     Linker linker = null;
@@ -252,13 +247,13 @@ public class NativeRelinker {
             InternalFlavor.of(Flavor.replaceInvalidCharacters(cpuType.toString())),
             InternalFlavor.of(Flavor.replaceInvalidCharacters(libname))),
         projectFilesystem,
-        relinkerParams,
         resolver,
         cellPathResolver,
         ruleFinder,
-        ImmutableSortedSet.copyOf(Lists.transform(relinkerDeps, getSymbolsNeeded::apply)),
+        ImmutableSortedSet.copyOf(
+            Lists.transform(relinkerDeps, RelinkerRule::getSymbolsNeededPath)),
         cpuType,
-        Preconditions.checkNotNull(nativePlatforms.get(cpuType)).getObjdump(),
+        Objects.requireNonNull(nativePlatforms.get(cpuType)).getObjdump(),
         cxxBuckConfig,
         source,
         linker,

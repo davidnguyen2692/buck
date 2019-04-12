@@ -24,6 +24,7 @@ import static org.hamcrest.Matchers.not;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.rules.BuildRuleResolver;
@@ -33,11 +34,10 @@ import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.event.BuckEventBusForTests;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.step.ExecutionContext;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.step.StepExecutionResults;
 import com.facebook.buck.step.TestExecutionContext;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.util.FakeProcess;
 import com.facebook.buck.util.FakeProcessExecutor;
@@ -65,7 +65,13 @@ public class JavacStepTest {
     SourcePathResolver sourcePathResolver = DefaultSourcePathResolver.from(ruleFinder);
     ProjectFilesystem fakeFilesystem = FakeProjectFilesystem.createJavaOnlyFilesystem();
     JavacOptions javacOptions =
-        JavacOptions.builder().setSourceLevel("8.0").setTargetLevel("8.0").build();
+        JavacOptions.builder()
+            .setLanguageLevelOptions(
+                JavacLanguageLevelOptions.builder()
+                    .setSourceLevel("8.0")
+                    .setTargetLevel("8.0")
+                    .build())
+            .build();
     ClasspathChecker classpathChecker =
         new ClasspathChecker(
             "/", ":", Paths::get, dir -> false, file -> false, (path, glob) -> ImmutableSet.of());
@@ -108,7 +114,13 @@ public class JavacStepTest {
     SourcePathResolver sourcePathResolver = DefaultSourcePathResolver.from(ruleFinder);
     ProjectFilesystem fakeFilesystem = FakeProjectFilesystem.createJavaOnlyFilesystem();
     JavacOptions javacOptions =
-        JavacOptions.builder().setSourceLevel("8.0").setTargetLevel("8.0").build();
+        JavacOptions.builder()
+            .setLanguageLevelOptions(
+                JavacLanguageLevelOptions.builder()
+                    .setSourceLevel("8.0")
+                    .setTargetLevel("8.0")
+                    .build())
+            .build();
     ClasspathChecker classpathChecker =
         new ClasspathChecker(
             "/", ":", Paths::get, dir -> false, file -> false, (path, glob) -> ImmutableSet.of());
@@ -153,8 +165,11 @@ public class JavacStepTest {
     ProjectFilesystem fakeFilesystem = FakeProjectFilesystem.createJavaOnlyFilesystem();
     JavacOptions javacOptions =
         JavacOptions.builder()
-            .setSourceLevel("8.0")
-            .setTargetLevel("8.0")
+            .setLanguageLevelOptions(
+                JavacLanguageLevelOptions.builder()
+                    .setSourceLevel("8.0")
+                    .setTargetLevel("8.0")
+                    .build())
             .setBootclasspath("/this-totally-exists")
             .build();
     ClasspathChecker classpathChecker =
@@ -199,8 +214,11 @@ public class JavacStepTest {
     ProjectFilesystem fakeFilesystem = FakeProjectFilesystem.createJavaOnlyFilesystem();
     JavacOptions javacOptions =
         JavacOptions.builder()
-            .setSourceLevel("8.0")
-            .setTargetLevel("8.0")
+            .setLanguageLevelOptions(
+                JavacLanguageLevelOptions.builder()
+                    .setSourceLevel("8.0")
+                    .setTargetLevel("8.0")
+                    .build())
             .setBootclasspath("/this-totally-exists:relative-path")
             .build();
     ClasspathChecker classpathChecker =
@@ -251,8 +269,11 @@ public class JavacStepTest {
     ProjectFilesystem fakeFilesystem = FakeProjectFilesystem.createJavaOnlyFilesystem();
     JavacOptions javacOptions =
         JavacOptions.builder()
-            .setSourceLevel("8.0")
-            .setTargetLevel("8.0")
+            .setLanguageLevelOptions(
+                JavacLanguageLevelOptions.builder()
+                    .setSourceLevel("8.0")
+                    .setTargetLevel("8.0")
+                    .build())
             .setBootclasspath("/no-such-dir")
             .build();
     ClasspathChecker classpathChecker =

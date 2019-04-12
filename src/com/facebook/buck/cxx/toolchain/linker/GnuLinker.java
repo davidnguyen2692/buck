@@ -28,10 +28,12 @@ import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.impl.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.toolchain.tool.DelegatingTool;
 import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.file.FileScrubber;
+import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.SourcePathArg;
@@ -65,7 +67,7 @@ public class GnuLinker extends DelegatingTool implements Linker {
   }
 
   @Override
-  public Iterable<Arg> linkWhole(Arg input) {
+  public Iterable<Arg> linkWhole(Arg input, SourcePathResolver resolver) {
     return ImmutableList.of(
         StringArg.of("-Wl,--whole-archive"), input, StringArg.of("-Wl,--no-whole-archive"));
   }
@@ -150,12 +152,7 @@ public class GnuLinker extends DelegatingTool implements Linker {
 
   @Override
   public Iterable<String> outputArgs(String path) {
-    return ImmutableList.of("-o", path);
-  }
-
-  @Override
-  public boolean hasFilePathSizeLimitations() {
-    return false;
+    return ImmutableList.of("-o", MorePaths.pathWithUnixSeparators(path));
   }
 
   @Override
@@ -166,6 +163,11 @@ public class GnuLinker extends DelegatingTool implements Linker {
   @Override
   public Optional<ExtraOutputsDeriver> getExtraOutputsDeriver() {
     return Optional.empty();
+  }
+
+  @Override
+  public boolean getUseUnixPathSeparator() {
+    return true;
   }
 
   // Write all symbols to a linker script, using the `EXTERN` command to mark them as undefined

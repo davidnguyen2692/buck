@@ -16,9 +16,10 @@
 
 package com.facebook.buck.features.go;
 
+import static org.hamcrest.Matchers.hasItem;
 import static org.junit.Assert.assertThat;
+import static org.junit.Assert.assertTrue;
 
-import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.testutil.ProcessResult;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.integration.BuckBuildLog;
@@ -26,6 +27,8 @@ import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.util.ProcessExecutor;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import org.hamcrest.Matchers;
 import org.junit.Before;
 import org.junit.Rule;
@@ -38,7 +41,7 @@ public class GoBinaryIntegrationTest {
   @Rule public ExpectedException thrown = ExpectedException.none();
 
   @Before
-  public void ensureGoIsAvailable() throws IOException, InterruptedException {
+  public void ensureGoIsAvailable() throws IOException {
     GoAssumptions.assumeGoCompilerAvailable();
   }
 
@@ -189,14 +192,14 @@ public class GoBinaryIntegrationTest {
 
   @Test
   public void nonGoLibraryDepErrors() throws IOException {
-    thrown.expect(HumanReadableException.class);
-    thrown.expectMessage(Matchers.containsString("is not an instance of go_library"));
-
     ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, "binary_with_library", tmp);
     workspace.setUp();
 
-    workspace.runBuckCommand("run", "//:illegal_dep").assertFailure();
+    ProcessResult processResult = workspace.runBuckCommand("run", "//:illegal_dep");
+    processResult.assertFailure();
+    assertThat(
+        processResult.getStderr(), Matchers.containsString("is not an instance of go_library"));
   }
 
   @Test
@@ -253,7 +256,7 @@ public class GoBinaryIntegrationTest {
   }
 
   @Test
-  public void buildConstraints() throws IOException, InterruptedException {
+  public void buildConstraints() throws IOException {
     ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, "build_constraints", tmp);
     workspace.setUp();
@@ -268,6 +271,22 @@ public class GoBinaryIntegrationTest {
     workspace.setUp();
     ProcessResult result = workspace.runBuckCommand("run", "//src/mixed_with_c:bin");
     result.assertSuccess();
+  }
+
+  @Test
+  public void cgoSharedBinaryLinkStyle() throws IOException {
+    GoAssumptions.assumeGoVersionAtLeast("1.10.0");
+
+    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(this, "cgo", tmp);
+    workspace.setUp();
+    ProcessResult result = workspace.runBuckCommand("run", "//src/mixed_with_c:bin-shared");
+    result.assertSuccess();
+
+    Path output = workspace.resolve("buck-out/bin/src/mixed_with_c/bin-shared.argsfile");
+
+    assertTrue(output.toFile().exists());
+    assertThat(
+        Files.readAllLines(output), hasItem(Matchers.containsString("libsrc_mixed_with_c_lib.so")));
   }
 
   @Test
@@ -287,6 +306,14 @@ public class GoBinaryIntegrationTest {
     workspace.setUp();
     ProcessResult result = workspace.runBuckCommand("run", "//src/cgo_with_go_deps:bin");
     result.assertSuccess();
+  }
+
+  @Test
+  public void cgoLibraryWithDifferentPackageName() throws IOException {
+    GoAssumptions.assumeGoVersionAtLeast("1.10.0");
+    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(this, "cgo", tmp);
+    workspace.setUp();
+    workspace.runBuckCommand("run", "//src/different_package/cli:cli").assertSuccess();
   }
 
   @Test

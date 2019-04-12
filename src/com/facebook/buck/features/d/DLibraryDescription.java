@@ -16,7 +16,7 @@
 
 package com.facebook.buck.features.d;
 
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.description.arg.CommonDescriptionArg;
 import com.facebook.buck.core.description.arg.HasDeclaredDeps;
 import com.facebook.buck.core.description.attr.ImplicitDepsInferringDescription;
@@ -37,14 +37,12 @@ import com.facebook.buck.cxx.Archive;
 import com.facebook.buck.cxx.CxxDescriptionEnhancer;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
-import com.facebook.buck.cxx.toolchain.CxxPlatforms;
 import com.facebook.buck.cxx.toolchain.PicType;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.rules.coercer.SourceSortedSet;
 import com.facebook.buck.versions.VersionPropagator;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
-import java.nio.file.Path;
 import java.util.Optional;
 import org.immutables.value.Value;
 
@@ -124,7 +122,8 @@ public class DLibraryDescription
       DIncludes dIncludes,
       PicType pic) {
 
-    CxxPlatform cxxPlatform = DDescriptionUtils.getCxxPlatform(toolchainProvider, dBuckConfig);
+    CxxPlatform cxxPlatform =
+        DDescriptionUtils.getCxxPlatform(graphBuilder, toolchainProvider, dBuckConfig);
 
     ImmutableList<SourcePath> compiledSources =
         DDescriptionUtils.sourcePathsForCompiledSources(
@@ -145,12 +144,9 @@ public class DLibraryDescription
         CxxDescriptionEnhancer.createStaticLibraryBuildTarget(
             buildTarget, cxxPlatform.getFlavor(), pic);
 
-    Path staticLibraryPath =
-        CxxDescriptionEnhancer.getStaticLibraryPath(
-            projectFilesystem,
+    String staticLibraryName =
+        CxxDescriptionEnhancer.getStaticLibraryName(
             buildTarget,
-            cxxPlatform.getFlavor(),
-            pic,
             Optional.empty(),
             cxxPlatform.getStaticLibraryExtension(),
             cxxBuckConfig.isUniqueLibraryNameEnabled());
@@ -161,8 +157,7 @@ public class DLibraryDescription
         graphBuilder,
         ruleFinder,
         cxxPlatform,
-        cxxBuckConfig.getArchiveContents(),
-        staticLibraryPath,
+        staticLibraryName,
         compiledSources,
         /* cacheable */ true);
   }
@@ -175,8 +170,8 @@ public class DLibraryDescription
       ImmutableCollection.Builder<BuildTarget> extraDepsBuilder,
       ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
     extraDepsBuilder.addAll(
-        CxxPlatforms.getParseTimeDeps(
-            DDescriptionUtils.getCxxPlatform(toolchainProvider, dBuckConfig)));
+        DDescriptionUtils.getUnresolvedCxxPlatform(toolchainProvider, dBuckConfig)
+            .getParseTimeDeps(buildTarget.getTargetConfiguration()));
   }
 
   @BuckStyleImmutable

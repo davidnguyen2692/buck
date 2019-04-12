@@ -24,26 +24,39 @@ import com.facebook.buck.core.cell.TestCellPathResolver;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
+import com.facebook.buck.core.model.EmptyTargetConfiguration;
 import com.facebook.buck.core.model.Flavor;
+import com.facebook.buck.core.model.UnconfiguredBuildTargetFactoryForTests;
+import com.facebook.buck.core.model.UnconfiguredBuildTargetView;
+import com.facebook.buck.core.parser.buildtargetparser.ParsingUnconfiguredBuildTargetFactory;
+import com.facebook.buck.core.select.SelectableConfigurationContext;
 import com.facebook.buck.core.select.Selector;
 import com.facebook.buck.core.select.SelectorList;
 import com.facebook.buck.core.select.TestSelectable;
 import com.facebook.buck.core.select.TestSelectableResolver;
+import com.facebook.buck.core.select.TestSelectorListFactory;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.rules.coercer.BuildTargetTypeCoercer;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.rules.coercer.CoerceFailedException;
 import com.facebook.buck.rules.coercer.FlavorTypeCoercer;
 import com.facebook.buck.rules.coercer.ListTypeCoercer;
-import com.facebook.buck.rules.coercer.TypeCoercer;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
+import com.facebook.buck.rules.coercer.UnconfiguredBuildTargetTypeCoercer;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import java.util.Map;
 import java.util.stream.Collectors;
+import org.junit.Before;
 import org.junit.Test;
 
 public class DefaultSelectorListResolverTest {
+
+  private SelectableConfigurationContext configurationContext;
+
+  @Before
+  public void setUp() {
+    configurationContext = new SelectableConfigurationContext() {};
+  }
 
   @Test
   public void testResolvingEmptyListReturnsEmptyList() throws CoerceFailedException {
@@ -53,7 +66,7 @@ public class DefaultSelectorListResolverTest {
     SelectorList<ImmutableList<Flavor>> selectorList = createSelectorListForListsOfFlavors();
 
     ImmutableList<Flavor> flavors =
-        resolver.resolveList(buildTarget, "some_attribute", selectorList);
+        resolver.resolveList(configurationContext, buildTarget, "some_attribute", selectorList);
 
     assertTrue(flavors.isEmpty());
   }
@@ -62,7 +75,8 @@ public class DefaultSelectorListResolverTest {
   public void testResolvingListWithSingleElementReturnsSingleElement()
       throws CoerceFailedException {
     BuildTarget keyTarget = BuildTargetFactory.newInstance("//a:b");
-    BuildTarget selectableTarget = BuildTargetFactory.newInstance("//x:y");
+    UnconfiguredBuildTargetView selectableTarget =
+        UnconfiguredBuildTargetFactoryForTests.newInstance("//x:y");
     SelectorList<Flavor> selectorList =
         createSelectorListForFlavors(ImmutableMap.of("DEFAULT", "flavor1", "//x:y", "flavor2"));
     DefaultSelectorListResolver resolver =
@@ -70,7 +84,8 @@ public class DefaultSelectorListResolverTest {
             new TestSelectableResolver(
                 ImmutableList.of(new TestSelectable(selectableTarget, true))));
 
-    Flavor flavor = resolver.resolveList(keyTarget, "some_attribute", selectorList);
+    Flavor flavor =
+        resolver.resolveList(configurationContext, keyTarget, "some_attribute", selectorList);
 
     assertEquals("flavor2", flavor.getName());
   }
@@ -79,7 +94,8 @@ public class DefaultSelectorListResolverTest {
   public void testResolvingListWithMultipleElementsNotSupportingConcatReturnsNull()
       throws CoerceFailedException {
     BuildTarget keyTarget = BuildTargetFactory.newInstance("//a:b");
-    BuildTarget selectableTarget = BuildTargetFactory.newInstance("//x:y");
+    UnconfiguredBuildTargetView selectableTarget =
+        UnconfiguredBuildTargetFactoryForTests.newInstance("//x:y");
     DefaultSelectorListResolver resolver =
         new DefaultSelectorListResolver(
             new TestSelectableResolver(
@@ -89,7 +105,8 @@ public class DefaultSelectorListResolverTest {
             ImmutableMap.of("DEFAULT", "flavor1", "//x:y", "flavor2"),
             ImmutableMap.of("DEFAULT", "flavor3", "//x:y", "flavor4"));
 
-    Flavor flavor = resolver.resolveList(keyTarget, "some_attribute", selectorList);
+    Flavor flavor =
+        resolver.resolveList(configurationContext, keyTarget, "some_attribute", selectorList);
 
     assertNull(flavor);
   }
@@ -98,7 +115,8 @@ public class DefaultSelectorListResolverTest {
   public void testResolvingListWithMultipleElementsSupportingConcatReturnsCompleteList()
       throws CoerceFailedException {
     BuildTarget keyTarget = BuildTargetFactory.newInstance("//a:b");
-    BuildTarget selectableTarget = BuildTargetFactory.newInstance("//x:y");
+    UnconfiguredBuildTargetView selectableTarget =
+        UnconfiguredBuildTargetFactoryForTests.newInstance("//x:y");
     DefaultSelectorListResolver resolver =
         new DefaultSelectorListResolver(
             new TestSelectableResolver(
@@ -116,7 +134,8 @@ public class DefaultSelectorListResolverTest {
                 "//x:y",
                 Lists.newArrayList("flavor41", "flavor42")));
 
-    ImmutableList<Flavor> flavors = resolver.resolveList(keyTarget, "some_attribute", selectorList);
+    ImmutableList<Flavor> flavors =
+        resolver.resolveList(configurationContext, keyTarget, "some_attribute", selectorList);
 
     assertEquals(
         Lists.newArrayList("flavor21", "flavor22", "flavor41", "flavor42"),
@@ -127,7 +146,8 @@ public class DefaultSelectorListResolverTest {
   public void testResolvingListWithMultipleDefaultMatchesReturnsList()
       throws CoerceFailedException {
     BuildTarget keyTarget = BuildTargetFactory.newInstance("//a:b");
-    BuildTarget selectableTarget = BuildTargetFactory.newInstance("//x:y");
+    UnconfiguredBuildTargetView selectableTarget =
+        UnconfiguredBuildTargetFactoryForTests.newInstance("//x:y");
     DefaultSelectorListResolver resolver =
         new DefaultSelectorListResolver(
             new TestSelectableResolver(
@@ -145,7 +165,8 @@ public class DefaultSelectorListResolverTest {
                 "//x:y",
                 Lists.newArrayList("flavor41", "flavor42")));
 
-    ImmutableList<Flavor> flavors = resolver.resolveList(keyTarget, "some_attribute", selectorList);
+    ImmutableList<Flavor> flavors =
+        resolver.resolveList(configurationContext, keyTarget, "some_attribute", selectorList);
 
     assertEquals(
         Lists.newArrayList("flavor11", "flavor12", "flavor31", "flavor32"),
@@ -156,8 +177,10 @@ public class DefaultSelectorListResolverTest {
   public void testResolvingListWithRefinedConditionsPicksMostSpecializedCondition()
       throws CoerceFailedException {
     BuildTarget keyTarget = BuildTargetFactory.newInstance("//a:b");
-    BuildTarget selectableTarget1 = BuildTargetFactory.newInstance("//x:y");
-    BuildTarget selectableTarget2 = BuildTargetFactory.newInstance("//x:z");
+    UnconfiguredBuildTargetView selectableTarget1 =
+        UnconfiguredBuildTargetFactoryForTests.newInstance("//x:y");
+    UnconfiguredBuildTargetView selectableTarget2 =
+        UnconfiguredBuildTargetFactoryForTests.newInstance("//x:z");
     DefaultSelectorListResolver resolver =
         new DefaultSelectorListResolver(
             new TestSelectableResolver(
@@ -173,7 +196,8 @@ public class DefaultSelectorListResolverTest {
                 "//x:z",
                 Lists.newArrayList("flavor21", "flavor22")));
 
-    ImmutableList<Flavor> flavors = resolver.resolveList(keyTarget, "some_attribute", selectorList);
+    ImmutableList<Flavor> flavors =
+        resolver.resolveList(configurationContext, keyTarget, "some_attribute", selectorList);
 
     assertEquals(
         Lists.newArrayList("flavor21", "flavor22"),
@@ -184,8 +208,10 @@ public class DefaultSelectorListResolverTest {
   public void testResolvingListWithMultipleMatchingConditionsThrowsException()
       throws CoerceFailedException {
     BuildTarget keyTarget = BuildTargetFactory.newInstance("//a:b");
-    BuildTarget selectableTarget1 = BuildTargetFactory.newInstance("//x:y");
-    BuildTarget selectableTarget2 = BuildTargetFactory.newInstance("//x:z");
+    UnconfiguredBuildTargetView selectableTarget1 =
+        UnconfiguredBuildTargetFactoryForTests.newInstance("//x:y");
+    UnconfiguredBuildTargetView selectableTarget2 =
+        UnconfiguredBuildTargetFactoryForTests.newInstance("//x:z");
     DefaultSelectorListResolver resolver =
         new DefaultSelectorListResolver(
             new TestSelectableResolver(
@@ -201,7 +227,7 @@ public class DefaultSelectorListResolverTest {
                 Lists.newArrayList("flavor21", "flavor22")));
 
     try {
-      resolver.resolveList(keyTarget, "some_attribute", selectorList);
+      resolver.resolveList(configurationContext, keyTarget, "some_attribute", selectorList);
     } catch (HumanReadableException e) {
       assertEquals(
           "Multiple matches found when resolving configurable attribute \"some_attribute\" in //a:b:\n"
@@ -215,7 +241,8 @@ public class DefaultSelectorListResolverTest {
   @Test
   public void testResolvingListWithNoMatchesThrowsException() throws CoerceFailedException {
     BuildTarget keyTarget = BuildTargetFactory.newInstance("//a:b");
-    BuildTarget selectableTarget = BuildTargetFactory.newInstance("//x:y");
+    UnconfiguredBuildTargetView selectableTarget =
+        UnconfiguredBuildTargetFactoryForTests.newInstance("//x:y");
     DefaultSelectorListResolver resolver =
         new DefaultSelectorListResolver(
             new TestSelectableResolver(
@@ -225,10 +252,10 @@ public class DefaultSelectorListResolverTest {
             ImmutableMap.of("//x:y", Lists.newArrayList("flavor11", "flavor12")));
 
     try {
-      resolver.resolveList(keyTarget, "some_attribute", selectorList);
+      resolver.resolveList(configurationContext, keyTarget, "some_attribute", selectorList);
     } catch (HumanReadableException e) {
       assertEquals(
-          "None of the conditions in attribute \"some_attribute\" match the configuration. Checked conditions:\n"
+          "None of the conditions in attribute \"some_attribute\" of //a:b match the configuration.\nChecked conditions:\n"
               + " //x:y",
           e.getHumanReadableErrorMessage());
     }
@@ -239,14 +266,18 @@ public class DefaultSelectorListResolverTest {
       throws CoerceFailedException {
     ProjectFilesystem projectFilesystem = new FakeProjectFilesystem();
     BuildTarget keyTarget = BuildTargetFactory.newInstance("//a:b");
-    BuildTarget selectableTarget = BuildTargetFactory.newInstance("//x:y");
-    SelectorFactory selectorFactory = new SelectorFactory(new BuildTargetTypeCoercer()::coerce);
+    UnconfiguredBuildTargetView selectableTarget =
+        UnconfiguredBuildTargetFactoryForTests.newInstance("//x:y");
+    SelectorFactory selectorFactory =
+        new SelectorFactory(
+            new UnconfiguredBuildTargetTypeCoercer(new ParsingUnconfiguredBuildTargetFactory()));
     ListTypeCoercer<Flavor> flavorListTypeCoercer = new ListTypeCoercer<>(new FlavorTypeCoercer());
     Selector<ImmutableList<Flavor>> selector =
         selectorFactory.createSelector(
             TestCellPathResolver.get(projectFilesystem),
             projectFilesystem,
             projectFilesystem.getRootPath(),
+            EmptyTargetConfiguration.INSTANCE,
             ImmutableMap.of("//x:y", Lists.newArrayList("flavor11", "flavor12")),
             flavorListTypeCoercer,
             "Custom message");
@@ -258,39 +289,22 @@ public class DefaultSelectorListResolverTest {
         new SelectorList<>(flavorListTypeCoercer, ImmutableList.of(selector));
 
     try {
-      resolver.resolveList(keyTarget, "some_attribute", selectorList);
+      resolver.resolveList(configurationContext, keyTarget, "some_attribute", selectorList);
     } catch (HumanReadableException e) {
       assertEquals(
-          "None of the conditions in attribute \"some_attribute\" match the configuration: Custom message",
+          "None of the conditions in attribute \"some_attribute\" of //a:b match the configuration: Custom message",
           e.getHumanReadableErrorMessage());
     }
   }
 
-  private <T> SelectorList<T> createSelectorListForCoercer(
-      TypeCoercer<T> elementTypeCoercer, Map<String, ?>... selectors) throws CoerceFailedException {
-    ProjectFilesystem projectFilesystem = new FakeProjectFilesystem();
-    SelectorFactory selectorFactory = new SelectorFactory(new BuildTargetTypeCoercer()::coerce);
-    ImmutableList.Builder<Selector<T>> selectorBuilder = ImmutableList.builder();
-    for (Map<String, ?> selectorAttributes : selectors) {
-      Selector<T> selector =
-          selectorFactory.createSelector(
-              TestCellPathResolver.get(projectFilesystem),
-              projectFilesystem,
-              projectFilesystem.getRootPath(),
-              selectorAttributes,
-              elementTypeCoercer);
-      selectorBuilder.add(selector);
-    }
-    return new SelectorList<>(elementTypeCoercer, selectorBuilder.build());
-  }
-
   private SelectorList<Flavor> createSelectorListForFlavors(Map<String, ?>... selectors)
       throws CoerceFailedException {
-    return createSelectorListForCoercer(new FlavorTypeCoercer(), selectors);
+    return TestSelectorListFactory.createSelectorListForCoercer(new FlavorTypeCoercer(), selectors);
   }
 
   private SelectorList<ImmutableList<Flavor>> createSelectorListForListsOfFlavors(
       Map<String, ?>... selectors) throws CoerceFailedException {
-    return createSelectorListForCoercer(new ListTypeCoercer<>(new FlavorTypeCoercer()), selectors);
+    return TestSelectorListFactory.createSelectorListForCoercer(
+        new ListTypeCoercer<>(new FlavorTypeCoercer()), selectors);
   }
 }

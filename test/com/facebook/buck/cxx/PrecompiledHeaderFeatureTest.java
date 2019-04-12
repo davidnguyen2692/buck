@@ -18,6 +18,7 @@ package com.facebook.buck.cxx;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotEquals;
+import static org.junit.Assert.assertNull;
 
 import com.facebook.buck.core.build.context.BuildContext;
 import com.facebook.buck.core.build.context.FakeBuildContext;
@@ -32,16 +33,18 @@ import com.facebook.buck.core.sourcepath.FakeSourcePath;
 import com.facebook.buck.core.sourcepath.PathSourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
+import com.facebook.buck.core.toolchain.tool.impl.HashedFileTool;
+import com.facebook.buck.core.toolchain.toolprovider.impl.ConstantToolProvider;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
+import com.facebook.buck.cxx.toolchain.CxxBuckConfig.ToolType;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
 import com.facebook.buck.cxx.toolchain.CxxToolProvider;
 import com.facebook.buck.cxx.toolchain.MungingDebugPathSanitizer;
 import com.facebook.buck.cxx.toolchain.PicType;
 import com.facebook.buck.cxx.toolchain.PreprocessorProvider;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.rules.args.StringArg;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableBiMap;
 import com.google.common.collect.ImmutableList;
@@ -53,6 +56,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.Objects;
 import java.util.Optional;
 import org.junit.Test;
 import org.junit.experimental.runners.Enclosed;
@@ -216,7 +220,7 @@ public class PrecompiledHeaderFeatureTest {
       TestData testData = new TestData();
 
       Path root =
-          Preconditions.checkNotNull(
+          Objects.requireNonNull(
               Iterables.getFirst(
                   FileSystems.getDefault().getRootDirectories(), Paths.get(File.separator)));
       CxxPrecompiledHeader firstRule = testData.generate(root.resolve("first"));
@@ -294,6 +298,30 @@ public class PrecompiledHeaderFeatureTest {
           "Build target flavor generator should account for preprocessor flags",
           firstRule.getBuildTarget(),
           secondRule.getBuildTarget());
+    }
+
+    @Test
+    public void noPrecompiledHeaderForAsmInputs() {
+      ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
+      CxxSourceRuleFactory factory =
+          preconfiguredSourceRuleFactoryBuilder(graphBuilder)
+              .setCxxPlatform(PLATFORM_SUPPORTING_PCH)
+              .setCxxBuckConfig(buildConfig(/* pchEnabled */ true))
+              .setPrefixHeader(FakeSourcePath.of(("foo.h")))
+              .build();
+      BuildRule rule =
+          factory.requireCompileBuildRule(
+              "foo.S",
+              CxxSource.builder()
+                  .setType(CxxSource.Type.ASSEMBLER)
+                  .setPath(FakeSourcePath.of("foo.S"))
+                  .build());
+      CxxPrecompiledHeader headerRule =
+          FluentIterable.from(rule.getBuildDeps())
+              .filter(CxxPrecompiledHeader.class)
+              .first()
+              .orNull();
+      assertNull("Asm files shouldn't support precompiled headers", headerRule);
     }
   }
 
@@ -416,8 +444,12 @@ public class PrecompiledHeaderFeatureTest {
     return CxxPlatformUtils.build(buildConfig(pchEnabled))
         .withCpp(
             new PreprocessorProvider(
-                PathSourcePath.of(new FakeProjectFilesystem(), Paths.get("/usr/bin/foopp")),
-                Optional.of(type)));
+                new ConstantToolProvider(
+                    new HashedFileTool(
+                        PathSourcePath.of(
+                            new FakeProjectFilesystem(), Paths.get("/usr/bin/foopp")))),
+                type,
+                ToolType.CPP));
   }
 
   private static final CxxPlatform PLATFORM_SUPPORTING_PCH =

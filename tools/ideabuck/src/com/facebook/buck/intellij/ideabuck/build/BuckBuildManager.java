@@ -16,9 +16,11 @@
 
 package com.facebook.buck.intellij.ideabuck.build;
 
+import com.facebook.buck.intellij.ideabuck.config.BuckExecutableSettingsProvider;
 import com.facebook.buck.intellij.ideabuck.config.BuckModule;
-import com.facebook.buck.intellij.ideabuck.config.BuckSettingsProvider;
-import com.facebook.buck.intellij.ideabuck.ui.BuckToolWindowFactory;
+import com.facebook.buck.intellij.ideabuck.config.BuckProjectSettingsProvider;
+import com.facebook.buck.intellij.ideabuck.ui.BuckUIManager;
+import com.facebook.buck.intellij.ideabuck.ui.components.BuckDebugPanel;
 import com.intellij.execution.filters.HyperlinkInfo;
 import com.intellij.execution.ui.ConsoleViewContentType;
 import com.intellij.ide.DataManager;
@@ -65,8 +67,8 @@ public class BuckBuildManager {
   }
 
   /** Get saved target for this project from settings. */
-  public String getCurrentSavedTarget(Project project) {
-    return BuckSettingsProvider.getInstance().getLastAliasForProject(project);
+  public static String getCurrentSavedTarget(Project project) {
+    return BuckProjectSettingsProvider.getInstance(project).getLastAlias().orElse(null);
   }
 
   public BuckCommandHandler getCurrentRunningBuckCommandHandler() {
@@ -79,7 +81,7 @@ public class BuckBuildManager {
 
   public synchronized void setBuilding(Project project, boolean value) {
     isBuilding = value;
-    BuckToolWindowFactory.updateActionsNow(project);
+    BuckUIManager.getInstance(project).getBuckToolWindow().updateActionsNow();
   }
 
   public boolean isKilling() {
@@ -88,7 +90,7 @@ public class BuckBuildManager {
 
   public synchronized void setKilling(Project project, boolean value) {
     isKilling = value;
-    BuckToolWindowFactory.updateActionsNow(project);
+    BuckUIManager.getInstance(project).getBuckToolWindow().updateActionsNow();
   }
 
   public boolean isBuckProject(Project project) {
@@ -107,10 +109,10 @@ public class BuckBuildManager {
     BuckModule buckModule = project.getComponent(BuckModule.class);
     buckModule.getBuckEventsConsumer().consumeConsoleEvent("Please choose a build target!");
 
-    BuckToolWindowFactory.outputConsoleMessage(
-        project, "Please ", ConsoleViewContentType.ERROR_OUTPUT);
-    BuckToolWindowFactory.outputConsoleHyperlink(
-        project,
+    BuckDebugPanel buckDebugPanel = BuckUIManager.getInstance(project).getBuckDebugPanel();
+
+    buckDebugPanel.outputConsoleMessage("Please ", ConsoleViewContentType.ERROR_OUTPUT);
+    buckDebugPanel.outputConsoleHyperlink(
         "choose a build target!\n",
         new HyperlinkInfo() {
           @Override
@@ -129,6 +131,31 @@ public class BuckBuildManager {
         });
   }
 
+  private void saveAndRun(final BuckCommandHandler handler, Runnable runnable) {
+    if (!(handler instanceof BuckKillCommandHandler)) {
+      currentRunningBuckCommandHandler = handler;
+      // Save files for anything besides buck kill
+      ApplicationManager.getApplication()
+          .invokeAndWait(
+              () -> FileDocumentManager.getInstance().saveAllDocuments(), ModalityState.NON_MODAL);
+    }
+    Project project = handler.project();
+    BuckDebugPanel buckDebugPanel = BuckUIManager.getInstance(project).getBuckDebugPanel();
+
+    String exec = BuckExecutableSettingsProvider.getInstance(project).resolveBuckExecutable();
+    if (exec == null) {
+      buckDebugPanel.outputConsoleMessage(
+          "Please specify the buck executable path!\n", ConsoleViewContentType.ERROR_OUTPUT);
+
+      buckDebugPanel.outputConsoleMessage(
+          "Preference -> Tools -> Buck -> Path to Buck executable\n",
+          ConsoleViewContentType.NORMAL_OUTPUT);
+      return;
+    }
+
+    runnable.run();
+  }
+
   /**
    * Execute simple process asynchronously with progress.
    *
@@ -137,49 +164,32 @@ public class BuckBuildManager {
    */
   public synchronized void runBuckCommand(
       final BuckCommandHandler handler, final String operationTitle) {
-    if (!(handler instanceof BuckKillCommandHandler)) {
-      currentRunningBuckCommandHandler = handler;
-      // Save files for anything besides buck kill
-      ApplicationManager.getApplication()
-          .invokeAndWait(
-              new Runnable() {
-                @Override
-                public void run() {
-                  FileDocumentManager.getInstance().saveAllDocuments();
-                }
-              },
-              ModalityState.NON_MODAL);
-    }
-    Project project = handler.project();
+    saveAndRun(
+        handler,
+        () -> {
+          final ProgressManager manager = ProgressManager.getInstance();
+          ApplicationManager.getApplication()
+              .invokeLater(
+                  () ->
+                      manager.run(
+                          new Task.Backgroundable(handler.project(), operationTitle, true) {
+                            @Override
+                            public void run(final ProgressIndicator indicator) {
+                              runInCurrentThread(handler, indicator, true, operationTitle);
+                            }
+                          }));
+        });
+  }
 
-    String exec = BuckSettingsProvider.getInstance().resolveBuckExecutable();
-    if (exec == null) {
-      BuckToolWindowFactory.outputConsoleMessage(
-          project,
-          "Please specify the buck executable path!\n",
-          ConsoleViewContentType.ERROR_OUTPUT);
-
-      BuckToolWindowFactory.outputConsoleMessage(
-          project,
-          "Preference -> Tools -> Buck -> Path to Buck executable\n",
-          ConsoleViewContentType.NORMAL_OUTPUT);
-      return;
-    }
-
-    final ProgressManager manager = ProgressManager.getInstance();
-    ApplicationManager.getApplication()
-        .invokeLater(
-            new Runnable() {
-              @Override
-              public void run() {
-                manager.run(
-                    new Task.Backgroundable(handler.project(), operationTitle, true) {
-                      public void run(final ProgressIndicator indicator) {
-                        runInCurrentThread(handler, indicator, true, operationTitle);
-                      }
-                    });
-              }
-            });
+  /**
+   * Execute simple process synchronously in the current thread.
+   *
+   * @param handler a handler
+   * @param postStartAction an action that is executed after the process starts
+   */
+  public synchronized void runBuckCommandAndWait(
+      final BuckCommandHandler handler, @Nullable Runnable postStartAction) {
+    saveAndRun(handler, () -> handler.runInCurrentThread(postStartAction));
   }
 
   /**

@@ -23,16 +23,16 @@ import java.util.Map;
 import java.util.Optional;
 
 /**
- * Test implementation of {@link BackgroundTaskManager}. Behaves same as {@link
- * SynchronousBackgroundTaskManager} except that exceptions are caught and saved internally.
- * Internal list of tasks is also accessible.
+ * Test implementation of {@link BackgroundTaskManager}. Behaves same as single-threaded blocking
+ * mode on {@link AsyncBackgroundTaskManager} except that exceptions are caught and saved
+ * internally. Internal list of tasks is also accessible.
  */
-public class TestBackgroundTaskManager extends SynchronousBackgroundTaskManager {
+public class TestBackgroundTaskManager extends AsyncBackgroundTaskManager {
 
-  private Map<ManagedBackgroundTask, Optional<Exception>> statuses;
+  private final Map<ManagedBackgroundTask, Optional<Exception>> statuses;
 
   public TestBackgroundTaskManager() {
-    super(false);
+    super(true, 1);
     this.statuses = new HashMap<>();
   }
 
@@ -66,9 +66,9 @@ public class TestBackgroundTaskManager extends SynchronousBackgroundTaskManager 
    *
    * @return Task list
    */
-  public List<BackgroundTask<?>> getFinishedTasksToTest() {
+  public List<BackgroundTask<?>> getScheduledTasksToTest() {
     List<BackgroundTask<?>> output = new ArrayList<>();
-    for (ManagedBackgroundTask mTask : getFinishedTasks()) {
+    for (ManagedBackgroundTask mTask : getScheduledTasks()) {
       output.add(mTask.getTask());
     }
     return output;

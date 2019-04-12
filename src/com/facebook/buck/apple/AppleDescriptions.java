@@ -20,6 +20,7 @@ import static com.facebook.buck.apple.AppleAssetCatalog.validateAssetCatalogs;
 import static com.facebook.buck.swift.SwiftDescriptions.SWIFT_EXTENSION;
 
 import com.facebook.buck.apple.AppleAssetCatalog.ValidationType;
+import com.facebook.buck.apple.AppleBuildRules.RecursiveDependenciesMode;
 import com.facebook.buck.apple.platform_type.ApplePlatformType;
 import com.facebook.buck.apple.toolchain.AppleCxxPlatform;
 import com.facebook.buck.apple.toolchain.ApplePlatform;
@@ -136,6 +137,18 @@ public class AppleDescriptions {
         buildTarget, pathResolver, headerPathPrefix, arg.getExportedHeaders());
   }
 
+  /** @returns Apple headers converted to public cxx headers */
+  public static ImmutableSortedMap<String, SourcePath> convertHeadersToPublicCxxHeaders(
+      BuildTarget buildTarget,
+      Function<SourcePath, Path> pathResolver,
+      Path headerPathPrefix,
+      SourceSortedSet sourceSet) {
+    // The exported headers in the populated cxx constructor arg will contain exported headers from
+    // the apple constructor arg with the public include style.
+    return AppleDescriptions.parseAppleHeadersForUseFromOtherTargets(
+        buildTarget, pathResolver, headerPathPrefix, sourceSet);
+  }
+
   public static ImmutableSortedMap<String, SourcePath> convertAppleHeadersToPrivateCxxHeaders(
       BuildTarget buildTarget,
       Function<SourcePath, Path> pathResolver,
@@ -148,17 +161,47 @@ public class AppleDescriptions {
             .putAll(
                 Stream.of(
                         AppleDescriptions.parseAppleHeadersForUseFromTheSameTarget(
-                                buildTarget, pathResolver, arg.getHeaders())
-                            .entrySet()
-                            .stream(),
+                            buildTarget, pathResolver, arg.getHeaders())
+                            .entrySet().stream(),
                         AppleDescriptions.parseAppleHeadersForUseFromTheSameTarget(
-                                buildTarget, pathResolver, arg.getExportedHeaders())
-                            .entrySet()
-                            .stream(),
+                            buildTarget, pathResolver, arg.getExportedHeaders())
+                            .entrySet().stream(),
                         AppleDescriptions.parseAppleHeadersForUseFromOtherTargets(
-                                buildTarget, pathResolver, headerPathPrefix, arg.getHeaders())
-                            .entrySet()
-                            .stream())
+                            buildTarget, pathResolver, headerPathPrefix, arg.getHeaders())
+                            .entrySet().stream())
+                    .reduce(Stream::concat)
+                    .orElse(Stream.empty())
+                    .distinct() // allow duplicate entries as long as they map to the same path
+                    .collect(
+                        ImmutableSortedMap.toImmutableSortedMap(
+                            Ordering.natural(), Map.Entry::getKey, Map.Entry::getValue)));
+
+    return headersMapBuilder.build();
+  }
+
+  /** @returns Apple headers converted to private cxx headers */
+  public static ImmutableSortedMap<String, SourcePath> convertHeadersToPrivateCxxHeaders(
+      BuildTarget buildTarget,
+      Function<SourcePath, Path> pathResolver,
+      Path headerPathPrefix,
+      SourceSortedSet privateSourceSet,
+      SourceSortedSet publicSourceSet) {
+    // The private headers should contain exported headers with the private include style and
+    // private
+    // headers with both styles.
+    ImmutableSortedMap.Builder<String, SourcePath> headersMapBuilder =
+        ImmutableSortedMap.<String, SourcePath>naturalOrder()
+            .putAll(
+                Stream.of(
+                        AppleDescriptions.parseAppleHeadersForUseFromTheSameTarget(
+                            buildTarget, pathResolver, privateSourceSet)
+                            .entrySet().stream(),
+                        AppleDescriptions.parseAppleHeadersForUseFromTheSameTarget(
+                            buildTarget, pathResolver, publicSourceSet)
+                            .entrySet().stream(),
+                        AppleDescriptions.parseAppleHeadersForUseFromOtherTargets(
+                            buildTarget, pathResolver, headerPathPrefix, privateSourceSet)
+                            .entrySet().stream())
                     .reduce(Stream::concat)
                     .orElse(Stream.empty())
                     .distinct() // allow duplicate entries as long as they map to the same path
@@ -251,13 +294,11 @@ public class AppleDescriptions {
             .putAll(
                 Stream.concat(
                         convertAppleHeadersToPublicCxxHeaders(
-                                buildTarget, resolver::getRelativePath, headerPathPrefix, arg)
-                            .entrySet()
-                            .stream(),
+                            buildTarget, resolver::getRelativePath, headerPathPrefix, arg)
+                            .entrySet().stream(),
                         convertAppleHeadersToPrivateCxxHeaders(
-                                buildTarget, resolver::getRelativePath, headerPathPrefix, arg)
-                            .entrySet()
-                            .stream())
+                            buildTarget, resolver::getRelativePath, headerPathPrefix, arg)
+                            .entrySet().stream())
                     .distinct() // allow duplicate entries as long as they map to the same path
                     .collect(
                         ImmutableSortedMap.toImmutableSortedMap(
@@ -341,7 +382,11 @@ public class AppleDescriptions {
 
     ImmutableSet<AppleAssetCatalogDescriptionArg> assetCatalogArgs =
         AppleBuildRules.collectRecursiveAssetCatalogs(
-            xcodeDescriptions, targetGraph, Optional.empty(), ImmutableList.of(targetNode));
+            xcodeDescriptions,
+            targetGraph,
+            Optional.empty(),
+            ImmutableList.of(targetNode),
+            RecursiveDependenciesMode.COPYING);
 
     ImmutableSortedSet.Builder<SourcePath> assetCatalogDirsBuilder =
         ImmutableSortedSet.naturalOrder();
@@ -423,7 +468,8 @@ public class AppleDescriptions {
             targetGraph,
             Optional.empty(),
             AppleBuildRules.CORE_DATA_MODEL_DESCRIPTION_CLASSES,
-            ImmutableList.of(targetNode));
+            ImmutableList.of(targetNode),
+            RecursiveDependenciesMode.COPYING);
 
     BuildTarget coreDataModelBuildTarget = buildTarget.withAppendedFlavors(CoreDataModel.FLAVOR);
 
@@ -437,8 +483,7 @@ public class AppleDescriptions {
               params.withoutDeclaredDeps().withoutExtraDeps(),
               appleCxxPlatform,
               moduleName,
-              coreDataModelArgs
-                  .stream()
+              coreDataModelArgs.stream()
                   .map(input -> PathSourcePath.of(projectFilesystem, input.getPath()))
                   .collect(ImmutableSet.toImmutableSet())));
     }
@@ -459,7 +504,8 @@ public class AppleDescriptions {
             targetGraph,
             Optional.empty(),
             AppleBuildRules.SCENEKIT_ASSETS_DESCRIPTION_CLASSES,
-            ImmutableList.of(targetNode));
+            ImmutableList.of(targetNode),
+            RecursiveDependenciesMode.COPYING);
 
     BuildTarget sceneKitAssetsBuildTarget = buildTarget.withAppendedFlavors(SceneKitAssets.FLAVOR);
 
@@ -472,8 +518,7 @@ public class AppleDescriptions {
               projectFilesystem,
               params.withoutDeclaredDeps().withoutExtraDeps(),
               appleCxxPlatform,
-              sceneKitAssetsArgs
-                  .stream()
+              sceneKitAssetsArgs.stream()
                   .map(input -> PathSourcePath.of(projectFilesystem, input.getPath()))
                   .collect(ImmutableSet.toImmutableSet())));
     }
@@ -487,7 +532,8 @@ public class AppleDescriptions {
       HasAppleDebugSymbolDeps unstrippedBinaryRule,
       AppleDebugFormat debugFormat,
       CxxPlatformsProvider cxxPlatformsProvider,
-      FlavorDomain<AppleCxxPlatform> appleCxxPlatforms) {
+      FlavorDomain<AppleCxxPlatform> appleCxxPlatforms,
+      boolean shouldCacheStrips) {
     // Target used as the base target of AppleDebuggableBinary.
 
     BuildTarget baseTarget = unstrippedBinaryRule.getBuildTarget();
@@ -503,7 +549,8 @@ public class AppleDescriptions {
                 graphBuilder,
                 unstrippedBinaryRule,
                 cxxPlatformsProvider,
-                appleCxxPlatforms);
+                appleCxxPlatforms,
+                shouldCacheStrips);
         return AppleDebuggableBinary.createWithDsym(
             projectFilesystem, baseTarget, strippedBinaryRule, dsym);
       case NONE:
@@ -519,7 +566,8 @@ public class AppleDescriptions {
       ActionGraphBuilder graphBuilder,
       HasAppleDebugSymbolDeps unstrippedBinaryRule,
       CxxPlatformsProvider cxxPlatformsProvider,
-      FlavorDomain<AppleCxxPlatform> appleCxxPlatforms) {
+      FlavorDomain<AppleCxxPlatform> appleCxxPlatforms,
+      boolean isCacheable) {
     return (AppleDsym)
         graphBuilder.computeIfAbsent(
             buildTarget
@@ -531,6 +579,7 @@ public class AppleDescriptions {
             dsymBuildTarget -> {
               AppleCxxPlatform appleCxxPlatform =
                   ApplePlatforms.getAppleCxxPlatformForBuildTarget(
+                      graphBuilder,
                       cxxPlatformsProvider,
                       appleCxxPlatforms,
                       unstrippedBinaryRule.getBuildTarget(),
@@ -547,7 +596,8 @@ public class AppleDescriptions {
                       .getAppleDebugSymbolDeps()
                       .map(BuildRule::getSourcePathToOutput)
                       .collect(ImmutableSortedSet.toImmutableSortedSet(Ordering.natural())),
-                  AppleDsym.getDsymOutputPath(dsymBuildTarget, projectFilesystem));
+                  AppleDsym.getDsymOutputPath(dsymBuildTarget, projectFilesystem),
+                  isCacheable);
             });
   }
 
@@ -579,9 +629,13 @@ public class AppleDescriptions {
       ImmutableList<String> codesignFlags,
       Optional<String> codesignAdhocIdentity,
       Optional<Boolean> ibtoolModuleFlag,
-      Duration codesignTimeout) {
+      Optional<ImmutableList<String>> ibtoolFlags,
+      Duration codesignTimeout,
+      boolean copySwiftStdlibToFrameworks,
+      boolean cacheStrips) {
     AppleCxxPlatform appleCxxPlatform =
         ApplePlatforms.getAppleCxxPlatformForBuildTarget(
+            graphBuilder,
             cxxPlatformsProvider,
             appleCxxPlatforms,
             buildTarget,
@@ -608,7 +662,8 @@ public class AppleDescriptions {
             graphBuilder,
             Optional.empty(),
             targetGraph.get(buildTarget),
-            appleCxxPlatform);
+            appleCxxPlatform,
+            RecursiveDependenciesMode.COPYING);
 
     ImmutableSet.Builder<SourcePath> frameworksBuilder = ImmutableSet.builder();
     if (INCLUDE_FRAMEWORKS.getRequiredValue(buildTarget)) {
@@ -733,13 +788,16 @@ public class AppleDescriptions {
               (HasAppleDebugSymbolDeps) unstrippedBinaryRule,
               debugFormat,
               cxxPlatformsProvider,
-              appleCxxPlatforms);
+              appleCxxPlatforms,
+              cacheStrips);
       targetDebuggableBinaryRule = debuggableBinary;
       appleDsym = debuggableBinary.getAppleDsym();
     } else {
       targetDebuggableBinaryRule = unstrippedBinaryRule;
       appleDsym = Optional.empty();
     }
+
+    ImmutableList<String> ibtoolFlagsUnwrapped = ibtoolFlags.orElse(ImmutableList.of());
 
     ImmutableSet<BuildRule> extraBinaries =
         collectFirstLevelExtraBinariesFromDeps(
@@ -805,7 +863,9 @@ public class AppleDescriptions {
         codesignFlags,
         codesignAdhocIdentity,
         ibtoolModuleFlag,
-        codesignTimeout);
+        ibtoolFlagsUnwrapped,
+        codesignTimeout,
+        copySwiftStdlibToFrameworks);
   }
 
   /**
@@ -889,11 +949,11 @@ public class AppleDescriptions {
                 flavors,
                 ImmutableSet.of(
                     AppleDescriptions.FRAMEWORK_FLAVOR, AppleBinaryDescription.APP_FLAVOR)));
-    if (!cxxPlatformsProvider.getCxxPlatforms().containsAnyOf(flavors)) {
+    if (!cxxPlatformsProvider.getUnresolvedCxxPlatforms().containsAnyOf(flavors)) {
       flavors =
           new ImmutableSet.Builder<Flavor>()
               .addAll(flavors)
-              .add(cxxPlatformsProvider.getDefaultCxxPlatform().getFlavor())
+              .add(cxxPlatformsProvider.getDefaultUnresolvedCxxPlatform().getFlavor())
               .build();
     }
 
@@ -945,10 +1005,7 @@ public class AppleDescriptions {
                 .append(newDeps)
                 .toSortedSet(Ordering.natural()))
         .withExtraDeps(
-            params
-                .getExtraDeps()
-                .get()
-                .stream()
+            params.getExtraDeps().get().stream()
                 .filter(notOriginalBinaryRule)
                 .collect(ImmutableSortedSet.toImmutableSortedSet(Ordering.natural())));
   }

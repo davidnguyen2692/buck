@@ -17,8 +17,8 @@
 package com.facebook.buck.worker;
 
 import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.log.Logger;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.ProcessExecutorParams;
 import com.facebook.buck.util.string.MoreStrings;
@@ -58,17 +58,17 @@ public class WorkerProcess implements Closeable {
    * @param executor Process executor that will start worker process.
    * @param processParams Arguments for process executor.
    * @param filesystem File system for the worker process.
+   * @param stdErr path where stderr of a process is kept
    * @param tmpPath Temp folder.
-   * @throws IOException In case if some I/O failure happens.
    */
   public WorkerProcess(
       ProcessExecutor executor,
       ProcessExecutorParams processParams,
       ProjectFilesystem filesystem,
-      Path tmpPath)
-      throws IOException {
+      Path stdErr,
+      Path tmpPath) {
     this.executor = executor;
-    this.stdErr = Files.createTempFile("buck-worker-", "-stderr.log");
+    this.stdErr = stdErr;
     this.processParams =
         processParams.withRedirectError(ProcessBuilder.Redirect.to(stdErr.toFile()));
     this.filesystem = filesystem;
@@ -96,7 +96,8 @@ public class WorkerProcess implements Closeable {
               if (launchedProcess != null) {
                 executor.destroyLaunchedProcess(launchedProcess);
               }
-            });
+            },
+            () -> launchedProcess != null && launchedProcess.isAlive());
 
     LOG.debug("Handshaking with process %d", this.hashCode());
     protocol.handshake(currentMessageID.getAndIncrement());
@@ -135,7 +136,7 @@ public class WorkerProcess implements Closeable {
   }
 
   @Override
-  public void close() {
+  public synchronized void close() {
     LOG.debug("Closing process %d", this.hashCode());
     try {
       if (protocol != null) {

@@ -16,7 +16,7 @@
 
 package com.facebook.buck.features.js;
 
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.description.arg.CommonDescriptionArg;
 import com.facebook.buck.core.description.arg.HasDepsQuery;
 import com.facebook.buck.core.description.arg.HasTests;
@@ -27,7 +27,7 @@ import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.FlavorDomain;
 import com.facebook.buck.core.model.Flavored;
-import com.facebook.buck.core.model.UnflavoredBuildTarget;
+import com.facebook.buck.core.model.UnflavoredBuildTargetView;
 import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
 import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
@@ -50,7 +50,6 @@ import com.facebook.buck.shell.WorkerTool;
 import com.facebook.buck.util.RichStream;
 import com.facebook.buck.util.types.Either;
 import com.facebook.buck.util.types.Pair;
-import com.google.common.base.Preconditions;
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.Weigher;
@@ -63,6 +62,7 @@ import com.google.common.collect.Iterables;
 import com.google.common.collect.Ordering;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ExecutionException;
 import java.util.function.Function;
@@ -134,10 +134,7 @@ public class JsLibraryDescription
             .map(macroTargets -> isWorker.or(macroTargets::contains))
             .orElse(isWorker);
     ImmutableSortedSet<BuildRule> workerAndMacrosExtraDeps =
-        params
-            .getExtraDeps()
-            .get()
-            .stream()
+        params.getExtraDeps().get().stream()
             .filter(x -> extraDepsFilter.test(x.getBuildTarget()))
             .collect(ImmutableSortedSet.toImmutableSortedSet(Ordering.natural()));
     BuildRuleParams baseParams =
@@ -167,9 +164,7 @@ public class JsLibraryDescription
       // all targets that don't refer to a JsLibrary rule.
       // That prevents users from having to wrap every query into "kind(js_library, ...)".
       Stream<BuildTarget> queryDeps =
-          args.getDepsQuery()
-              .map(Query::getResolvedQuery)
-              .orElseGet(ImmutableSortedSet::of)
+          args.getDepsQuery().map(Query::getResolvedQuery).orElseGet(ImmutableSortedSet::of)
               .stream()
               .filter(target -> JsUtil.isJsLibraryTarget(target, context.getTargetGraph()));
       Stream<BuildTarget> declaredDeps = args.getDeps().stream();
@@ -260,14 +255,13 @@ public class JsLibraryDescription
     }
 
     private JsLibrary.Files build(ProjectFilesystem projectFileSystem, WorkerTool worker) {
-      Preconditions.checkNotNull(jsFileRules, "No source files set");
+      Objects.requireNonNull(jsFileRules, "No source files set");
 
       return new JsLibrary.Files(
           baseTarget.withAppendedFlavors(JsFlavors.LIBRARY_FILES),
           projectFileSystem,
           baseParams.copyAppendingExtraDeps(jsFileRules),
-          jsFileRules
-              .stream()
+          jsFileRules.stream()
               .map(JsFile::getSourcePathToOutput)
               .collect(ImmutableSortedSet.toImmutableSortedSet(Ordering.natural())),
           worker);
@@ -305,7 +299,7 @@ public class JsLibraryDescription
     }
 
     private JsLibrary build(ProjectFilesystem projectFilesystem, WorkerTool worker) {
-      Preconditions.checkNotNull(libraryDependencies, "No library dependencies set");
+      Objects.requireNonNull(libraryDependencies, "No library dependencies set");
 
       BuildTarget filesTarget = baseTarget.withAppendedFlavors(JsFlavors.LIBRARY_FILES);
       BuildRule filesRule = graphBuilder.requireRule(filesTarget);
@@ -315,8 +309,7 @@ public class JsLibraryDescription
           baseParams.copyAppendingExtraDeps(
               Iterables.concat(ImmutableList.of(filesRule), libraryDependencies)),
           graphBuilder.getRuleWithType(filesTarget, JsLibrary.Files.class).getSourcePathToOutput(),
-          libraryDependencies
-              .stream()
+          libraryDependencies.stream()
               .map(JsLibrary::getSourcePathToOutput)
               .collect(ImmutableSortedSet.toImmutableSortedSet(Ordering.natural())),
           worker);
@@ -435,7 +428,7 @@ public class JsLibraryDescription
       ProjectFilesystem projectFilesystem,
       SourcePathResolver sourcePathResolver,
       CellPathResolver cellPathResolver,
-      UnflavoredBuildTarget target) {
+      UnflavoredBuildTargetView target) {
     Path cellPath = cellPathResolver.getCellPathOrThrow(target);
     Path directoryOfBuildFile = cellPath.resolve(target.getBasePath());
     Path transplantTo = MorePaths.normalize(directoryOfBuildFile.resolve(basePath));

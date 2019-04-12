@@ -16,8 +16,6 @@
 
 package com.facebook.buck.features.ocaml;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
@@ -46,6 +44,7 @@ import com.google.common.io.Files;
 import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 import java.util.stream.Stream;
 
 /** A generator of fine-grained OCaml build rules */
@@ -201,10 +200,10 @@ public class OcamlBuildRulesGenerator {
       Path outputPath = ocamlContext.getCOutput(pathResolver.getRelativePath(cSrc));
       OcamlCCompile compileRule =
           new OcamlCCompile(
-              createCCompileBuildTarget(buildTarget, name),
               projectFilesystem,
               cCompileParams,
               new OcamlCCompileStep.Args(
+                  createCCompileBuildTarget(buildTarget, name),
                   cCompiler.getEnvironment(pathResolver),
                   cCompiler.getCommandPrefix(pathResolver),
                   ocamlContext.getOcamlCompiler().get(),
@@ -262,17 +261,11 @@ public class OcamlBuildRulesGenerator {
                 ImmutableSortedSet.<BuildRule>naturalOrder()
                     .addAll(ruleFinder.filterBuildRuleInputs(allInputs))
                     .addAll(
-                        ocamlContext
-                            .getNativeLinkableInput()
-                            .getArgs()
-                            .stream()
+                        ocamlContext.getNativeLinkableInput().getArgs().stream()
                             .flatMap(arg -> BuildableSupport.getDeps(arg, ruleFinder))
                             .iterator())
                     .addAll(
-                        ocamlContext
-                            .getCLinkableInput()
-                            .getArgs()
-                            .stream()
+                        ocamlContext.getCLinkableInput().getArgs().stream()
                             .flatMap(arg -> BuildableSupport.getDeps(arg, ruleFinder))
                             .iterator())
                     .addAll(BuildableSupport.getDepsCollection(cxxCompiler, ruleFinder))
@@ -462,9 +455,9 @@ public class OcamlBuildRulesGenerator {
 
     ImmutableSortedSet.Builder<BuildRule> depsBuilder = ImmutableSortedSet.naturalOrder();
     if (sources.containsKey(mlSource)) {
-      for (Path dep : checkNotNull(sources.get(mlSource))) {
+      for (Path dep : Objects.requireNonNull(sources.get(mlSource))) {
         generateSingleMLNativeCompilation(sourceToRule, cmxFiles, dep, sources, newCycleDetector);
-        depsBuilder.addAll(checkNotNull(sourceToRule.get(dep)));
+        depsBuilder.addAll(Objects.requireNonNull(sourceToRule.get(dep)));
       }
     }
     ImmutableSortedSet<BuildRule> deps = depsBuilder.build();
@@ -541,9 +534,9 @@ public class OcamlBuildRulesGenerator {
 
     ImmutableSortedSet.Builder<BuildRule> depsBuilder = ImmutableSortedSet.naturalOrder();
     if (sources.containsKey(mlSource)) {
-      for (Path dep : checkNotNull(sources.get(mlSource))) {
+      for (Path dep : Objects.requireNonNull(sources.get(mlSource))) {
         generateSingleMLBytecodeCompilation(sourceToRule, cmoFiles, dep, sources, newCycleDetector);
-        depsBuilder.addAll(checkNotNull(sourceToRule.get(dep)));
+        depsBuilder.addAll(Objects.requireNonNull(sourceToRule.get(dep)));
       }
     }
     ImmutableSortedSet<BuildRule> deps = depsBuilder.build();

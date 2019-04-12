@@ -25,7 +25,6 @@ import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
-import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildId;
 import com.facebook.buck.io.watchman.WatchmanWatcher;
 import com.facebook.buck.testutil.ProcessResult;
@@ -37,6 +36,7 @@ import com.facebook.buck.util.CapturingPrintStream;
 import com.facebook.buck.util.ExitCode;
 import com.facebook.buck.util.Threads;
 import com.facebook.buck.util.environment.CommandMode;
+import com.facebook.buck.util.environment.EnvVariablesProvider;
 import com.google.common.base.Charsets;
 import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
@@ -57,7 +57,6 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.ExpectedException;
 
 public class DaemonIntegrationTest {
 
@@ -67,10 +66,8 @@ public class DaemonIntegrationTest {
 
   @Rule public TestWithBuckd testWithBuckd = new TestWithBuckd(tmp);
 
-  @Rule public ExpectedException thrown = ExpectedException.none();
-
   @Before
-  public void setUp() throws IOException, InterruptedException {
+  public void setUp() {
     executorService = Executors.newScheduledThreadPool(5);
   }
 
@@ -118,7 +115,7 @@ public class DaemonIntegrationTest {
     // Build an NGContext connected to an NGInputStream reading from a stream that will timeout.
     Thread.currentThread().setName("Test");
     try (TestContext context =
-        new TestContext(ImmutableMap.copyOf(System.getenv()), timeoutMillis)) {
+        new TestContext(EnvVariablesProvider.getSystemEnv(), timeoutMillis)) {
       Thread thread = Thread.currentThread();
       context.addClientListener(
           reason -> {
@@ -167,8 +164,8 @@ public class DaemonIntegrationTest {
   private Runnable createRunnableCommand(ExitCode expectedExitCode, String... args) {
     return () -> {
       try {
-        Main main =
-            new Main(
+        MainRunner main =
+            new MainRunner(
                 new CapturingPrintStream(),
                 new CapturingPrintStream(),
                 new ByteArrayInputStream("".getBytes(StandardCharsets.UTF_8)),
@@ -177,18 +174,18 @@ public class DaemonIntegrationTest {
             main.runMainWithExitCode(
                 new BuildId(),
                 tmp.getRoot(),
-                ImmutableMap.copyOf(System.getenv()),
+                EnvVariablesProvider.getSystemEnv(),
                 CommandMode.TEST,
                 WatchmanWatcher.FreshInstanceAction.NONE,
                 System.nanoTime(),
                 ImmutableList.copyOf(args));
         assertEquals("Unexpected exit code.", expectedExitCode, exitCode);
-      } catch (IOException e) {
-        fail("Should not throw exception.");
-        Throwables.throwIfUnchecked(e);
       } catch (InterruptedException e) {
         fail("Should not throw exception.");
         Thread.currentThread().interrupt();
+      } catch (Exception e) {
+        fail("Should not throw exception.");
+        Throwables.throwIfUnchecked(e);
       }
     };
   }
@@ -236,15 +233,13 @@ public class DaemonIntegrationTest {
     String fileName = "java/com/example/activity/MyFirstActivity.java";
     Files.delete(workspace.getPath(fileName));
 
-    try {
-      workspace.runBuckdCommand("build", "//java/com/example/activity:activity");
-      fail("Should have thrown HumanReadableException.");
-    } catch (java.lang.RuntimeException e) {
-      assertThat(
-          "Failure should have been due to file removal.",
-          e.getMessage(),
-          containsString("MyFirstActivity.java"));
-    }
+    ProcessResult processResult =
+        workspace.runBuckdCommand("build", "//java/com/example/activity:activity");
+    processResult.assertFailure();
+    assertThat(
+        "Failure should have been due to file removal.",
+        processResult.getStderr(),
+        containsString("MyFirstActivity.java"));
   }
 
   @Test
@@ -257,10 +252,10 @@ public class DaemonIntegrationTest {
     String fileName = "java/com/example/activity/MyFirstActivity.java";
     Files.delete(workspace.getPath(fileName));
 
-    thrown.expect(HumanReadableException.class);
-    thrown.expectMessage(containsString("MyFirstActivity.java"));
-
-    workspace.runBuckdCommand("build", "//java/com/example/activity:activity");
+    ProcessResult processResult =
+        workspace.runBuckdCommand("build", "//java/com/example/activity:activity");
+    processResult.assertFailure();
+    assertThat(processResult.getStderr(), containsString("MyFirstActivity.java"));
   }
 
   @Test
@@ -385,16 +380,12 @@ public class DaemonIntegrationTest {
     String fileName = "BUCK";
     Files.write(secondary.getPath(fileName), "Some Invalid Python".getBytes(Charsets.UTF_8));
 
-    try {
-      primary.runBuckdCommand("build", "//:cxxbinary");
-      fail("Did not expect parsing to succeed");
-    } catch (HumanReadableException expected) {
-      assertThat(
-          "Failure should be due to syntax error.",
-          expected.getHumanReadableErrorMessage(),
-          containsString(
-              "This error happened while trying to get dependency 'secondary//:cxxlib' of target '//:cxxbinary'"));
-    }
+    ProcessResult processResult = primary.runBuckdCommand("build", "//:cxxbinary");
+    processResult.assertFailure();
+    assertThat(
+        processResult.getStderr(),
+        containsString(
+            "This error happened while trying to get dependency 'secondary//:cxxlib' of target '//:cxxbinary'"));
   }
 
   @Test

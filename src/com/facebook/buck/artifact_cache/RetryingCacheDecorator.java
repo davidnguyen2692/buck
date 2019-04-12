@@ -20,11 +20,11 @@ import com.facebook.buck.artifact_cache.config.ArtifactCacheMode;
 import com.facebook.buck.artifact_cache.config.CacheReadMode;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.rulekey.RuleKey;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.io.file.BorrowablePath;
 import com.facebook.buck.io.file.LazyPath;
-import com.facebook.buck.log.Logger;
 import com.facebook.buck.slb.NoHealthyServersException;
 import com.facebook.buck.util.types.Pair;
 import com.google.common.base.Preconditions;
@@ -33,6 +33,7 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
+import com.google.common.util.concurrent.MoreExecutors;
 import java.util.ArrayList;
 import java.util.List;
 import javax.annotation.Nullable;
@@ -94,7 +95,8 @@ public class RetryingCacheDecorator implements ArtifactCache, CacheDecorator {
                     ruleKey, cacheMode.name(), maxFetchRetries));
           }
           return CacheResult.builder().from(result).setCacheError(msg).build();
-        });
+        },
+        MoreExecutors.directExecutor());
   }
 
   @Override

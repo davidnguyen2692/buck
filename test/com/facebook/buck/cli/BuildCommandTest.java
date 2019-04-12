@@ -26,15 +26,17 @@ import com.facebook.buck.artifact_cache.config.ArtifactCacheMode;
 import com.facebook.buck.command.BuildExecutionResult;
 import com.facebook.buck.command.BuildReport;
 import com.facebook.buck.core.build.engine.BuildResult;
+import com.facebook.buck.core.cell.Cell;
+import com.facebook.buck.core.cell.TestCellBuilder;
 import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.impl.FakeBuildRule;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.io.file.MorePaths;
-import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.util.Ansi;
 import com.facebook.buck.util.CapturingPrintStream;
@@ -52,11 +54,14 @@ public class BuildCommandTest {
 
   private BuildExecutionResult buildExecutionResult;
   private SourcePathResolver resolver;
+  private Cell rootCell;
 
   @Before
   public void setUp() {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     resolver = DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
+
+    rootCell = new TestCellBuilder().build();
 
     LinkedHashMap<BuildRule, Optional<BuildResult>> ruleToResult = new LinkedHashMap<>();
 
@@ -104,7 +109,7 @@ public class BuildCommandTest {
             " ** Summary of failures encountered during the build **",
             "Rule //fake:rule2 FAILED because java.lang.RuntimeException: some.");
     String observedReport =
-        new BuildReport(buildExecutionResult, resolver)
+        new BuildReport(buildExecutionResult, resolver, rootCell)
             .generateForConsole(
                 new Console(
                     Verbosity.STANDARD_INFORMATION,
@@ -127,7 +132,7 @@ public class BuildCommandTest {
             " ** Summary of failures encountered during the build **",
             "Rule //fake:rule2 FAILED because java.lang.RuntimeException: some.");
     String observedReport =
-        new BuildReport(buildExecutionResult, resolver)
+        new BuildReport(buildExecutionResult, resolver, rootCell)
             .generateForConsole(new TestConsole(Verbosity.COMMANDS));
     assertEquals(expectedReport, observedReport);
   }
@@ -154,19 +159,18 @@ public class BuildCommandTest {
             "    },",
             "    \"//fake:rule3\" : {",
             "      \"success\" : true,",
-            "      \"type\" : \"FETCHED_FROM_CACHE\",",
-            "      \"output\" : null",
+            "      \"type\" : \"FETCHED_FROM_CACHE\"",
             "    },",
             "    \"//fake:rule4\" : {",
             "      \"success\" : false",
             "    }",
             "  },",
             "  \"failures\" : {",
-            "    \"//fake:rule2\" : \"some\"",
+            "    \"//fake:rule2\" : \"java.lang.RuntimeException: some\"",
             "  }",
             "}");
     String observedReport =
-        new BuildReport(buildExecutionResult, resolver).generateJsonBuildReport();
+        new BuildReport(buildExecutionResult, resolver, rootCell).generateJsonBuildReport();
     assertEquals(expectedReport, observedReport);
   }
 }

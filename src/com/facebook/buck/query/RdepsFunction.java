@@ -33,13 +33,12 @@ package com.facebook.buck.query;
 import com.facebook.buck.query.QueryEnvironment.Argument;
 import com.facebook.buck.query.QueryEnvironment.ArgumentType;
 import com.facebook.buck.query.QueryEnvironment.QueryFunction;
+import com.google.common.base.Predicate;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
-import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.Set;
-import java.util.function.Predicate;
 
 /**
  * A 'rdeps(u, x, [, depth])' expression, which finds the reverse dependencies of the given argument
@@ -50,7 +49,7 @@ import java.util.function.Predicate;
  *
  * <pre>       | RDEPS '(' expr ',' expr ',' WORD ')'</pre>
  */
-public class RdepsFunction implements QueryFunction {
+public class RdepsFunction implements QueryFunction<QueryBuildTarget, QueryBuildTarget> {
 
   private static final ImmutableList<ArgumentType> ARGUMENT_TYPES =
       ImmutableList.of(ArgumentType.EXPRESSION, ArgumentType.EXPRESSION, ArgumentType.INTEGER);
@@ -78,32 +77,32 @@ public class RdepsFunction implements QueryFunction {
    * reverse transitive closure or the maximum depth (if supplied) is reached.
    */
   @Override
-  public ImmutableSet<QueryTarget> eval(
-      QueryEvaluator evaluator, QueryEnvironment env, ImmutableList<Argument> args)
+  public ImmutableSet<QueryBuildTarget> eval(
+      QueryEvaluator<QueryBuildTarget> evaluator,
+      QueryEnvironment<QueryBuildTarget> env,
+      ImmutableList<Argument<QueryBuildTarget>> args)
       throws QueryException {
-    Set<QueryTarget> universeSet = evaluator.eval(args.get(0).getExpression(), env);
+    Set<QueryBuildTarget> universeSet = evaluator.eval(args.get(0).getExpression(), env);
     env.buildTransitiveClosure(universeSet, Integer.MAX_VALUE);
-    Predicate<QueryTarget> inUniversePredicate = env.getTransitiveClosure(universeSet)::contains;
+    Predicate<QueryBuildTarget> inUniversePredicate =
+        env.getTransitiveClosure(universeSet)::contains;
 
     // LinkedHashSet preserves the order of insertion when iterating over the values.
     // The order by which we traverse the result is meaningful because the dependencies are
     // traversed level-by-level.
-    Set<QueryTarget> visited = new LinkedHashSet<>();
-    Set<QueryTarget> argumentSet = evaluator.eval(args.get(1).getExpression(), env);
-    Collection<QueryTarget> current = argumentSet;
+    Set<QueryBuildTarget> visited = new LinkedHashSet<>();
+    Set<QueryBuildTarget> current = evaluator.eval(args.get(1).getExpression(), env);
+    Predicate<QueryBuildTarget> notVisited = target -> !visited.contains(target);
 
     int depthBound = args.size() > 2 ? args.get(2).getInteger() : Integer.MAX_VALUE;
     // Iterating depthBound+1 times because the first one processes the given argument set.
     for (int i = 0; i <= depthBound; i++) {
       // Restrict the search to nodes in the transitive closure of the universe set.
-      Iterable<QueryTarget> currentInUniverse =
-          Iterables.filter(current, inUniversePredicate::test);
+      Iterable<QueryBuildTarget> currentInUniverse = Iterables.filter(current, inUniversePredicate);
 
       // Filter nodes visited before.
-      Collection<QueryTarget> next =
-          env.getReverseDeps(
-              Iterables.filter(
-                  currentInUniverse, ((Predicate<Object>) visited::contains).negate()::test));
+      Set<QueryBuildTarget> next =
+          env.getReverseDeps(Iterables.filter(currentInUniverse, notVisited));
       Iterables.addAll(visited, currentInUniverse);
       if (next.isEmpty()) {
         break;

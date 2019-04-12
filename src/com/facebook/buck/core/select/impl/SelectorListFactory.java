@@ -16,17 +16,18 @@
 
 package com.facebook.buck.core.select.impl;
 
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.TargetConfiguration;
 import com.facebook.buck.core.select.Selector;
 import com.facebook.buck.core.select.SelectorKey;
 import com.facebook.buck.core.select.SelectorList;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.parser.syntax.SelectorValue;
 import com.facebook.buck.rules.coercer.CoerceFailedException;
 import com.facebook.buck.rules.coercer.TypeCoercer;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.devtools.build.lib.syntax.SelectorValue;
 import java.nio.file.Path;
 import java.util.List;
 
@@ -50,6 +51,7 @@ public class SelectorListFactory {
       CellPathResolver cellPathResolver,
       ProjectFilesystem filesystem,
       Path pathRelativeToProjectRoot,
+      TargetConfiguration targetConfiguration,
       List<Object> elements,
       TypeCoercer<T> elementTypeCoercer)
       throws CoerceFailedException {
@@ -59,14 +61,13 @@ public class SelectorListFactory {
     for (Object element : elements) {
       if (element instanceof SelectorValue) {
         SelectorValue selectorValue = (SelectorValue) element;
-        @SuppressWarnings("unchecked")
-        ImmutableMap<String, ?> rawAttributes =
-            (ImmutableMap<String, ?>) selectorValue.getDictionary();
+        ImmutableMap<String, ?> rawAttributes = selectorValue.getDictionary();
         builder.add(
             selectorFactory.createSelector(
                 cellPathResolver,
                 filesystem,
                 pathRelativeToProjectRoot,
+                targetConfiguration,
                 rawAttributes,
                 elementTypeCoercer,
                 selectorValue.getNoMatchError()));
@@ -76,6 +77,7 @@ public class SelectorListFactory {
                 cellPathResolver,
                 filesystem,
                 pathRelativeToProjectRoot,
+                targetConfiguration,
                 ImmutableMap.of(SelectorKey.DEFAULT_KEYWORD, element),
                 elementTypeCoercer));
       }

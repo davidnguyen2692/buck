@@ -17,8 +17,13 @@
 package com.facebook.buck.cli;
 
 import com.facebook.buck.artifact_cache.ArtifactCacheFactory;
+import com.facebook.buck.command.config.BuildBuckConfig;
+import com.facebook.buck.core.model.TargetConfigurationSerializer;
+import com.facebook.buck.core.model.actiongraph.computation.ActionGraphCache;
 import com.facebook.buck.core.model.actiongraph.computation.ActionGraphConfig;
-import com.facebook.buck.core.resources.ResourcesConfig;
+import com.facebook.buck.core.model.actiongraph.computation.ActionGraphFactory;
+import com.facebook.buck.core.model.actiongraph.computation.ActionGraphProvider;
+import com.facebook.buck.core.parser.buildtargetparser.UnconfiguredBuildTargetFactory;
 import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.distributed.DistBuildConfig;
 import com.facebook.buck.distributed.DistBuildMode;
@@ -43,6 +48,7 @@ import com.facebook.buck.distributed.thrift.StampedeId;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.ProjectFilesystemFactory;
 import com.facebook.buck.rules.keys.RuleKeyCacheScope;
+import com.facebook.buck.rules.keys.config.RuleKeyConfiguration;
 import com.facebook.buck.rules.keys.config.impl.ConfigRuleKeyConfigurationFactory;
 import com.facebook.buck.slb.ClientSideSlb;
 import com.facebook.buck.slb.HttpService;
@@ -53,7 +59,6 @@ import com.facebook.buck.slb.ThriftOverHttpServiceConfig;
 import com.facebook.buck.util.concurrent.WeightedListeningExecutorService;
 import com.google.common.base.Preconditions;
 import com.google.common.util.concurrent.ListeningExecutorService;
-import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.nio.file.Path;
@@ -133,8 +138,7 @@ public abstract class DistBuildFactory {
       ScheduledExecutorService sourceFileMultiFetchScheduler,
       ListeningExecutorService executorService,
       ProjectFilesystemFactory projectFilesystemFactory,
-      Optional<Path> globalCacheDir)
-      throws IOException, InterruptedException {
+      Optional<Path> globalCacheDir) {
     return new MultiSourceContentsProvider(
         new ServerContentsProvider(
             service,
@@ -165,7 +169,9 @@ public abstract class DistBuildFactory {
       BuildSlaveTimingStatsTracker timingStatsTracker,
       CoordinatorBuildRuleEventsPublisher coordinatorBuildRuleEventsPublisher,
       MinionBuildProgressTracker minionBuildProgressTracker,
-      RuleKeyCacheScope<RuleKey> ruleKeyCacheScope) {
+      RuleKeyCacheScope<RuleKey> ruleKeyCacheScope,
+      UnconfiguredBuildTargetFactory unconfiguredBuildTargetFactory,
+      TargetConfigurationSerializer targetConfigurationSerializer) {
     Preconditions.checkArgument(state.getCells().size() > 0);
 
     // Create a cache factory which uses a combination of the distributed build config,
@@ -173,8 +179,9 @@ public abstract class DistBuildFactory {
     ArtifactCacheFactory distBuildArtifactCacheFactory =
         params.getArtifactCacheFactory().cloneWith(state.getRemoteRootCellConfig());
 
-    // ResourceConfig based on buckconfig local to Stampede worker.
-    ResourcesConfig resource = params.getBuckConfig().getView(ResourcesConfig.class);
+    RuleKeyConfiguration ruleKeyConfiguration =
+        ConfigRuleKeyConfigurationFactory.create(
+            state.getRemoteRootCellConfig(), params.getBuckModuleManager());
 
     return new DistBuildSlaveExecutor(
         DistBuildSlaveExecutorArgs.builder()
@@ -185,10 +192,27 @@ public abstract class DistBuildFactory {
             .setState(state)
             .setParser(params.getParser())
             .setExecutorService(executorService)
-            .setActionGraphCache(params.getActionGraphCache())
-            .setRuleKeyConfiguration(
-                ConfigRuleKeyConfigurationFactory.create(
-                    state.getRemoteRootCellConfig(), params.getBuckModuleManager()))
+            .setActionGraphProvider(
+                new ActionGraphProvider(
+                    params.getBuckEventBus(),
+                    ActionGraphFactory.create(
+                        params.getBuckEventBus(),
+                        state.getRootCell().getCellProvider(),
+                        params.getPoolSupplier(),
+                        state.getRemoteRootCellConfig()),
+                    new ActionGraphCache(
+                        state
+                            .getRemoteRootCellConfig()
+                            .getView(BuildBuckConfig.class)
+                            .getMaxActionGraphCacheEntries()),
+                    ruleKeyConfiguration,
+                    false,
+                    false,
+                    state
+                        .getRemoteRootCellConfig()
+                        .getView(ActionGraphConfig.class)
+                        .getIncrementalActionGraphMode()))
+            .setRuleKeyConfiguration(ruleKeyConfiguration)
             .setConsole(params.getConsole())
             .setLogDirectoryPath(params.getInvocationInfo().get().getLogDirectoryPath())
             .setProvider(fileContentsProvider)
@@ -209,13 +233,10 @@ public abstract class DistBuildFactory {
             .setMinionBuildProgressTracker(minionBuildProgressTracker)
             .setHealthCheckStatsTracker(healthCheckStatsTracker)
             .setRuleKeyCacheScope(ruleKeyCacheScope)
-            .setMaxActionGraphParallelism(resource.getMaximumResourceAmounts().getCpu())
             .setRemoteCommand(state.getRemoteState().getCommand())
-            .setActionGraphParallelizationMode(
-                params
-                    .getBuckConfig()
-                    .getView(ActionGraphConfig.class)
-                    .getActionGraphParallelizationMode())
+            .setMetadataProvider(params.getMetadataProvider())
+            .setUnconfiguredBuildTargetFactory(unconfiguredBuildTargetFactory)
+            .setTargetConfigurationSerializer(targetConfigurationSerializer)
             .build());
   }
 }

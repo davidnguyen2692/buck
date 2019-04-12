@@ -16,7 +16,7 @@
 
 package com.facebook.buck.features.ocaml;
 
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.description.arg.CommonDescriptionArg;
 import com.facebook.buck.core.description.arg.HasDeclaredDeps;
 import com.facebook.buck.core.description.attr.ImplicitDepsInferringDescription;
@@ -130,9 +130,7 @@ public class OcamlLibraryDescription
                 .add(result.getBytecodeLink())
                 .addAll(ruleFinder.filterBuildRuleInputs(result.getObjectFiles()))
                 .build(),
-            result
-                .getRules()
-                .stream()
+            result.getRules().stream()
                 .map(BuildRule::getBuildTarget)
                 .collect(ImmutableList.toImmutableList()));
 
@@ -237,7 +235,8 @@ public class OcamlLibraryDescription
             .getByName(OcamlToolchain.DEFAULT_NAME, OcamlToolchain.class)
             .getOcamlPlatforms()
             .getValues()) {
-      targetGraphOnlyDepsBuilder.addAll(OcamlUtil.getParseTimeDeps(platform));
+      targetGraphOnlyDepsBuilder.addAll(
+          OcamlUtil.getParseTimeDeps(buildTarget.getTargetConfiguration(), platform));
     }
   }
 

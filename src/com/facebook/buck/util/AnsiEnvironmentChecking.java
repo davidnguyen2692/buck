@@ -16,7 +16,7 @@
 
 package com.facebook.buck.util;
 
-import com.facebook.buck.log.Logger;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.util.environment.Platform;
 import java.util.Map;
 import java.util.Objects;
@@ -50,7 +50,7 @@ public class AnsiEnvironmentChecking {
       outputIsTty = System.console() != null;
     }
 
-    boolean result = !isWindows && !isDumbTerminal && outputIsTty;
+    boolean result = !isDumbTerminal && outputIsTty;
 
     LOG.verbose(
         "windows=%s dumbterm=%s nailgun=%s ng stdout=%s ng stderr=%s output tty=%s result=%s",

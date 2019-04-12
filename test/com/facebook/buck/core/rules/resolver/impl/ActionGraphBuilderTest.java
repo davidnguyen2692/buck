@@ -29,7 +29,6 @@ import com.facebook.buck.core.cell.TestCellBuilder;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
-import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
@@ -37,14 +36,14 @@ import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.BuildRuleResolver;
 import com.facebook.buck.core.rules.TestBuildRuleParams;
+import com.facebook.buck.core.rules.impl.FakeBuildRule;
 import com.facebook.buck.core.rules.impl.NoopBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.core.rules.transformer.TargetNodeToBuildRuleTransformer;
 import com.facebook.buck.core.rules.transformer.impl.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.core.toolchain.ToolchainProvider;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.jvm.java.JavaBinary;
 import com.facebook.buck.jvm.java.JavaLibraryBuilder;
-import com.facebook.buck.rules.FakeBuildRule;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.util.concurrent.MostExecutors;
 import com.google.common.util.concurrent.MoreExecutors;
 import java.util.Arrays;
@@ -236,7 +235,7 @@ public class ActionGraphBuilderTest {
             targetGraph,
             new TargetNodeToBuildRuleTransformer() {
               @Override
-              public <T, U extends DescriptionWithTargetGraph<T>> BuildRule transform(
+              public <T> BuildRule transform(
                   ToolchainProvider toolchainProvider,
                   TargetGraph targetGraph,
                   ActionGraphBuilder graphBuilder,
@@ -269,7 +268,7 @@ public class ActionGraphBuilderTest {
             targetGraph,
             new TargetNodeToBuildRuleTransformer() {
               @Override
-              public <T, U extends DescriptionWithTargetGraph<T>> BuildRule transform(
+              public <T> BuildRule transform(
                   ToolchainProvider toolchainProvider,
                   TargetGraph targetGraph,
                   ActionGraphBuilder graphBuilder,
@@ -306,7 +305,7 @@ public class ActionGraphBuilderTest {
     assertEquals("transform() should be called exactly twice", 2, transformCalls.size());
   }
 
-  @Test(timeout = 5000)
+  @Test(timeout = 10000)
   public void deadLockOnDependencyTest() throws ExecutionException, InterruptedException {
     Assume.assumeTrue(classUnderTest == MultiThreadedActionGraphBuilder.class);
 
@@ -358,7 +357,7 @@ public class ActionGraphBuilderTest {
               targetGraph,
               new TargetNodeToBuildRuleTransformer() {
                 @Override
-                public <T, U extends DescriptionWithTargetGraph<T>> BuildRule transform(
+                public <T> BuildRule transform(
                     ToolchainProvider toolchainProvider,
                     TargetGraph targetGraph,
                     ActionGraphBuilder graphBuilder,
@@ -377,7 +376,7 @@ public class ActionGraphBuilderTest {
                       assumeNoException(e);
                     }
 
-                    targetNode.getExtraDeps().stream().forEach(graphBuilder::requireRule);
+                    targetNode.getExtraDeps().forEach(graphBuilder::requireRule);
                   }
                   return new FakeBuildRule(targetNode.getBuildTarget());
                 }

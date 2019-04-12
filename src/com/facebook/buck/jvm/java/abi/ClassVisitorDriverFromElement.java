@@ -20,11 +20,11 @@ import com.facebook.buck.jvm.java.abi.source.api.CannotInferException;
 import com.facebook.buck.jvm.java.lang.model.BridgeMethod;
 import com.facebook.buck.jvm.java.lang.model.ElementsExtended;
 import com.facebook.buck.jvm.java.lang.model.MoreElements;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.Multimap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import javax.annotation.Nullable;
 import javax.annotation.processing.Messager;
 import javax.lang.model.SourceVersion;
@@ -89,32 +89,6 @@ class ClassVisitorDriverFromElement {
     visitor.visitEnd();
   }
 
-  /** Gets the class file version corresponding to the given source version constant. */
-  private static int sourceVersionToClassFileVersion(SourceVersion version) {
-    switch (version) {
-      case RELEASE_0:
-        return Opcodes.V1_1; // JVMS8 4.1: 1.0 and 1.1 both support version 45.3 (Opcodes.V1_1)
-      case RELEASE_1:
-        return Opcodes.V1_1;
-      case RELEASE_2:
-        return Opcodes.V1_2;
-      case RELEASE_3:
-        return Opcodes.V1_3;
-      case RELEASE_4:
-        return Opcodes.V1_4;
-      case RELEASE_5:
-        return Opcodes.V1_5;
-      case RELEASE_6:
-        return Opcodes.V1_6;
-      case RELEASE_7:
-        return Opcodes.V1_7;
-      case RELEASE_8:
-        return Opcodes.V1_8;
-      default:
-        throw new IllegalArgumentException(String.format("Unexpected source version: %s", version));
-    }
-  }
-
   private interface VisitorWithAnnotations {
     AnnotationVisitor visitAnnotation(String desc, boolean visible);
   }
@@ -125,7 +99,7 @@ class ClassVisitorDriverFromElement {
     @Override
     public Void visitPackage(PackageElement e, ClassVisitor classVisitor) {
       classVisitor.visit(
-          sourceVersionToClassFileVersion(targetVersion),
+          SourceVersionUtils.sourceVersionToClassFileVersion(targetVersion),
           Opcodes.ACC_SYNTHETIC | Opcodes.ACC_ABSTRACT | Opcodes.ACC_INTERFACE,
           e.getQualifiedName().toString().replace('.', '/') + "/package-info",
           null,
@@ -153,22 +127,29 @@ class ClassVisitorDriverFromElement {
 
       TypeMirror superclass = e.getSuperclass();
       if (superclass.getKind() == TypeKind.NONE) {
-        superclass =
-            Preconditions.checkNotNull(elements.getTypeElement("java.lang.Object")).asType();
+        superclass = Objects.requireNonNull(elements.getTypeElement("java.lang.Object")).asType();
       }
 
-      int classFileVersion = sourceVersionToClassFileVersion(targetVersion);
+      int classFileVersion = SourceVersionUtils.sourceVersionToClassFileVersion(targetVersion);
       visitor.visit(
           classFileVersion,
           accessFlagsUtils.getAccessFlagsForClassNode(e),
           descriptorFactory.getInternalName(e),
           signatureFactory.getSignature(e),
           descriptorFactory.getInternalName(superclass),
-          e.getInterfaces()
-              .stream()
+          e.getInterfaces().stream()
               .map(descriptorFactory::getInternalName)
               .toArray(size -> new String[size]));
       classVisitorStarted = true;
+
+      // Handle nests in Java 11+. See JEP 181 (https://openjdk.java.net/jeps/181) for details.
+      if (classFileVersion >= Opcodes.V11) {
+        if (e.getNestingKind().isNested()) {
+          visitNestHost(e, visitor);
+        } else {
+          visitNestMembers(e, visitor);
+        }
+      }
 
       visitAnnotations(e, visitor::visitAnnotation);
 
@@ -187,6 +168,27 @@ class ClassVisitorDriverFromElement {
       innerClassesTable.reportInnerClassReferences(visitor);
 
       return null;
+    }
+
+    private void visitNestHost(TypeElement e, ClassVisitor visitor) {
+      TypeElement nestHost = e;
+      while (nestHost.getNestingKind().isNested()) {
+        nestHost = (TypeElement) nestHost.getEnclosingElement();
+      }
+
+      visitor.visitNestHost(descriptorFactory.getInternalName(nestHost));
+    }
+
+    private void visitNestMembers(TypeElement e, ClassVisitor visitor) {
+      if (e.getNestingKind().isNested()) {
+        visitor.visitNestMember(descriptorFactory.getInternalName(e));
+      }
+
+      for (Element child : e.getEnclosedElements()) {
+        if (child.getKind().isClass() || child.getKind().isInterface()) {
+          visitNestMembers((TypeElement) child, visitor);
+        }
+      }
     }
 
     private void generateBridges(
@@ -224,9 +226,7 @@ class ClassVisitorDriverFromElement {
         innerClassesTable.addTypeReferences(toErasure);
 
         String[] exceptions =
-            toErasure
-                .getThrownTypes()
-                .stream()
+            toErasure.getThrownTypes().stream()
                 .map(descriptorFactory::getInternalName)
                 .toArray(String[]::new);
 
@@ -250,7 +250,6 @@ class ClassVisitorDriverFromElement {
                 fromMethodParameter.getSimpleName(),
                 accessFlagsUtils.getAccessFlags(fromMethodParameter) | Opcodes.ACC_SYNTHETIC,
                 annotations,
-                false,
                 methodVisitor);
           }
           innerClassesTable.addTypeReferences(fromMethod.getAnnotationMirrors());
@@ -276,8 +275,7 @@ class ClassVisitorDriverFromElement {
       }
 
       String[] exceptions =
-          e.getThrownTypes()
-              .stream()
+          e.getThrownTypes().stream()
               .map(descriptorFactory::getInternalName)
               .toArray(count -> new String[count]);
 
@@ -289,10 +287,12 @@ class ClassVisitorDriverFromElement {
               signatureFactory.getSignature(e),
               exceptions);
 
-      visitParameters(e.getParameters(), methodVisitor, MoreElements.isInnerClassConstructor(e));
-      visitDefaultValue(e, methodVisitor);
-      visitAnnotations(e, methodVisitor::visitAnnotation);
-      methodVisitor.visitEnd();
+      if (methodVisitor != null) {
+        visitParameters(e.getParameters(), methodVisitor, MoreElements.isInnerClassConstructor(e));
+        visitDefaultValue(e, methodVisitor);
+        visitAnnotations(e, methodVisitor::visitAnnotation);
+        methodVisitor.visitEnd();
+      }
 
       return null;
     }
@@ -301,10 +301,6 @@ class ClassVisitorDriverFromElement {
         List<? extends VariableElement> parameters,
         MethodVisitor methodVisitor,
         boolean isInnerClassConstructor) {
-      if (isInnerClassConstructor) {
-        // ASM uses a fake annotation to indicate synthetic parameters
-        methodVisitor.visitParameterAnnotation(0, "Ljava/lang/Synthetic;", false);
-      }
       for (int i = 0; i < parameters.size(); i++) {
         VariableElement parameter = parameters.get(i);
         visitParameter(
@@ -313,8 +309,18 @@ class ClassVisitorDriverFromElement {
             parameter.getSimpleName(),
             accessFlagsUtils.getAccessFlags(parameter),
             parameter.getAnnotationMirrors(),
-            isInnerClassConstructor,
             methodVisitor);
+      }
+      if (isInnerClassConstructor) {
+        // As of ASM 6.1, ASM no longer attempts to map bytecode parameter indices to source level
+        // parameter indices for parameter annotations. To maintain binary compatibility with class
+        // ABI jars, we override the default behavior of emitting a
+        // Runtime[In]VisibleParameterAnnotations entry (even if empty) for all parameters in the
+        // method descriptor, including synthetic ones. Note that the <code>parameters</code> list
+        // here does not include synthetic parameters. See comment in <code>visitParameter</code>.
+        // See https://gitlab.ow2.org/asm/asm/merge_requests/56 for more details.
+        methodVisitor.visitAnnotableParameterCount(parameters.size(), false);
+        methodVisitor.visitAnnotableParameterCount(parameters.size(), true);
       }
     }
 
@@ -324,7 +330,6 @@ class ClassVisitorDriverFromElement {
         Name name,
         int access,
         List<? extends AnnotationMirror> annotationMirrors,
-        boolean isInnerClassConstructor,
         MethodVisitor methodVisitor) {
       if (includeParameterMetadata) {
         methodVisitor.visitParameter(name.toString(), access);
@@ -339,10 +344,14 @@ class ClassVisitorDriverFromElement {
           reportMissingAnnotationType(parameter, annotationMirror);
           continue;
         }
+        // Note: We purposely don't attempt to remap source level parameter indices to bytecode
+        //       parameter indices here when we have a synthetic first parameter for an inner class
+        //       constructor, as this would cause ASM to emit an empty parameter annotation entry
+        //       for the synthetic parameter. See comment in <code>visitParameters</code>.
         visitAnnotationValues(
             annotationMirror,
             methodVisitor.visitParameterAnnotation(
-                isInnerClassConstructor ? index + 1 : index,
+                index,
                 descriptorFactory.getDescriptor(annotationMirror.getAnnotationType()),
                 MoreElements.isRuntimeRetention(annotationMirror)));
       }

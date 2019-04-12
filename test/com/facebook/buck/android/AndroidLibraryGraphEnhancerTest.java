@@ -30,16 +30,17 @@ import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.impl.FakeBuildRule;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.core.sourcepath.FakeSourcePath;
-import com.facebook.buck.jvm.java.AnnotationProcessingParams;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.jvm.java.FakeJavaLibrary;
 import com.facebook.buck.jvm.java.JavaBuckConfig;
 import com.facebook.buck.jvm.java.JavacFactoryHelper;
+import com.facebook.buck.jvm.java.JavacLanguageLevelOptions;
 import com.facebook.buck.jvm.java.JavacOptions;
+import com.facebook.buck.jvm.java.JavacPluginParams;
 import com.facebook.buck.jvm.java.JavacToJarStepFactory;
-import com.facebook.buck.rules.FakeBuildRule;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.util.DependencyMode;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -153,10 +154,7 @@ public class AndroidLibraryGraphEnhancerTest {
     assertEquals(
         "DummyRDotJava must depend on the two AndroidResourceRules.",
         ImmutableSet.of("//android_res/com/example:res1", "//android_res/com/example:res2"),
-        dummyRDotJava
-            .get()
-            .getBuildDeps()
-            .stream()
+        dummyRDotJava.get().getBuildDeps().stream()
             .map(Object::toString)
             .collect(ImmutableSet.toImmutableSet()));
   }
@@ -190,10 +188,13 @@ public class AndroidLibraryGraphEnhancerTest {
             ImmutableSortedSet.of(resourceRule1, resourceRule2),
             DEFAULT_JAVAC,
             JavacOptions.builder(ANDROID_JAVAC_OPTIONS)
-                .setAnnotationProcessingParams(
-                    AnnotationProcessingParams.builder().setProcessOnly(true).build())
-                .setSourceLevel("7")
-                .setTargetLevel("7")
+                .setJavaAnnotationProcessorParams(
+                    JavacPluginParams.builder().setProcessOnly(true).build())
+                .setLanguageLevelOptions(
+                    JavacLanguageLevelOptions.builder()
+                        .setSourceLevel("7")
+                        .setTargetLevel("7")
+                        .build())
                 .build(),
             DependencyMode.FIRST_ORDER,
             /* forceFinalResourceIds */ false,
@@ -208,8 +209,8 @@ public class AndroidLibraryGraphEnhancerTest {
     assertTrue(dummyRDotJava.isPresent());
     JavacOptions javacOptions =
         ((JavacToJarStepFactory) dummyRDotJava.get().getCompileStepFactory()).getJavacOptions();
-    assertFalse(javacOptions.getAnnotationProcessingParams().getProcessOnly());
-    assertEquals("7", javacOptions.getSourceLevel());
+    assertFalse(javacOptions.getJavaAnnotationProcessorParams().getProcessOnly());
+    assertEquals("7", javacOptions.getLanguageLevelOptions().getSourceLevel());
   }
 
   @Test
@@ -226,7 +227,11 @@ public class AndroidLibraryGraphEnhancerTest {
             .build()
             .getView(JavaBuckConfig.class);
     BuildTarget target = BuildTargetFactory.newInstance("//:rule");
-    JavacOptions options = JavacOptions.builder().setSourceLevel("5").setTargetLevel("5").build();
+    JavacOptions options =
+        JavacOptions.builder()
+            .setLanguageLevelOptions(
+                JavacLanguageLevelOptions.builder().setSourceLevel("5").setTargetLevel("5").build())
+            .build();
     AndroidLibraryGraphEnhancer graphEnhancer =
         new AndroidLibraryGraphEnhancer(
             target,

@@ -16,7 +16,7 @@
 
 package com.facebook.buck.apple.simulator;
 
-import com.facebook.buck.log.Logger;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.ProcessExecutorParams;
 import com.google.common.base.Preconditions;
@@ -95,7 +95,7 @@ public class AppleSimulatorController {
   public boolean canStartSimulator(String simulatorUdid) throws IOException, InterruptedException {
     ImmutableSet<String> bootedSimulatorDeviceUdids =
         getBootedSimulatorDeviceUdids(processExecutor);
-    if (bootedSimulatorDeviceUdids.size() == 0) {
+    if (bootedSimulatorDeviceUdids.isEmpty()) {
       return true;
     } else if (bootedSimulatorDeviceUdids.size() > 1) {
       LOG.debug(

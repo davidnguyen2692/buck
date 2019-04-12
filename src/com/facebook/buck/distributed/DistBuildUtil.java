@@ -18,7 +18,9 @@ package com.facebook.buck.distributed;
 
 import static com.facebook.buck.util.BuckConstant.DIST_BUILD_SLAVE_BUCK_OUT_LOG_DIR_NAME;
 
+import com.facebook.buck.core.config.AliasConfig;
 import com.facebook.buck.core.config.BuckConfig;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.distributed.thrift.BuildMode;
 import com.facebook.buck.distributed.thrift.BuildSlaveConsoleEvent;
 import com.facebook.buck.distributed.thrift.BuildSlaveEvent;
@@ -30,7 +32,6 @@ import com.facebook.buck.distributed.thrift.MinionRequirements;
 import com.facebook.buck.distributed.thrift.MinionType;
 import com.facebook.buck.distributed.thrift.SchedulingEnvironmentType;
 import com.facebook.buck.event.ConsoleEvent;
-import com.facebook.buck.log.Logger;
 import com.facebook.buck.util.BuckConstant;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
@@ -109,9 +110,7 @@ public class DistBuildUtil {
       return 0;
     }
 
-    return minionRequirements
-        .getRequirements()
-        .stream()
+    return minionRequirements.getRequirements().stream()
         .mapToInt(req -> req.getRequiredCount())
         .sum();
   }
@@ -176,7 +175,7 @@ public class DistBuildUtil {
     ImmutableSet.Builder<String> buildTargets = new ImmutableSet.Builder<>();
     for (String commandArg : commandArgs) {
       ImmutableSet<String> buildTargetForAliasAsString =
-          buckConfig.getBuildTargetForAliasAsString(commandArg);
+          AliasConfig.from(buckConfig).getBuildTargetForAliasAsString(commandArg);
       if (buildTargetForAliasAsString.size() > 0) {
         buildTargets.addAll(buildTargetForAliasAsString);
       } else {
@@ -195,7 +194,7 @@ public class DistBuildUtil {
   /** Checks whether the given targets match the Stampede project whitelist */
   protected static boolean doTargetsMatchProjectWhitelist(
       ImmutableSet<String> buildTargets, ImmutableSet<String> projectWhitelist) {
-    if (buildTargets.size() == 0) {
+    if (buildTargets.isEmpty()) {
       return false;
     }
     boolean mismatchFound = false;

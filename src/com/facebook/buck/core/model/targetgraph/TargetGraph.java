@@ -17,7 +17,6 @@
 package com.facebook.buck.core.model.targetgraph;
 
 import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.model.impl.ImmutableBuildTarget;
 import com.facebook.buck.core.util.graph.AbstractBreadthFirstTraversal;
 import com.facebook.buck.core.util.graph.DirectedAcyclicGraph;
 import com.facebook.buck.core.util.graph.MutableDirectedGraph;
@@ -25,12 +24,10 @@ import com.facebook.buck.util.MoreMaps;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
-import java.util.Collection;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
-import java.util.stream.Stream;
 import javax.annotation.Nullable;
 
 /** Represents the graph of {@link TargetNode}s constructed by parsing the build files. */
@@ -63,7 +60,7 @@ public class TargetGraph extends DirectedAcyclicGraph<TargetNode<?>> {
   protected TargetNode<?> getInternal(BuildTarget target) {
     TargetNode<?> node = targetsToNodes.get(target);
     if (node == null) {
-      node = targetsToNodes.get(ImmutableBuildTarget.of(target.getUnflavoredBuildTarget()));
+      node = targetsToNodes.get(target.withoutFlavors());
       if (node == null) {
         return null;
       }
@@ -97,11 +94,6 @@ public class TargetGraph extends DirectedAcyclicGraph<TargetNode<?>> {
 
   public Iterable<TargetNode<?>> getAll(Iterable<BuildTarget> targets) {
     return Iterables.transform(targets, this::get);
-  }
-
-  /** Returns a stream of target nodes corresponding to passed build targets. */
-  public Stream<TargetNode<?>> streamAll(Collection<BuildTarget> targets) {
-    return targets.stream().map(this::get);
   }
 
   @Override
@@ -147,8 +139,7 @@ public class TargetGraph extends DirectedAcyclicGraph<TargetNode<?>> {
         subgraph.addNode(node);
         MoreMaps.putCheckEquals(index, node.getBuildTarget(), node);
         if (node.getBuildTarget().isFlavored()) {
-          BuildTarget unflavoredBuildTarget =
-              ImmutableBuildTarget.of(node.getBuildTarget().getUnflavoredBuildTarget());
+          BuildTarget unflavoredBuildTarget = node.getBuildTarget().withoutFlavors();
           MoreMaps.putCheckEquals(
               index, unflavoredBuildTarget, targetsToNodes.get(unflavoredBuildTarget));
         }

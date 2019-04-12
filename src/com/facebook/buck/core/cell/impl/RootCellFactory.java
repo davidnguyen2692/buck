@@ -17,22 +17,23 @@
 package com.facebook.buck.core.cell.impl;
 
 import com.facebook.buck.core.cell.Cell;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.cell.CellProvider;
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
 import com.facebook.buck.core.config.BuckConfig;
+import com.facebook.buck.core.model.TargetConfiguration;
 import com.facebook.buck.core.module.BuckModuleManager;
 import com.facebook.buck.core.toolchain.ToolchainProvider;
 import com.facebook.buck.core.toolchain.ToolchainProviderFactory;
 import com.facebook.buck.core.toolchain.impl.DefaultToolchainProvider;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.io.watchman.Watchman;
 import com.facebook.buck.rules.keys.config.RuleKeyConfiguration;
 import com.facebook.buck.rules.keys.config.impl.ConfigRuleKeyConfigurationFactory;
 import com.facebook.buck.util.ProcessExecutor;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
 import java.util.Optional;
+import java.util.function.Supplier;
 import org.pf4j.PluginManager;
 
 /**
@@ -42,9 +43,9 @@ import org.pf4j.PluginManager;
  * directory since the root of the provided filesystem is considered to be the root of the cell. Its
  * name is also empty.
  */
-class RootCellFactory {
+public class RootCellFactory {
 
-  static Cell create(
+  public static Cell create(
       CellProvider cellProvider,
       CellPathResolver rootCellCellPathResolver,
       CellPathResolver rootCellPathResolver,
@@ -55,7 +56,7 @@ class RootCellFactory {
       ImmutableMap<String, String> environment,
       ProcessExecutor processExecutor,
       ExecutableFinder executableFinder,
-      Watchman watchman) {
+      Supplier<TargetConfiguration> targetConfiguration) {
     Preconditions.checkState(
         !rootCellCellPathResolver.getCanonicalCellName(rootFilesystem.getRootPath()).isPresent(),
         "Root cell should be nameless");
@@ -69,17 +70,16 @@ class RootCellFactory {
             rootFilesystem,
             processExecutor,
             executableFinder,
-            ruleKeyConfiguration);
+            ruleKeyConfiguration,
+            targetConfiguration);
     return ImmutableCell.of(
         rootCellCellPathResolver.getKnownRoots(),
         Optional.empty(),
-        watchman,
+        rootFilesystem,
+        rootConfig,
         cellProvider,
         toolchainProvider,
-        ruleKeyConfiguration,
-        rootCellPathResolver,
-        rootFilesystem,
-        rootConfig);
+        rootCellPathResolver);
   }
 
   static Cell create(
@@ -88,8 +88,7 @@ class RootCellFactory {
       ToolchainProviderFactory toolchainProviderFactory,
       ProjectFilesystem rootFilesystem,
       BuckModuleManager moduleManager,
-      BuckConfig rootConfig,
-      Watchman watchman) {
+      BuckConfig rootConfig) {
     Preconditions.checkState(
         !rootCellCellPathResolver.getCanonicalCellName(rootFilesystem.getRootPath()).isPresent(),
         "Root cell should be nameless");
@@ -100,12 +99,10 @@ class RootCellFactory {
     return ImmutableCell.of(
         rootCellCellPathResolver.getKnownRoots(),
         Optional.empty(),
-        watchman,
+        rootFilesystem,
+        rootConfig,
         cellProvider,
         toolchainProvider,
-        ruleKeyConfiguration,
-        rootCellCellPathResolver,
-        rootFilesystem,
-        rootConfig);
+        rootCellCellPathResolver);
   }
 }

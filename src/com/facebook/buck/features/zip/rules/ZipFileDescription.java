@@ -24,8 +24,13 @@ import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTarg
 import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.versions.VersionPropagator;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
+import java.util.Optional;
+import java.util.regex.Pattern;
 import org.immutables.value.Value;
 
 public class ZipFileDescription
@@ -43,14 +48,24 @@ public class ZipFileDescription
       BuildTarget buildTarget,
       BuildRuleParams params,
       ZipFileDescriptionArg args) {
+
+    ImmutableList<SourcePath> zipSources = args.getZipSrcs();
+    Optional<Boolean> mergeSourceZips = args.getMergeSourceZips();
+
+    if (!zipSources.isEmpty() && mergeSourceZips.isPresent())
+      throw new IllegalArgumentException(
+          "Illegal to define merge_source_zips when zip_srcs is present in " + buildTarget);
+
     return new Zip(
         new SourcePathRuleFinder(context.getActionGraphBuilder()),
         buildTarget,
         context.getProjectFilesystem(),
         args.getOut(),
         args.getSrcs(),
+        zipSources,
         args.getFlatten(),
-        args.getMergeSourceZips());
+        mergeSourceZips,
+        args.getEntriesToExclude());
   }
 
   @Override
@@ -71,9 +86,10 @@ public class ZipFileDescription
       return false;
     }
 
-    @Value.Default
-    default boolean getMergeSourceZips() {
-      return true;
-    }
+    Optional<Boolean> getMergeSourceZips();
+
+    ImmutableSet<Pattern> getEntriesToExclude();
+
+    ImmutableList<SourcePath> getZipSrcs();
   }
 }

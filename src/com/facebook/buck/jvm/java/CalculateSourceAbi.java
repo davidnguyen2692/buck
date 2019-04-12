@@ -16,20 +16,16 @@
 
 package com.facebook.buck.jvm.java;
 
-import com.facebook.buck.core.build.buildable.context.BuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
-import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.attr.BuildOutputInitializer;
 import com.facebook.buck.core.rules.attr.InitializableFromDisk;
 import com.facebook.buck.core.rules.attr.SupportsDependencyFileRuleKey;
-import com.facebook.buck.core.rules.attr.SupportsInputBasedRuleKey;
-import com.facebook.buck.core.rules.common.BuildDeps;
-import com.facebook.buck.core.rules.common.RecordArtifactVerifier;
-import com.facebook.buck.core.rules.impl.AbstractBuildRule;
+import com.facebook.buck.core.rules.modern.annotations.CustomFieldBehavior;
+import com.facebook.buck.core.rules.modern.annotations.DefaultFieldSerialization;
 import com.facebook.buck.core.rules.pipeline.RulePipelineStateFactory;
 import com.facebook.buck.core.rules.pipeline.SupportsPipelining;
 import com.facebook.buck.core.sourcepath.SourcePath;
@@ -38,62 +34,107 @@ import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.core.DefaultJavaAbiInfo;
 import com.facebook.buck.jvm.core.JavaAbiInfo;
 import com.facebook.buck.jvm.core.JavaAbis;
+import com.facebook.buck.jvm.java.CalculateSourceAbi.SourceAbiBuildable;
+import com.facebook.buck.rules.modern.BuildCellRelativePathFactory;
+import com.facebook.buck.rules.modern.OutputPathResolver;
+import com.facebook.buck.rules.modern.PipelinedBuildable;
+import com.facebook.buck.rules.modern.PipelinedModernBuildRule;
+import com.facebook.buck.rules.modern.PublicOutputPath;
+import com.facebook.buck.rules.modern.impl.ModernBuildableSupport;
 import com.facebook.buck.step.Step;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import java.io.IOException;
-import java.util.SortedSet;
+import java.util.Objects;
 import java.util.function.Predicate;
 import javax.annotation.Nullable;
 
-public class CalculateSourceAbi extends AbstractBuildRule
-    implements CalculateAbi,
-        InitializableFromDisk<Object>,
-        SupportsDependencyFileRuleKey,
-        SupportsInputBasedRuleKey,
-        SupportsPipelining<JavacPipelineState> {
-  @AddToRuleKey private final JarBuildStepsFactory jarBuildStepsFactory;
+/**
+ * Source Abi calculation. Derives the abi from the source files (possibly with access to
+ * dependencies).
+ */
+public class CalculateSourceAbi
+    extends PipelinedModernBuildRule<JavacPipelineState, SourceAbiBuildable>
+    implements CalculateAbi, InitializableFromDisk<Object>, SupportsDependencyFileRuleKey {
 
-  // This will be added to the rule key by virtue of being returned from getBuildDeps.
-  private final BuildDeps buildDeps;
   private final BuildOutputInitializer<Object> buildOutputInitializer;
   private final SourcePathRuleFinder ruleFinder;
-  private final DefaultJavaAbiInfo javaAbiInfo;
+  private final JavaAbiInfo javaAbiInfo;
 
   private final SourcePath sourcePathToOutput;
 
   public CalculateSourceAbi(
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
-      BuildDeps buildDeps,
       JarBuildStepsFactory jarBuildStepsFactory,
       SourcePathRuleFinder ruleFinder) {
-    super(buildTarget, projectFilesystem);
-    this.buildDeps = buildDeps;
-    this.jarBuildStepsFactory = jarBuildStepsFactory;
+    super(
+        buildTarget,
+        projectFilesystem,
+        ruleFinder,
+        new SourceAbiBuildable(buildTarget, projectFilesystem, jarBuildStepsFactory));
     this.ruleFinder = ruleFinder;
     this.buildOutputInitializer = new BuildOutputInitializer<>(getBuildTarget(), this);
     this.sourcePathToOutput =
-        Preconditions.checkNotNull(
+        Objects.requireNonNull(
             jarBuildStepsFactory.getSourcePathToOutput(getBuildTarget(), getProjectFilesystem()));
-    this.javaAbiInfo = new DefaultJavaAbiInfo(getBuildTarget(), getSourcePathToOutput());
+    this.javaAbiInfo = new DefaultJavaAbiInfo(getSourcePathToOutput());
   }
 
-  @Override
-  public SortedSet<BuildRule> getBuildDeps() {
-    return buildDeps;
-  }
+  /** Buildable implementation. */
+  public static class SourceAbiBuildable implements PipelinedBuildable<JavacPipelineState> {
+    @AddToRuleKey(stringify = true)
+    @CustomFieldBehavior(DefaultFieldSerialization.class)
+    private final BuildTarget buildTarget;
 
-  @Override
-  public ImmutableList<Step> getBuildSteps(
-      BuildContext context, BuildableContext buildableContext) {
-    return jarBuildStepsFactory.getBuildStepsForAbiJar(
-        context, getProjectFilesystem(), getArtifactVerifier(buildableContext), getBuildTarget());
+    @AddToRuleKey private final JarBuildStepsFactory jarBuildStepsFactory;
+
+    @AddToRuleKey private final PublicOutputPath rootOutputPath;
+    @AddToRuleKey private final PublicOutputPath annotationsOutputPath;
+
+    public SourceAbiBuildable(
+        BuildTarget buildTarget,
+        ProjectFilesystem filesystem,
+        JarBuildStepsFactory jarBuildStepsFactory) {
+      this.buildTarget = buildTarget;
+      this.jarBuildStepsFactory = jarBuildStepsFactory;
+
+      CompilerOutputPaths outputPaths = CompilerOutputPaths.of(buildTarget, filesystem);
+      this.rootOutputPath = new PublicOutputPath(outputPaths.getOutputJarDirPath());
+      this.annotationsOutputPath = new PublicOutputPath(outputPaths.getAnnotationPath());
+    }
+
+    @Override
+    public ImmutableList<Step> getBuildSteps(
+        BuildContext buildContext,
+        ProjectFilesystem filesystem,
+        OutputPathResolver outputPathResolver,
+        BuildCellRelativePathFactory buildCellPathFactory) {
+      return jarBuildStepsFactory.getBuildStepsForAbiJar(
+          buildContext,
+          filesystem,
+          ModernBuildableSupport.getDerivedArtifactVerifier(buildTarget, filesystem, this),
+          buildTarget);
+    }
+
+    @Override
+    public ImmutableList<Step> getPipelinedBuildSteps(
+        BuildContext buildContext,
+        ProjectFilesystem filesystem,
+        JavacPipelineState state,
+        OutputPathResolver outputPathResolver,
+        BuildCellRelativePathFactory buildCellPathFactory) {
+      return jarBuildStepsFactory.getPipelinedBuildStepsForAbiJar(
+          buildTarget,
+          buildContext,
+          filesystem,
+          ModernBuildableSupport.getDerivedArtifactVerifier(buildTarget, filesystem, this),
+          state);
+    }
   }
 
   @Override
   public SourcePath getSourcePathToOutput() {
-    return Preconditions.checkNotNull(sourcePathToOutput);
+    return Objects.requireNonNull(sourcePathToOutput);
   }
 
   @Override
@@ -130,48 +171,33 @@ public class CalculateSourceAbi extends AbstractBuildRule
   }
 
   @Override
-  public ImmutableList<? extends Step> getPipelinedBuildSteps(
-      BuildContext context, BuildableContext buildableContext, JavacPipelineState state) {
-    return jarBuildStepsFactory.getPipelinedBuildStepsForAbiJar(
-        getBuildTarget(),
-        context,
-        getProjectFilesystem(),
-        getArtifactVerifier(buildableContext),
-        state);
-  }
-
-  private RecordArtifactVerifier getArtifactVerifier(BuildableContext buildableContext) {
-    CompilerOutputPaths outputPaths =
-        CompilerOutputPaths.of(getBuildTarget(), getProjectFilesystem());
-    return new RecordArtifactVerifier(
-        ImmutableList.of(outputPaths.getOutputJarDirPath(), outputPaths.getAnnotationPath()),
-        buildableContext);
-  }
-
-  @Override
   public RulePipelineStateFactory<JavacPipelineState> getPipelineStateFactory() {
-    return jarBuildStepsFactory;
+    return getBuildable().jarBuildStepsFactory;
   }
 
   @Override
   public boolean useDependencyFileRuleKeys() {
-    return jarBuildStepsFactory.useDependencyFileRuleKeys();
+    return getBuildable().jarBuildStepsFactory.useDependencyFileRuleKeys();
   }
 
   @Override
   public Predicate<SourcePath> getCoveredByDepFilePredicate(SourcePathResolver pathResolver) {
-    return jarBuildStepsFactory.getCoveredByDepFilePredicate(pathResolver, ruleFinder);
+    return getBuildable()
+        .jarBuildStepsFactory
+        .getCoveredByDepFilePredicate(pathResolver, ruleFinder);
   }
 
   @Override
   public Predicate<SourcePath> getExistenceOfInterestPredicate(SourcePathResolver pathResolver) {
-    return jarBuildStepsFactory.getExistenceOfInterestPredicate(pathResolver);
+    return getBuildable().jarBuildStepsFactory.getExistenceOfInterestPredicate(pathResolver);
   }
 
   @Override
   public ImmutableList<SourcePath> getInputsAfterBuildingLocally(
       BuildContext context, CellPathResolver cellPathResolver) {
-    return jarBuildStepsFactory.getInputsAfterBuildingLocally(
-        context, getProjectFilesystem(), ruleFinder, cellPathResolver, getBuildTarget());
+    return getBuildable()
+        .jarBuildStepsFactory
+        .getInputsAfterBuildingLocally(
+            context, getProjectFilesystem(), ruleFinder, cellPathResolver, getBuildTarget());
   }
 }

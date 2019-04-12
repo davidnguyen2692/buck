@@ -50,6 +50,7 @@ public class MorePaths {
   private MorePaths() {}
 
   public static final Path EMPTY_PATH = Paths.get("");
+  public static final Path CWD_PATH = Paths.get(".");
 
   public static String pathWithUnixSeparators(String path) {
     return pathWithUnixSeparators(Paths.get(path));
@@ -377,7 +378,7 @@ public class MorePaths {
   public static void createSymLink(@Nullable WindowsFS winFS, Path symLink, Path target)
       throws IOException {
     if (Platform.detect() == Platform.WINDOWS) {
-      Preconditions.checkNotNull(winFS);
+      Objects.requireNonNull(winFS);
       target = MorePaths.normalize(symLink.getParent().resolve(target));
       winFS.createSymbolicLink(symLink, target, isDirectory(target));
     } else {

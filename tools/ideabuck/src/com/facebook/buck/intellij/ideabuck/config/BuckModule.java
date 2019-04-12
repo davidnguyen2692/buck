@@ -16,11 +16,9 @@
 
 package com.facebook.buck.intellij.ideabuck.config;
 
-import com.facebook.buck.intellij.ideabuck.autodeps.BuckAutoDepsContributor;
 import com.facebook.buck.intellij.ideabuck.debugger.AndroidDebugger;
 import com.facebook.buck.intellij.ideabuck.file.BuckFileUtil;
 import com.facebook.buck.intellij.ideabuck.ui.BuckEventsConsumer;
-import com.facebook.buck.intellij.ideabuck.ui.BuckToolWindowFactory;
 import com.facebook.buck.intellij.ideabuck.ui.BuckUIManager;
 import com.facebook.buck.intellij.ideabuck.ui.utils.BuckPluginNotifications;
 import com.facebook.buck.intellij.ideabuck.ws.BuckClientManager;
@@ -31,7 +29,6 @@ import com.intellij.ide.ui.UISettings;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.components.ProjectComponent;
 import com.intellij.openapi.project.Project;
-import com.intellij.psi.PsiDocumentManager;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public final class BuckModule implements ProjectComponent {
@@ -73,9 +70,6 @@ public final class BuckModule implements ProjectComponent {
     }
 
     mBuckEventsConsumer = new BuckEventsConsumer(mProject);
-
-    PsiDocumentManager manager = PsiDocumentManager.getInstance(mProject);
-    manager.addListener(new BuckAutoDepsContributor(mProject));
   }
 
   @Override
@@ -102,10 +96,24 @@ public final class BuckModule implements ProjectComponent {
     }
   }
 
+  /**
+   * A shortcut of calling attachWithText("Building " + target)
+   *
+   * @param target The target name to be built
+   */
   public void attach(String target) {
+    attachWithText("Building " + target);
+  }
+
+  /**
+   * Detach and then re-attach the event consumers
+   *
+   * @param text The text to be displayed in the BuckTextNode
+   */
+  public void attachWithText(String text) {
     mBuckEventsConsumer.detach();
 
-    mBuckEventsConsumer.attach(target, BuckUIManager.getInstance(mProject).getTreeModel());
+    mBuckEventsConsumer.attach(text);
   }
 
   public BuckEventsConsumer getBuckEventsConsumer() {
@@ -122,10 +130,10 @@ public final class BuckModule implements ProjectComponent {
                 public void run() {
                   // If we haven't closed the project, then we show the message
                   if (!mProject.isDisposed()) {
-                    BuckToolWindowFactory.outputConsoleMessage(
-                        mProject,
-                        "Disconnected from buck!\n",
-                        ConsoleViewContentType.SYSTEM_OUTPUT);
+                    BuckUIManager.getInstance(mProject)
+                        .getBuckDebugPanel()
+                        .outputConsoleMessage(
+                            "Disconnected from buck!\n", ConsoleViewContentType.SYSTEM_OUTPUT);
                   }
                 }
               });
@@ -147,8 +155,10 @@ public final class BuckModule implements ProjectComponent {
                   // If we connected to Buck and then closed the project, before getting
                   // the success message
                   if (!mProject.isDisposed()) {
-                    BuckToolWindowFactory.outputConsoleMessage(
-                        mProject, "Connected to buck!\n", ConsoleViewContentType.SYSTEM_OUTPUT);
+                    BuckUIManager.getInstance(mProject)
+                        .getBuckDebugPanel()
+                        .outputConsoleMessage(
+                            "Connected to buck!\n", ConsoleViewContentType.SYSTEM_OUTPUT);
                   }
                 }
               });

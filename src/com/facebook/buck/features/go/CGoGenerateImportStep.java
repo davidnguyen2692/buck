@@ -16,18 +16,19 @@
 
 package com.facebook.buck.features.go;
 
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
 import com.facebook.buck.shell.ShellStep;
-import com.facebook.buck.step.ExecutionContext;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import java.nio.file.Path;
+import java.util.function.Supplier;
 
 public class CGoGenerateImportStep extends ShellStep {
   @AddToRuleKey private final ImmutableList<String> cgoCommandPrefix;
   @AddToRuleKey private final GoPlatform platform;
 
-  private final Path packageName;
+  private final Supplier<String> packageName;
   private final Path bin;
   private final Path outputFile;
 
@@ -35,7 +36,7 @@ public class CGoGenerateImportStep extends ShellStep {
       Path workingDirectory,
       ImmutableList<String> cgoCommandPrefix,
       GoPlatform platform,
-      Path packageName,
+      Supplier<String> packageName,
       Path bin,
       Path outputFile) {
     super(workingDirectory);
@@ -50,7 +51,7 @@ public class CGoGenerateImportStep extends ShellStep {
   protected ImmutableList<String> getShellCommandInternal(ExecutionContext context) {
     return ImmutableList.<String>builder()
         .addAll(cgoCommandPrefix)
-        .add("-dynpackage", packageName.getFileName().toString())
+        .add("-dynpackage", packageName.get())
         .add("-dynimport", bin.toString())
         .add("-dynout", outputFile.toString())
         .build();
@@ -60,9 +61,9 @@ public class CGoGenerateImportStep extends ShellStep {
   public ImmutableMap<String, String> getEnvironmentVariables(ExecutionContext context) {
     return ImmutableMap.<String, String>builder()
         .putAll(context.getEnvironment())
-        .put("GOOS", platform.getGoOs())
-        .put("GOARCH", platform.getGoArch())
-        .put("GOARM", platform.getGoArm())
+        .put("GOOS", platform.getGoOs().getEnvVarValue())
+        .put("GOARCH", platform.getGoArch().getEnvVarValue())
+        .put("GOARM", platform.getGoArch().getEnvVarValueForArm())
         .build();
   }
 

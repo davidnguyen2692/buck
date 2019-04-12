@@ -16,7 +16,7 @@
 
 package com.facebook.buck.core.model.targetgraph.impl;
 
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.description.BaseDescription;
 import com.facebook.buck.core.description.impl.DescriptionCache;
 import com.facebook.buck.core.exceptions.HumanReadableException;
@@ -34,11 +34,9 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Sets;
-import com.google.common.hash.HashCode;
 import java.nio.file.Path;
 import java.util.Optional;
 import java.util.Set;
-import java.util.stream.Stream;
 import org.immutables.value.Value;
 
 /**
@@ -58,11 +56,6 @@ abstract class AbstractImmutableTargetNode<T> implements TargetNode<T> {
   @Value.Parameter
   @Override
   public abstract NodeCopier getNodeCopier();
-
-  /** @return A hash of the raw input from the build file used to construct the node. */
-  @Value.Parameter
-  @Override
-  public abstract HashCode getRawInputsHashCode();
 
   // TODO(#22139496): Currently, `Descriptions` don't implement content equality, so we exclude it
   // from the `equals`/`hashCode` implementation of `TargetNode`.  This should be fine, as we
@@ -141,18 +134,6 @@ abstract class AbstractImmutableTargetNode<T> implements TargetNode<T> {
   @Override
   public Set<BuildTarget> getParseDeps() {
     return Sets.union(getBuildDeps(), getTargetGraphOnlyDeps());
-  }
-
-  /**
-   * Stream-style API for getting dependencies. This may return duplicates if certain dependencies
-   * are in both declared deps and exported deps.
-   *
-   * <p>This method can be faster than {@link #getBuildDeps()} in cases where repeated traversals
-   * and set operations are not necessary, as it avoids creating the intermediate set.
-   */
-  @Override
-  public Stream<BuildTarget> getBuildDepsStream() {
-    return Stream.concat(getDeclaredDeps().stream(), getExtraDeps().stream());
   }
 
   @Override

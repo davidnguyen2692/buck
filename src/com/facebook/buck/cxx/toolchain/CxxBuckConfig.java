@@ -17,10 +17,13 @@
 package com.facebook.buck.cxx.toolchain;
 
 import com.facebook.buck.core.config.BuckConfig;
+import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.InternalFlavor;
 import com.facebook.buck.core.model.RuleType;
+import com.facebook.buck.core.model.TargetConfiguration;
+import com.facebook.buck.core.model.UnconfiguredBuildTargetView;
 import com.facebook.buck.core.model.UserFlavor;
 import com.facebook.buck.core.rules.schedule.RuleScheduleInfo;
 import com.facebook.buck.core.sourcepath.PathSourcePath;
@@ -29,17 +32,21 @@ import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.core.toolchain.tool.impl.HashedFileTool;
 import com.facebook.buck.core.toolchain.toolprovider.ToolProvider;
 import com.facebook.buck.core.toolchain.toolprovider.impl.BinaryBuildRuleToolProvider;
+import com.facebook.buck.core.toolchain.toolprovider.impl.ConstantToolProvider;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
+import com.facebook.buck.cxx.toolchain.ArchiverProvider.LegacyArchiverType;
 import com.facebook.buck.cxx.toolchain.linker.DefaultLinkerProvider;
 import com.facebook.buck.cxx.toolchain.linker.LinkerProvider;
 import com.facebook.buck.rules.tool.config.ToolConfig;
 import com.facebook.buck.util.environment.Platform;
+import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import java.nio.file.Path;
 import java.util.Optional;
 import javax.annotation.Nullable;
@@ -69,6 +76,7 @@ public class CxxBuckConfig {
   private static final String HEADERS_SYMLINKS_ENABLED = "headers_symlinks_enabled";
   private static final String LINK_WEIGHT = "link_weight";
   private static final String CACHE_LINKS = "cache_links";
+  private static final String CACHE_STRIPS = "cache_strips";
   private static final String CACHE_BINARIES = "cache_binaries";
   private static final String PCH_ENABLED = "pch_enabled";
   private static final String ARCHIVE_CONTENTS = "archive_contents";
@@ -83,41 +91,52 @@ public class CxxBuckConfig {
   private static final String INDEPENDENT_SHLIB_INTERFACE_LDFLAGS =
       "independent_shlib_interface_ldflags";
   private static final String DECLARED_PLATFORMS = "declared_platforms";
+  private static final String BINARY_EXT = "binary_extension";
   private static final String SHARED_LIBRARY_EXT = "shared_library_extension";
+  private static final String STATIC_LIBRARY_EXT = "static_library_extension";
+  private static final String OBJECT_FILE_EXT = "object_file_extension";
   private static final String CONFLICTING_HEADER_BASENAME_WHITELIST =
       "conflicting_header_basename_whitelist";
   private static final String HEADER_MODE = "header_mode";
+  private static final String DETAILED_UNTRACKED_HEADER_MESSAGES =
+      "detailed_untracked_header_messages";
+  private static final String USE_ARG_FILE = "use_arg_file";
+  private static final String TOOLCHAIN_TARGET = "toolchain_target";
+  private static final String FILEPATH_LENGTH_LIMITED = "filepath_length_limited";
 
-  private static final String ASFLAGS = "asflags";
-  private static final String ASPPFLAGS = "asppflags";
-  private static final String CFLAGS = "cflags";
-  private static final String CXXFLAGS = "cxxflags";
-  private static final String CPPFLAGS = "cppflags";
-  private static final String CXXPPFLAGS = "cxxppflags";
-  private static final String CUDAFLAGS = "cudaflags";
-  private static final String CUDAPPFLAGS = "cudappflags";
-  private static final String ASMFLAGS = "asmflags";
-  private static final String ASMPPFLAGS = "asmppflags";
-  private static final String LDFLAGS = "ldflags";
-  private static final String ARFLAGS = "arflags";
-  private static final String RANLIBFLAGS = "ranlibflags";
-
-  private static final String AR = "ar";
-  private static final String RANLIB = "ranlib";
   private static final String OBJCOPY = "objcopy";
   private static final String NM = "nm";
   private static final String STRIP = "strip";
-  private static final String AS = "as";
-  private static final String ASPP = "aspp";
-  private static final String CC = "cc";
-  private static final String CPP = "cpp";
-  private static final String CXX = "cxx";
-  private static final String CXXPP = "cxxpp";
-  private static final String CUDA = "cuda";
-  private static final String CUDAPP = "cudapp";
-  private static final String ASM = "asm";
-  private static final String ASMPP = "asmpp";
-  private static final String LD = "ld";
+
+  /** Enumerates possible external tools used in building C/C++ programs. */
+  public enum ToolType {
+    AR("ar", "arflags"),
+    AS("as", "asflags"),
+    ASM("asm", "asmflags"),
+    ASMPP("asmpp", "asmppflags"),
+    ASPP("aspp", "asppflags"),
+    CC("cc", "cflags"),
+    CPP("cpp", "cppflags"),
+    CUDA("cuda", "cudaflags"),
+    CUDAPP("cudapp", "cudappflags"),
+    CXX("cxx", "cxxflags"),
+    CXXPP("cxxpp", "cxxppflags"),
+    HIP("hip", "hipflags"),
+    HIPPP("hippp", "hipppflags"),
+    LD("ld", "ldflags"),
+    RANLIB("ranlib", "ranlibflags"),
+    ;
+
+    /** Buck config key used to specify tool path. */
+    private final String key;
+    /** Buck config key used to specify tool flags. */
+    private final String flagsKey;
+
+    ToolType(String key, String flagsKey) {
+      this.key = key;
+      this.flagsKey = flagsKey;
+    }
+  }
 
   private final BuckConfig delegate;
   private final String cxxSection;
@@ -155,27 +174,35 @@ public class CxxBuckConfig {
     this.cxxSection = FLAVORED_CXX_SECTION_PREFIX + flavor.getName();
   }
 
+  public ImmutableMap<Flavor, CxxBuckConfig> getFlavoredConfigs() {
+    ImmutableMap.Builder<Flavor, CxxBuckConfig> builder = ImmutableMap.builder();
+    for (Flavor flav : CxxBuckConfig.getCxxFlavors(this.delegate)) {
+      builder.put(flav, new CxxBuckConfig(this.delegate, flav));
+    }
+    return builder.build();
+  }
+
   /** @return the environment in which {@link BuckConfig} was created. */
   public ImmutableMap<String, String> getEnvironment() {
     return delegate.getEnvironment();
   }
 
   /** @return the {@link BuildTarget} which represents the gtest library. */
-  public Optional<BuildTarget> getGtestDep() {
-    return delegate.getBuildTarget(cxxSection, GTEST_DEP);
+  public Optional<BuildTarget> getGtestDep(TargetConfiguration targetConfiguration) {
+    return delegate.getBuildTarget(cxxSection, GTEST_DEP, targetConfiguration);
   }
 
   /**
    * @return the {@link BuildTarget} which represents the main function that gtest tests should use
    *     by default (if no other main is given).
    */
-  public Optional<BuildTarget> getGtestDefaultTestMainDep() {
-    return delegate.getBuildTarget(cxxSection, GTEST_DEFAULT_TEST_MAIN_DEP);
+  public Optional<BuildTarget> getGtestDefaultTestMainDep(TargetConfiguration targetConfiguration) {
+    return delegate.getBuildTarget(cxxSection, GTEST_DEFAULT_TEST_MAIN_DEP, targetConfiguration);
   }
 
   /** @return the {@link BuildTarget} which represents the boost testing library. */
-  public Optional<BuildTarget> getBoostTestDep() {
-    return delegate.getBuildTarget(cxxSection, BOOST_TEST_DEP);
+  public Optional<BuildTarget> getBoostTestDep(TargetConfiguration targetConfiguration) {
+    return delegate.getBuildTarget(cxxSection, BOOST_TEST_DEP, targetConfiguration);
   }
 
   public Optional<Path> getPath(String name) {
@@ -187,8 +214,8 @@ public class CxxBuckConfig {
     return delegate.getPathSourcePath(path);
   }
 
-  public Optional<SourcePath> getSourcePath(String name) {
-    return delegate.getSourcePath(cxxSection, name);
+  public Optional<SourcePath> getSourcePath(String name, TargetConfiguration targetConfiguration) {
+    return delegate.getSourcePath(cxxSection, name, targetConfiguration);
   }
 
   public Optional<String> getDefaultPlatform() {
@@ -197,6 +224,10 @@ public class CxxBuckConfig {
 
   public Optional<String> getHostPlatform() {
     return delegate.getValue(cxxSection, HOST_PLATFORM);
+  }
+
+  private Optional<ImmutableList<String>> getFlags(ToolType toolType) {
+    return getFlags(toolType.flagsKey);
   }
 
   private Optional<ImmutableList<String>> getFlags(String field) {
@@ -208,55 +239,63 @@ public class CxxBuckConfig {
   }
 
   public Optional<ImmutableList<String>> getAsflags() {
-    return getFlags(ASFLAGS);
+    return getFlags(ToolType.AS);
   }
 
   public Optional<ImmutableList<String>> getAsppflags() {
-    return getFlags(ASPPFLAGS);
+    return getFlags(ToolType.ASPP);
   }
 
   public Optional<ImmutableList<String>> getCflags() {
-    return getFlags(CFLAGS);
+    return getFlags(ToolType.CC);
   }
 
   public Optional<ImmutableList<String>> getCxxflags() {
-    return getFlags(CXXFLAGS);
+    return getFlags(ToolType.CXX);
   }
 
   public Optional<ImmutableList<String>> getCppflags() {
-    return getFlags(CPPFLAGS);
+    return getFlags(ToolType.CPP);
   }
 
   public Optional<ImmutableList<String>> getCxxppflags() {
-    return getFlags(CXXPPFLAGS);
+    return getFlags(ToolType.CXXPP);
   }
 
   public Optional<ImmutableList<String>> getCudaflags() {
-    return getFlags(CUDAFLAGS);
+    return getFlags(ToolType.CUDA);
   }
 
   public Optional<ImmutableList<String>> getCudappflags() {
-    return getFlags(CUDAPPFLAGS);
+    return getFlags(ToolType.CUDAPP);
+  }
+
+  public Optional<ImmutableList<String>> getHipflags() {
+    return getFlags(ToolType.HIP);
+  }
+
+  public Optional<ImmutableList<String>> getHipppflags() {
+    return getFlags(ToolType.HIPPP);
   }
 
   public Optional<ImmutableList<String>> getAsmflags() {
-    return getFlags(ASMFLAGS);
+    return getFlags(ToolType.ASM);
   }
 
   public Optional<ImmutableList<String>> getAsmppflags() {
-    return getFlags(ASMPPFLAGS);
+    return getFlags(ToolType.ASMPP);
   }
 
   public Optional<ImmutableList<String>> getLdflags() {
-    return getFlags(LDFLAGS);
+    return getFlags(ToolType.LD);
   }
 
   public Optional<ImmutableList<String>> getArflags() {
-    return getFlags(ARFLAGS);
+    return getFlags(ToolType.AR);
   }
 
   public Optional<ImmutableList<String>> getRanlibflags() {
-    return getFlags(RANLIBFLAGS);
+    return getFlags(ToolType.RANLIB);
   }
 
   /*
@@ -264,14 +303,17 @@ public class CxxBuckConfig {
    */
   public Optional<ArchiverProvider> getArchiverProvider(Platform defaultPlatform) {
     Optional<ToolProvider> toolProvider =
-        delegate.getView(ToolConfig.class).getToolProvider(cxxSection, AR);
-    Optional<ArchiverProvider.Type> type =
-        delegate.getEnum(cxxSection, ARCHIVER_TYPE, ArchiverProvider.Type.class);
+        delegate.getView(ToolConfig.class).getToolProvider(cxxSection, ToolType.AR.key);
+    // TODO(cjhopman): This should probably accept ArchiverProvider.Type, not LegacyArchiverType.
+    Optional<LegacyArchiverType> type =
+        delegate.getEnum(cxxSection, ARCHIVER_TYPE, LegacyArchiverType.class);
     return toolProvider.map(
         archiver -> {
           Optional<Platform> archiverPlatform =
               delegate.getEnum(cxxSection, ARCHIVER_PLATFORM, Platform.class);
-          return ArchiverProvider.from(archiver, archiverPlatform.orElse(defaultPlatform), type);
+
+          Platform platform = archiverPlatform.orElse(defaultPlatform);
+          return ArchiverProvider.from(archiver, platform, type);
         });
   }
 
@@ -280,79 +322,98 @@ public class CxxBuckConfig {
     return delegate.getLong(cxxSection, MAX_TEST_OUTPUT_SIZE).orElse(DEFAULT_MAX_TEST_OUTPUT_SIZE);
   }
 
-  private Optional<CxxToolProviderParams> getCxxToolProviderParams(String field) {
-    Optional<String> value = delegate.getValue(cxxSection, field);
+  private Optional<CxxToolProviderParams> getCxxToolProviderParams(ToolType toolType) {
+    Optional<String> value = delegate.getValue(cxxSection, toolType.key);
     if (!value.isPresent()) {
       return Optional.empty();
     }
-    String source = String.format("[%s] %s", cxxSection, field);
-    Optional<BuildTarget> target = delegate.getMaybeBuildTarget(cxxSection, field);
+    String source = String.format("[%s] %s", cxxSection, toolType.key);
+    Optional<UnconfiguredBuildTargetView> target =
+        delegate.getMaybeUnconfiguredBuildTarget(cxxSection, toolType.key);
     Optional<CxxToolProvider.Type> type =
-        delegate.getEnum(cxxSection, field + "_type", CxxToolProvider.Type.class);
+        delegate.getEnum(cxxSection, toolType.key + "_type", CxxToolProvider.Type.class);
     if (target.isPresent()) {
       return Optional.of(
           CxxToolProviderParams.builder()
               .setSource(source)
               .setBuildTarget(target.get())
               .setType(type)
+              .setPreferDependencyTree(getUseDetailedUntrackedHeaderMessages())
+              .setToolType(toolType)
               .build());
     } else {
       return Optional.of(
           CxxToolProviderParams.builder()
               .setSource(source)
-              .setPath(delegate.getPathSourcePath(delegate.getRequiredPath(cxxSection, field)))
+              .setPath(
+                  delegate.getPathSourcePath(delegate.getRequiredPath(cxxSection, toolType.key)))
               .setType(type)
+              .setPreferDependencyTree(getUseDetailedUntrackedHeaderMessages())
+              .setToolType(toolType)
               .build());
     }
   }
 
-  private Optional<PreprocessorProvider> getPreprocessorProvider(String field) {
-    return getCxxToolProviderParams(field)
+  private Optional<PreprocessorProvider> getPreprocessorProvider(ToolType toolType) {
+    return getCxxToolProviderParams(toolType)
         .map(AbstractCxxToolProviderParams::getPreprocessorProvider);
   }
 
-  private Optional<CompilerProvider> getCompilerProvider(String field) {
-    return getCxxToolProviderParams(field).map(AbstractCxxToolProviderParams::getCompilerProvider);
+  private Optional<CompilerProvider> getCompilerProvider(ToolType toolType) {
+    return getCxxToolProviderParams(toolType)
+        .map(AbstractCxxToolProviderParams::getCompilerProvider);
   }
 
   public Optional<CompilerProvider> getAs() {
-    return getCompilerProvider(AS);
+    return getCompilerProvider(ToolType.AS);
   }
 
   public Optional<PreprocessorProvider> getAspp() {
-    return getPreprocessorProvider(ASPP);
+    return getPreprocessorProvider(ToolType.ASPP);
   }
 
   public Optional<CompilerProvider> getCc() {
-    return getCompilerProvider(CC);
+    return getCompilerProvider(ToolType.CC);
   }
 
   public Optional<PreprocessorProvider> getCpp() {
-    return getPreprocessorProvider(CPP);
+    return getPreprocessorProvider(ToolType.CPP);
   }
 
   public Optional<CompilerProvider> getCxx() {
-    return getCompilerProvider(CXX);
+    return getCompilerProvider(ToolType.CXX);
   }
 
   public Optional<PreprocessorProvider> getCxxpp() {
-    return getPreprocessorProvider(CXXPP);
+    return getPreprocessorProvider(ToolType.CXXPP);
   }
 
   public Optional<CompilerProvider> getCuda() {
-    return getCompilerProvider(CUDA);
+    return getCompilerProvider(ToolType.CUDA);
   }
 
   public Optional<PreprocessorProvider> getCudapp() {
-    return getPreprocessorProvider(CUDAPP);
+    return getPreprocessorProvider(ToolType.CUDAPP);
+  }
+
+  public Optional<CompilerProvider> getHip() {
+    return getCompilerProvider(ToolType.HIP);
+  }
+
+  public Optional<PreprocessorProvider> getHippp() {
+    return getPreprocessorProvider(ToolType.HIPPP);
   }
 
   public Optional<CompilerProvider> getAsm() {
-    return getCompilerProvider(ASM);
+    return getCompilerProvider(ToolType.ASM);
   }
 
   public Optional<PreprocessorProvider> getAsmpp() {
-    return getPreprocessorProvider(ASMPP);
+    return getPreprocessorProvider(ToolType.ASMPP);
+  }
+
+  public Optional<Boolean> getUseArgFile() {
+    return delegate.getBoolean(cxxSection, USE_ARG_FILE);
   }
 
   /**
@@ -363,13 +424,15 @@ public class CxxBuckConfig {
    */
   public Optional<LinkerProvider> getLinkerProvider(LinkerProvider.Type defaultType) {
     Optional<ToolProvider> toolProvider =
-        delegate.getView(ToolConfig.class).getToolProvider(cxxSection, LD);
+        delegate.getView(ToolConfig.class).getToolProvider(cxxSection, ToolType.LD.key);
     if (!toolProvider.isPresent()) {
       return Optional.empty();
     }
     Optional<LinkerProvider.Type> type =
         delegate.getEnum(cxxSection, LINKER_PLATFORM, LinkerProvider.Type.class);
-    return Optional.of(new DefaultLinkerProvider(type.orElse(defaultType), toolProvider.get()));
+    return Optional.of(
+        new DefaultLinkerProvider(
+            type.orElse(defaultType), toolProvider.get(), shouldCacheLinks()));
   }
 
   public HeaderVerification getHeaderVerificationOrIgnore() {
@@ -382,25 +445,34 @@ public class CxxBuckConfig {
         .build();
   }
 
+  public Optional<Boolean> getPublicHeadersSymlinksSetting() {
+    return delegate.getBoolean(cxxSection, EXPORTED_HEADERS_SYMLINKS_ENABLED);
+  }
+
   public boolean getPublicHeadersSymlinksEnabled() {
-    return delegate.getBooleanValue(cxxSection, EXPORTED_HEADERS_SYMLINKS_ENABLED, true);
+    return getPublicHeadersSymlinksSetting().orElse(true);
+  }
+
+  public Optional<Boolean> getPrivateHeadersSymlinksSetting() {
+    return delegate.getBoolean(cxxSection, HEADERS_SYMLINKS_ENABLED);
   }
 
   public boolean getPrivateHeadersSymlinksEnabled() {
-    return delegate.getBooleanValue(cxxSection, HEADERS_SYMLINKS_ENABLED, true);
+    return getPrivateHeadersSymlinksSetting().orElse(true);
   }
 
   public Optional<RuleScheduleInfo> getLinkScheduleInfo() {
     Optional<Long> linkWeight = delegate.getLong(cxxSection, LINK_WEIGHT);
-    if (!linkWeight.isPresent()) {
-      return Optional.empty();
-    }
-    return Optional.of(
-        RuleScheduleInfo.builder().setJobsMultiplier(linkWeight.get().intValue()).build());
+    return linkWeight.map(
+        weight -> RuleScheduleInfo.builder().setJobsMultiplier(weight.intValue()).build());
   }
 
   public boolean shouldCacheLinks() {
     return delegate.getBooleanValue(cxxSection, CACHE_LINKS, true);
+  }
+
+  public boolean shouldCacheStrip() {
+    return delegate.getBooleanValue(cxxSection, CACHE_STRIPS, true);
   }
 
   public boolean shouldCacheBinaries() {
@@ -411,10 +483,8 @@ public class CxxBuckConfig {
     return delegate.getBooleanValue(cxxSection, PCH_ENABLED, true);
   }
 
-  public ArchiveContents getArchiveContents() {
-    return delegate
-        .getEnum(cxxSection, ARCHIVE_CONTENTS, ArchiveContents.class)
-        .orElse(ArchiveContents.NORMAL);
+  public Optional<ArchiveContents> getArchiveContents() {
+    return delegate.getEnum(cxxSection, ARCHIVE_CONTENTS, ArchiveContents.class);
   }
 
   public ImmutableMap<String, Flavor> getDefaultFlavorsForRuleType(RuleType type) {
@@ -437,7 +507,7 @@ public class CxxBuckConfig {
   }
 
   public Optional<ToolProvider> getRanlib() {
-    return getToolProvider(RANLIB);
+    return getToolProvider(ToolType.RANLIB.key);
   }
 
   public Optional<ToolProvider> getObjcopy() {
@@ -504,16 +574,29 @@ public class CxxBuckConfig {
 
   /** @return the list of flavors that buck will consider valid when building the target graph. */
   public ImmutableSet<Flavor> getDeclaredPlatforms() {
-    return delegate
-        .getListWithoutComments(cxxSection, DECLARED_PLATFORMS)
-        .stream()
+    return delegate.getListWithoutComments(cxxSection, DECLARED_PLATFORMS).stream()
         .map(s -> UserFlavor.of(s, String.format("Declared platform: %s", s)))
         .collect(ImmutableSet.toImmutableSet());
+  }
+
+  /** @return the extension to use for binaries (e.g. ".exe"). */
+  public Optional<String> getBinaryExtension() {
+    return delegate.getValue(cxxSection, BINARY_EXT);
   }
 
   /** @return the extension to use for shared libraries (e.g. ".so"). */
   public Optional<String> getSharedLibraryExtension() {
     return delegate.getValue(cxxSection, SHARED_LIBRARY_EXT);
+  }
+
+  /** @return the extension to use for static libraries (e.g. ".a"). */
+  public Optional<String> getStaticLibraryExtension() {
+    return delegate.getValue(cxxSection, STATIC_LIBRARY_EXT);
+  }
+
+  /** @return the extension to use for object files (e.g. ".o"). */
+  public Optional<String> getObjectFileExtension() {
+    return delegate.getValue(cxxSection, OBJECT_FILE_EXT);
   }
 
   public ImmutableSortedSet<String> getConflictingHeaderBasenameWhitelist() {
@@ -526,8 +609,48 @@ public class CxxBuckConfig {
     return delegate.getEnum(cxxSection, HEADER_MODE, HeaderMode.class);
   }
 
+  /** @return whether to generate more detailed untracked header messages. */
+  public Boolean getUseDetailedUntrackedHeaderMessages() {
+    return delegate.getBooleanValue(cxxSection, DETAILED_UNTRACKED_HEADER_MESSAGES, false);
+  }
+
+  /** @return whether short names for intermediate files should be used */
+  public Boolean getFilepathLengthLimited() {
+    return delegate.getBooleanValue(cxxSection, FILEPATH_LENGTH_LIMITED, false);
+  }
+
   public BuckConfig getDelegate() {
     return delegate;
+  }
+
+  /**
+   * If the config specifies a value for "toolchain_target", returns a {@link UnresolvedCxxPlatform}
+   * backed by the specified target.
+   */
+  public static Optional<UnresolvedCxxPlatform> getProviderBasedPlatform(
+      BuckConfig config, Flavor flavor, TargetConfiguration targetConfiguration) {
+    String cxxSection = new CxxBuckConfig(config, flavor).cxxSection;
+
+    Optional<BuildTarget> toolchainTarget =
+        config.getBuildTarget(cxxSection, TOOLCHAIN_TARGET, targetConfiguration);
+    if (!toolchainTarget.isPresent()) {
+      return Optional.empty();
+    }
+
+    if (!cxxSection.equals(UNFLAVORED_CXX_SECTION)) {
+      // In a flavored cxx section, we don't allow any configuration except for configuration of the
+      // platform.
+      ImmutableMap<String, String> allEntries = config.getEntriesForSection(cxxSection);
+      if (allEntries.size() != 1) {
+        throw new HumanReadableException(
+            "When configuring a cxx %s, no other configuration is allowed in that section. Got unexpected keys [%s]",
+            TOOLCHAIN_TARGET,
+            Joiner.on(", ")
+                .join(Sets.difference(allEntries.keySet(), ImmutableSet.of(TOOLCHAIN_TARGET))));
+      }
+    }
+
+    return Optional.of(new ProviderBasedUnresolvedCxxPlatform(toolchainTarget.get(), flavor));
   }
 
   @Value.Immutable
@@ -536,11 +659,15 @@ public class CxxBuckConfig {
 
     public abstract String getSource();
 
-    public abstract Optional<BuildTarget> getBuildTarget();
+    public abstract Optional<UnconfiguredBuildTargetView> getBuildTarget();
 
     public abstract Optional<PathSourcePath> getPath();
 
     public abstract Optional<CxxToolProvider.Type> getType();
+
+    public abstract ToolType getToolType();
+
+    public abstract Optional<Boolean> getPreferDependencyTree();
 
     @Value.Check
     protected void check() {
@@ -551,18 +678,33 @@ public class CxxBuckConfig {
     public PreprocessorProvider getPreprocessorProvider() {
       if (getBuildTarget().isPresent()) {
         return new PreprocessorProvider(
-            new BinaryBuildRuleToolProvider(getBuildTarget().get(), getSource()), getType().get());
+            new BinaryBuildRuleToolProvider(getBuildTarget().get(), getSource()),
+            getType().get(),
+            getToolType());
       } else {
-        return new PreprocessorProvider(getPath().get(), getType());
+        PathSourcePath path = getPath().get();
+        return new PreprocessorProvider(
+            new ConstantToolProvider(new HashedFileTool(path)),
+            () -> getType().orElseGet(() -> CxxToolTypeInferer.getTypeFromPath(path)),
+            getToolType());
       }
     }
 
     public CompilerProvider getCompilerProvider() {
+      boolean preferDependencyTree = getPreferDependencyTree().orElse(false);
       if (getBuildTarget().isPresent()) {
         return new CompilerProvider(
-            new BinaryBuildRuleToolProvider(getBuildTarget().get(), getSource()), getType().get());
+            new BinaryBuildRuleToolProvider(getBuildTarget().get(), getSource()),
+            getType().get(),
+            getToolType(),
+            preferDependencyTree);
       } else {
-        return new CompilerProvider(getPath().get(), getType());
+        PathSourcePath path = getPath().get();
+        return new CompilerProvider(
+            new ConstantToolProvider(new HashedFileTool(path)),
+            () -> getType().orElseGet(() -> CxxToolTypeInferer.getTypeFromPath(path)),
+            getToolType(),
+            preferDependencyTree);
       }
     }
   }

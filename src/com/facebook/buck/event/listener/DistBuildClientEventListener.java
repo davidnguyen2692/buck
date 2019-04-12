@@ -19,6 +19,7 @@ import com.facebook.buck.artifact_cache.CacheResultType;
 import com.facebook.buck.artifact_cache.RuleKeyCacheResult;
 import com.facebook.buck.artifact_cache.RuleKeyCacheResultEvent;
 import com.facebook.buck.distributed.DistBuildClientCacheResult;
+import com.facebook.buck.distributed.DistBuildClientCacheResult.Builder;
 import com.facebook.buck.distributed.DistBuildClientCacheResultEvent;
 import com.facebook.buck.distributed.thrift.RuleKeyLogEntry;
 import com.facebook.buck.event.BuckEventListener;
@@ -27,8 +28,10 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.common.eventbus.Subscribe;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -77,8 +80,7 @@ public class DistBuildClientEventListener implements BuckEventListener {
       List<RuleKeyLogEntry> ruleKeyLogs) {
     for (RuleKeyLogEntry ruleKeyLog : ruleKeyLogs) {
       String ruleKey = ruleKeyLog.getRuleKey();
-      DistBuildClientCacheResult.Builder cacheRequestBuilder =
-          Preconditions.checkNotNull(cacheResultsByKey.get(ruleKey));
+      Builder cacheRequestBuilder = Objects.requireNonNull(cacheResultsByKey.get(ruleKey));
 
       if (firstLevelRuleKeys.contains(ruleKey)) {
         cacheRequestBuilder.setRuleKeyServerLog(ruleKeyLog);
@@ -89,13 +91,9 @@ public class DistBuildClientEventListener implements BuckEventListener {
     }
 
     List<DistBuildClientCacheResult> cacheResults =
-        cacheResultsByKey
-            .values()
-            .stream()
-            .collect(Collectors.toSet()) // deduplicate builders pointed to by multiple keys
-            .stream()
-            .map(cacheResultBuilder -> cacheResultBuilder.build())
-            .collect(Collectors.toList());
+        new HashSet<>(
+                cacheResultsByKey.values()) // deduplicate builders pointed to by multiple keys
+            .stream().map(Builder::build).collect(Collectors.toList());
 
     return new DistBuildClientCacheResultEvent(cacheResults);
   }

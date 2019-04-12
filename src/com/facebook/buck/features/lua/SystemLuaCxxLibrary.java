@@ -19,6 +19,7 @@ package com.facebook.buck.features.lua;
 import com.facebook.buck.android.packageable.AndroidPackageable;
 import com.facebook.buck.android.packageable.AndroidPackageableCollector;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.TargetConfiguration;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRuleResolver;
 import com.facebook.buck.core.sourcepath.SourcePath;
@@ -32,7 +33,6 @@ import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableInput;
 import com.facebook.buck.rules.args.StringArg;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSet;
 
 public class SystemLuaCxxLibrary implements AbstractCxxLibrary {
 
@@ -89,18 +89,18 @@ public class SystemLuaCxxLibrary implements AbstractCxxLibrary {
       CxxPlatform cxxPlatform,
       Linker.LinkableDepType type,
       boolean forceLinkWhole,
-      ImmutableSet<LanguageExtensions> languageExtensions,
-      ActionGraphBuilder graphBuilder) {
+      ActionGraphBuilder graphBuilder,
+      TargetConfiguration targetConfiguration) {
     return NativeLinkableInput.builder().addAllArgs(StringArg.from("-llua")).build();
   }
 
   @Override
-  public Linkage getPreferredLinkage(CxxPlatform cxxPlatform, ActionGraphBuilder graphBuilder) {
+  public Linkage getPreferredLinkage(CxxPlatform cxxPlatform) {
     return Linkage.SHARED;
   }
 
   @Override
-  public boolean supportsOmnibusLinking(CxxPlatform cxxPlatform, ActionGraphBuilder graphBuilder) {
+  public boolean supportsOmnibusLinking(CxxPlatform cxxPlatform) {
     return false;
   }
 

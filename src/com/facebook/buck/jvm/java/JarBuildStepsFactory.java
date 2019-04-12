@@ -17,13 +17,16 @@
 package com.facebook.buck.jvm.java;
 
 import com.facebook.buck.core.build.context.BuildContext;
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
 import com.facebook.buck.core.rulekey.AddsToRuleKey;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.attr.HasCustomDepsLogic;
 import com.facebook.buck.core.rules.common.RecordArtifactVerifier;
+import com.facebook.buck.core.rules.modern.annotations.CustomFieldBehavior;
+import com.facebook.buck.core.rules.modern.annotations.DefaultFieldSerialization;
 import com.facebook.buck.core.rules.pipeline.RulePipelineStateFactory;
 import com.facebook.buck.core.sourcepath.ArchiveMemberSourcePath;
 import com.facebook.buck.core.sourcepath.DefaultBuildTargetSourcePath;
@@ -34,7 +37,10 @@ import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.core.HasJavaAbi;
 import com.facebook.buck.jvm.core.JavaAbis;
 import com.facebook.buck.jvm.java.abi.AbiGenerationMode;
-import com.facebook.buck.jvm.java.abi.source.api.SourceOnlyAbiRuleInfoFactory;
+import com.facebook.buck.rules.modern.CustomFieldInputs;
+import com.facebook.buck.rules.modern.CustomFieldSerialization;
+import com.facebook.buck.rules.modern.ValueCreator;
+import com.facebook.buck.rules.modern.ValueVisitor;
 import com.facebook.buck.rules.modern.impl.ModernBuildableSupport;
 import com.facebook.buck.step.Step;
 import com.google.common.annotations.VisibleForTesting;
@@ -43,20 +49,23 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
+import com.google.common.collect.Ordering;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Optional;
+import java.util.function.Consumer;
 import java.util.function.Predicate;
-import java.util.function.Supplier;
+import java.util.stream.Stream;
 import javax.annotation.Nullable;
 
 public class JarBuildStepsFactory
     implements AddsToRuleKey, RulePipelineStateFactory<JavacPipelineState> {
   private static final Path METADATA_DIR = Paths.get("META-INF");
 
+  @CustomFieldBehavior(DefaultFieldSerialization.class)
   private final BuildTarget libraryTarget;
 
-  @AddToRuleKey private final ConfiguredCompiler configuredCompiler;
+  @AddToRuleKey private final CompileToJarStepFactory configuredCompiler;
   @AddToRuleKey private final ImmutableSortedSet<SourcePath> srcs;
   @AddToRuleKey private final ImmutableSortedSet<SourcePath> resources;
   @AddToRuleKey private final ResourcesParameters resourcesParameters;
@@ -64,35 +73,128 @@ public class JarBuildStepsFactory
   @AddToRuleKey private final Optional<SourcePath> manifestFile;
   @AddToRuleKey private final ImmutableList<String> postprocessClassesCommands;
 
-  @SuppressWarnings("PMD.UnusedPrivateField")
-  @AddToRuleKey
-  private final ZipArchiveDependencySupplier abiClasspath;
+  @AddToRuleKey private final DependencyInfoHolder dependencyInfos;
+  @AddToRuleKey private final ZipArchiveDependencySupplier abiClasspath;
 
-  private final boolean trackClassUsage;
+  @AddToRuleKey private final boolean trackClassUsage;
+
+  @CustomFieldBehavior(DefaultFieldSerialization.class)
   private final boolean trackJavacPhaseEvents;
-  private final ImmutableSortedSet<SourcePath> compileTimeClasspathSourcePaths;
+
+  @AddToRuleKey private final boolean isRequiredForSourceOnlyAbi;
   @AddToRuleKey private final RemoveClassesPatternsMatcher classesToRemoveFromJar;
 
   @AddToRuleKey private final AbiGenerationMode abiGenerationMode;
   @AddToRuleKey private final AbiGenerationMode abiCompatibilityMode;
-  @Nullable private final Supplier<SourceOnlyAbiRuleInfoFactory> ruleInfoFactorySupplier;
+
+  /** Contains information about a Java classpath dependency. */
+  public static class JavaDependencyInfo implements AddsToRuleKey {
+    @AddToRuleKey public final SourcePath compileTimeJar;
+    @AddToRuleKey public final SourcePath abiJar;
+    @AddToRuleKey public final boolean isRequiredForSourceOnlyAbi;
+
+    public JavaDependencyInfo(
+        SourcePath compileTimeJar, SourcePath abiJar, boolean isRequiredForSourceOnlyAbi) {
+      this.compileTimeJar = compileTimeJar;
+      this.abiJar = abiJar;
+      this.isRequiredForSourceOnlyAbi = isRequiredForSourceOnlyAbi;
+    }
+  }
+
+  private static class DependencyInfoHolder implements AddsToRuleKey, HasCustomDepsLogic {
+    // Adding this to the rulekey is slow for large projects and the abiClasspath already reflects
+    // all the inputs. For the same reason, we need to do custom inputs derivation and custom
+    // serialization.
+    // TODO(cjhopman): This is pretty much all due to these things caching all AddsToRuleKey things,
+    // but we don't want that for these things because nobody else uses them. We should improve the
+    // rulekey and similar stuff to better handle this.
+    @CustomFieldBehavior(InfosBehavior.class)
+    private final ImmutableList<JavaDependencyInfo> infos;
+
+    public DependencyInfoHolder(ImmutableList<JavaDependencyInfo> infos) {
+      this.infos = infos;
+    }
+
+    @Override
+    public Stream<BuildRule> getDeps(SourcePathRuleFinder ruleFinder) {
+      Stream.Builder<BuildRule> builder = Stream.builder();
+      infos.forEach(
+          info ->
+              ruleFinder
+                  .filterBuildRuleInputs(info.abiJar, info.compileTimeJar)
+                  .forEach(builder::add));
+      return builder.build();
+    }
+
+    public ZipArchiveDependencySupplier getAbiClasspath() {
+      return new ZipArchiveDependencySupplier(
+          this.infos.stream()
+              .map(i -> i.abiJar)
+              .collect(ImmutableSortedSet.toImmutableSortedSet(Ordering.natural())));
+    }
+
+    public ImmutableSortedSet<SourcePath> getCompileTimeClasspathSourcePaths() {
+      return infos.stream()
+          .map(info -> info.compileTimeJar)
+          .collect(ImmutableSortedSet.toImmutableSortedSet(Ordering.natural()));
+    }
+
+    private static class InfosBehavior
+        implements CustomFieldSerialization<ImmutableList<JavaDependencyInfo>>,
+            CustomFieldInputs<ImmutableList<JavaDependencyInfo>> {
+
+      @Override
+      public <E extends Exception> void serialize(
+          ImmutableList<JavaDependencyInfo> value, ValueVisitor<E> serializer) throws E {
+        serializer.visitInteger(value.size());
+        for (JavaDependencyInfo info : value) {
+          serializer.visitSourcePath(info.compileTimeJar);
+          serializer.visitSourcePath(info.abiJar);
+          serializer.visitBoolean(info.isRequiredForSourceOnlyAbi);
+        }
+      }
+
+      @Override
+      public <E extends Exception> ImmutableList<JavaDependencyInfo> deserialize(
+          ValueCreator<E> deserializer) throws E {
+        int size = deserializer.createInteger();
+        ImmutableList.Builder<JavaDependencyInfo> infos =
+            ImmutableList.builderWithExpectedSize(size);
+        for (int i = 0; i < size; i++) {
+          SourcePath compileTimeJar = deserializer.createSourcePath();
+          SourcePath abiJar = deserializer.createSourcePath();
+          boolean isRequiredForSourceOnlyAbi = deserializer.createBoolean();
+          infos.add(new JavaDependencyInfo(compileTimeJar, abiJar, isRequiredForSourceOnlyAbi));
+        }
+        return infos.build();
+      }
+
+      @Override
+      public void getInputs(
+          ImmutableList<JavaDependencyInfo> value, Consumer<SourcePath> consumer) {
+        for (JavaDependencyInfo info : value) {
+          consumer.accept(info.abiJar);
+          consumer.accept(info.compileTimeJar);
+        }
+      }
+    }
+  }
 
   public JarBuildStepsFactory(
       BuildTarget libraryTarget,
-      ConfiguredCompiler configuredCompiler,
+      CompileToJarStepFactory configuredCompiler,
       ImmutableSortedSet<SourcePath> srcs,
       ImmutableSortedSet<SourcePath> resources,
       ResourcesParameters resourcesParameters,
       Optional<SourcePath> manifestFile,
       ImmutableList<String> postprocessClassesCommands,
-      ZipArchiveDependencySupplier abiClasspath,
       boolean trackClassUsage,
       boolean trackJavacPhaseEvents,
-      ImmutableSortedSet<SourcePath> compileTimeClasspathSourcePaths,
       RemoveClassesPatternsMatcher classesToRemoveFromJar,
       AbiGenerationMode abiGenerationMode,
       AbiGenerationMode abiCompatibilityMode,
-      @Nullable Supplier<SourceOnlyAbiRuleInfoFactory> ruleInfoFactorySupplier) {
+      ImmutableList<JavaDependencyInfo> dependencyInfos,
+      boolean isRequiredForSourceOnlyAbi) {
     this.libraryTarget = libraryTarget;
     this.configuredCompiler = configuredCompiler;
     this.srcs = srcs;
@@ -100,14 +202,14 @@ public class JarBuildStepsFactory
     this.resourcesParameters = resourcesParameters;
     this.postprocessClassesCommands = postprocessClassesCommands;
     this.manifestFile = manifestFile;
-    this.abiClasspath = abiClasspath;
     this.trackClassUsage = trackClassUsage;
     this.trackJavacPhaseEvents = trackJavacPhaseEvents;
-    this.compileTimeClasspathSourcePaths = compileTimeClasspathSourcePaths;
     this.classesToRemoveFromJar = classesToRemoveFromJar;
     this.abiGenerationMode = abiGenerationMode;
     this.abiCompatibilityMode = abiCompatibilityMode;
-    this.ruleInfoFactorySupplier = ruleInfoFactorySupplier;
+    this.dependencyInfos = new DependencyInfoHolder(dependencyInfos);
+    this.abiClasspath = this.dependencyInfos.getAbiClasspath();
+    this.isRequiredForSourceOnlyAbi = isRequiredForSourceOnlyAbi;
   }
 
   public boolean producesJar() {
@@ -122,6 +224,10 @@ public class JarBuildStepsFactory
     return resources;
   }
 
+  public Optional<String> getResourcesRoot() {
+    return resourcesParameters.getResourcesRoot();
+  }
+
   @Nullable
   public SourcePath getSourcePathToOutput(BuildTarget buildTarget, ProjectFilesystem filesystem) {
     return getOutputJarPath(buildTarget, filesystem)
@@ -129,9 +235,17 @@ public class JarBuildStepsFactory
         .orElse(null);
   }
 
+  @Nullable
+  public SourcePath getSourcePathToGeneratedAnnotationPath(
+      BuildTarget buildTarget, ProjectFilesystem filesystem) {
+    return getGeneratedAnnotationPath(buildTarget, filesystem)
+        .map(path -> ExplicitBuildTargetSourcePath.of(buildTarget, path))
+        .orElse(null);
+  }
+
   @VisibleForTesting
   public ImmutableSortedSet<SourcePath> getCompileTimeClasspathSourcePaths() {
-    return compileTimeClasspathSourcePaths;
+    return dependencyInfos.getCompileTimeClasspathSourcePaths();
   }
 
   public boolean useDependencyFileRuleKeys() {
@@ -142,6 +256,8 @@ public class JarBuildStepsFactory
   public Predicate<SourcePath> getCoveredByDepFilePredicate(
       SourcePathResolver pathResolver, SourcePathRuleFinder ruleFinder) {
     // a hash set is intentionally used to achieve constant time look-up
+    // TODO(cjhopman): This could probably be changed to be a 2-level check of archivepath->inner,
+    // withinarchivepath->boolean.
     return abiClasspath
             .getArchiveMembers(pathResolver, ruleFinder)
             .collect(ImmutableSet.toImmutableSet())
@@ -164,11 +280,9 @@ public class JarBuildStepsFactory
   }
 
   public boolean useRulePipelining() {
-    boolean usePipelining =
-        configuredCompiler instanceof JavacToJarStepFactory
-            && abiGenerationMode.isSourceAbi()
-            && abiGenerationMode.usesDependencies();
-    return usePipelining;
+    return configuredCompiler instanceof JavacToJarStepFactory
+        && abiGenerationMode.isSourceAbi()
+        && abiGenerationMode.usesDependencies();
   }
 
   public ImmutableList<Step> getBuildStepsForAbiJar(
@@ -186,8 +300,7 @@ public class JarBuildStepsFactory
 
     ResourcesParameters resourcesParameters = getResourcesParameters();
 
-    CompileToJarStepFactory compileToJarStepFactory = (CompileToJarStepFactory) configuredCompiler;
-    compileToJarStepFactory.createCompileToJarStep(
+    configuredCompiler.createCompileToJarStep(
         context,
         filesystem,
         buildTarget,
@@ -234,8 +347,7 @@ public class JarBuildStepsFactory
     CompilerParameters compilerParameters = getCompilerParameters(context, filesystem, buildTarget);
     ResourcesParameters resourcesParameters = getResourcesParameters();
 
-    CompileToJarStepFactory compileToJarStepFactory = (CompileToJarStepFactory) configuredCompiler;
-    compileToJarStepFactory.createCompileToJarStep(
+    configuredCompiler.createCompileToJarStep(
         context,
         filesystem,
         buildTarget,
@@ -293,7 +405,7 @@ public class JarBuildStepsFactory
       BuildContext context, ProjectFilesystem filesystem, BuildTarget buildTarget) {
     return CompilerParameters.builder()
         .setClasspathEntriesSourcePaths(
-            compileTimeClasspathSourcePaths, context.getSourcePathResolver())
+            dependencyInfos.getCompileTimeClasspathSourcePaths(), context.getSourcePathResolver())
         .setSourceFileSourcePaths(srcs, filesystem, context.getSourcePathResolver())
         .setScratchPaths(buildTarget, filesystem)
         .setShouldTrackClassUsage(trackClassUsage)
@@ -301,7 +413,8 @@ public class JarBuildStepsFactory
         .setAbiGenerationMode(abiGenerationMode)
         .setAbiCompatibilityMode(abiCompatibilityMode)
         .setSourceOnlyAbiRuleInfoFactory(
-            ruleInfoFactorySupplier != null ? ruleInfoFactorySupplier.get() : null)
+            new DefaultSourceOnlyAbiRuleInfoFactory(
+                dependencyInfos.infos, buildTarget, isRequiredForSourceOnlyAbi))
         .build();
   }
 
@@ -373,6 +486,15 @@ public class JarBuildStepsFactory
     }
   }
 
+  private Optional<Path> getGeneratedAnnotationPath(
+      BuildTarget buildTarget, ProjectFilesystem filesystem) {
+    if (!hasAnnotationProcessing()) {
+      return Optional.empty();
+    }
+
+    return CompilerOutputPaths.getAnnotationPath(filesystem, buildTarget);
+  }
+
   private Path getDepFileRelativePath(ProjectFilesystem filesystem, BuildTarget buildTarget) {
     return CompilerOutputPaths.getOutputJarDirPath(buildTarget, filesystem)
         .resolve("used-classes.json");
@@ -381,7 +503,8 @@ public class JarBuildStepsFactory
   private ImmutableMap<Path, SourcePath> getDepOutputPathToAbiSourcePath(
       SourcePathResolver pathResolver, SourcePathRuleFinder ruleFinder) {
     ImmutableMap.Builder<Path, SourcePath> pathToSourcePathMapBuilder = ImmutableMap.builder();
-    for (SourcePath sourcePath : compileTimeClasspathSourcePaths) {
+    for (JavaDependencyInfo depInfo : dependencyInfos.infos) {
+      SourcePath sourcePath = depInfo.compileTimeJar;
       BuildRule rule = ruleFinder.getRule(sourcePath).get();
       Path path = pathResolver.getAbsolutePath(sourcePath);
       if (rule instanceof HasJavaAbi && ((HasJavaAbi) rule).getAbiJar().isPresent()) {
@@ -402,5 +525,9 @@ public class JarBuildStepsFactory
         compilerParameters,
         getAbiJarParameters(firstRule, context, filesystem, compilerParameters).orElse(null),
         getLibraryJarParameters(context, filesystem, compilerParameters).orElse(null));
+  }
+
+  public boolean hasAnnotationProcessing() {
+    return configuredCompiler.hasAnnotationProcessing();
   }
 }

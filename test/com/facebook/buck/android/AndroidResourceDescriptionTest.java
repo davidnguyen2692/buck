@@ -35,7 +35,7 @@ import com.facebook.buck.core.sourcepath.FakeSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.util.RichStream;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.collect.ImmutableList;
@@ -160,7 +160,7 @@ public class AndroidResourceDescriptionTest {
   }
 
   @Test
-  public void testResourceRulesCreateSymlinkTrees() throws Exception {
+  public void testResourceRulesCreateSymlinkTrees() {
     FakeProjectFilesystem filesystem = new FakeProjectFilesystem(tmpFolder.getRoot().toPath());
     filesystem.mkdirs(Paths.get("res"));
     filesystem.mkdirs(Paths.get("assets"));

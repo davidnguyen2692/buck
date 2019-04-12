@@ -29,6 +29,7 @@ import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.BuildRuleResolver;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.TestBuildRuleParams;
+import com.facebook.buck.core.rules.impl.FakeBuildRule;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.core.sourcepath.FakeSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
@@ -38,18 +39,17 @@ import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
 import com.facebook.buck.cxx.toolchain.HeaderMode;
 import com.facebook.buck.cxx.toolchain.HeaderSymlinkTree;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.rules.FakeBuildRule;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.shell.Genrule;
 import com.facebook.buck.shell.GenruleBuilder;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedSet;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Objects;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.ExpectedException;
@@ -66,7 +66,7 @@ public class CxxPreprocessablesTest {
         BuildRuleParams params,
         CxxPreprocessorInput input) {
       super(buildTarget, projectFilesystem, params);
-      this.input = Preconditions.checkNotNull(input);
+      this.input = Objects.requireNonNull(input);
     }
 
     @Override
@@ -176,7 +176,7 @@ public class CxxPreprocessablesTest {
   }
 
   @Test
-  public void createHeaderSymlinkTreeBuildRuleHasNoDeps() throws Exception {
+  public void createHeaderSymlinkTreeBuildRuleHasNoDeps() {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
 

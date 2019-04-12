@@ -23,11 +23,12 @@ import static org.junit.Assert.assertTrue;
 import com.facebook.buck.android.SmartDexingStep.DxPseudoRule;
 import com.facebook.buck.android.toolchain.AndroidPlatformTarget;
 import com.facebook.buck.core.build.context.FakeBuildContext;
+import com.facebook.buck.core.toolchain.tool.impl.testutil.SimpleTool;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.TestExecutionContext;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.MoreAsserts;
 import com.facebook.buck.util.sha1.Sha1HashCode;
 import com.google.common.base.Charsets;
@@ -86,7 +87,9 @@ public class SmartDexingStepTest {
             EnumSet.of(DxStep.Option.NO_OPTIMIZE),
             OptionalInt.empty(),
             Optional.empty(),
-            DxStep.DX);
+            DxStep.DX,
+            null,
+            false);
     assertFalse("'dummy' is not a matching input hash", rule.checkIsCached());
 
     // Write the real hash into the output hash file and ensure that checkIsCached now
@@ -99,7 +102,7 @@ public class SmartDexingStepTest {
   }
 
   @Test
-  public void testCreateDxStepForDxPseudoRuleWithXzOutput() throws Exception {
+  public void testCreateDxStepForDxPseudoRuleWithXzOutput() {
     ProjectFilesystem filesystem = FakeProjectFilesystem.createJavaOnlyFilesystem();
 
     ImmutableList<Path> filesToDex =
@@ -118,7 +121,9 @@ public class SmartDexingStepTest {
         dxOptions,
         OptionalInt.empty(),
         Optional.empty(),
-        DxStep.DX);
+        DxStep.DX,
+        null,
+        false);
 
     MoreAsserts.assertSteps(
         "Steps should repack zip entries and then compress using xz.",
@@ -142,7 +147,7 @@ public class SmartDexingStepTest {
   }
 
   @Test
-  public void testCreateDxStepForDxPseudoRuleWithXzOutputNonDefaultCompression() throws Exception {
+  public void testCreateDxStepForDxPseudoRuleWithXzOutputNonDefaultCompression() {
     ProjectFilesystem filesystem = FakeProjectFilesystem.createJavaOnlyFilesystem();
 
     ImmutableList<Path> filesToDex =
@@ -160,7 +165,9 @@ public class SmartDexingStepTest {
         dxOptions,
         OptionalInt.of(9),
         Optional.empty(),
-        DxStep.DX);
+        DxStep.DX,
+        null,
+        false);
 
     MoreAsserts.assertSteps(
         "Steps should repack zip entries and then compress using xz.",
@@ -184,7 +191,7 @@ public class SmartDexingStepTest {
   }
 
   @Test
-  public void testCreateDxStepForDxPseudoRuleWithDexOutput() throws Exception {
+  public void testCreateDxStepForDxPseudoRuleWithDexOutput() {
     ProjectFilesystem filesystem = FakeProjectFilesystem.createJavaOnlyFilesystem();
 
     ImmutableList<Path> filesToDex =
@@ -202,7 +209,9 @@ public class SmartDexingStepTest {
         dxOptions,
         OptionalInt.empty(),
         Optional.empty(),
-        DxStep.DX);
+        DxStep.DX,
+        null,
+        false);
 
     assertEquals(
         Joiner.on(" ")
@@ -220,7 +229,7 @@ public class SmartDexingStepTest {
   }
 
   @Test
-  public void testCreateDxStepForDxPseudoRuleWithDexJarOutput() throws Exception {
+  public void testCreateDxStepForDxPseudoRuleWithDexJarOutput() {
     ProjectFilesystem filesystem = FakeProjectFilesystem.createJavaOnlyFilesystem();
 
     ImmutableList<Path> filesToDex =
@@ -238,7 +247,9 @@ public class SmartDexingStepTest {
         dxOptions,
         OptionalInt.empty(),
         Optional.empty(),
-        DxStep.DX);
+        DxStep.DX,
+        null,
+        false);
 
     MoreAsserts.assertSteps(
         "Wrong steps",
@@ -260,7 +271,7 @@ public class SmartDexingStepTest {
   }
 
   @Test(expected = IllegalArgumentException.class)
-  public void testCreateDxStepForDxPseudoRuleWithUnrecognizedOutput() throws Exception {
+  public void testCreateDxStepForDxPseudoRuleWithUnrecognizedOutput() {
     ProjectFilesystem filesystem =
         TestProjectFilesystems.createProjectFilesystem(tmpDir.getRoot().toPath());
 
@@ -278,7 +289,9 @@ public class SmartDexingStepTest {
         dxOptions,
         OptionalInt.empty(),
         Optional.empty(),
-        DxStep.DX);
+        DxStep.DX,
+        null,
+        false);
   }
 
   private AndroidPlatformTarget createAndroidPlatformTarget() {
@@ -286,8 +299,8 @@ public class SmartDexingStepTest {
         "android",
         Paths.get(""),
         Collections.emptyList(),
-        Paths.get(""),
-        Paths.get(""),
+        () -> new SimpleTool(""),
+        () -> new SimpleTool(""),
         Paths.get(""),
         Paths.get(""),
         Paths.get(""),

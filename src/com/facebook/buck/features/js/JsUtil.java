@@ -16,7 +16,7 @@
 
 package com.facebook.buck.features.js;
 
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.macros.MacroException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
@@ -47,10 +47,10 @@ import com.facebook.buck.worker.WorkerProcessIdentity;
 import com.facebook.buck.worker.WorkerProcessParams;
 import com.facebook.buck.worker.WorkerProcessPoolFactory;
 import com.fasterxml.jackson.core.io.CharTypes;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedSet;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Consumer;
@@ -92,9 +92,7 @@ public class JsUtil {
         jobArgs
             .addArray(
                 "flavors",
-                buildTarget
-                    .getFlavors()
-                    .stream()
+                buildTarget.getFlavors().stream()
                     .filter(JsFlavors::shouldBePassedToWorker)
                     .map(Flavor::getName)
                     .collect(JsonBuilder.toArrayOfStrings()))
@@ -138,7 +136,7 @@ public class JsUtil {
   }
 
   public static String getValueForFlavor(ImmutableMap<UserFlavor, String> map, Flavor flavor) {
-    return Preconditions.checkNotNull(map.get(flavor), "no string representation of the flavor");
+    return Objects.requireNonNull(map.get(flavor), "no string representation of the flavor");
   }
 
   private static final ImmutableMap<UserFlavor, String> PLATFORM_STRINGS =

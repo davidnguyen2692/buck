@@ -16,12 +16,13 @@
 
 package com.facebook.buck.swift;
 
-import static com.facebook.buck.core.model.UnflavoredBuildTarget.BUILD_TARGET_PREFIX;
+import static com.facebook.buck.core.model.UnflavoredBuildTargetView.BUILD_TARGET_PREFIX;
 
 import com.facebook.buck.apple.platform_type.ApplePlatformType;
 import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.model.impl.ImmutableBuildTarget;
-import com.facebook.buck.core.model.impl.ImmutableUnflavoredBuildTarget;
+import com.facebook.buck.core.model.TargetConfiguration;
+import com.facebook.buck.core.model.UnconfiguredBuildTargetView;
+import com.facebook.buck.core.model.impl.ImmutableUnconfiguredBuildTargetView;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRuleResolver;
 import com.facebook.buck.core.sourcepath.SourcePath;
@@ -37,29 +38,28 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.Optional;
 
 /** Pseudo linkable for representing Swift runtime library's linker arguments. */
 public final class SwiftRuntimeNativeLinkable implements NativeLinkable {
 
   private static final String SWIFT_RUNTIME = "_swift_runtime";
 
-  private static final BuildTarget PSEUDO_BUILD_TARGET =
-      ImmutableBuildTarget.of(
-          ImmutableUnflavoredBuildTarget.of(
-              Paths.get(SWIFT_RUNTIME),
-              Optional.empty(),
-              BUILD_TARGET_PREFIX + SWIFT_RUNTIME,
-              SWIFT_RUNTIME));
-  private final SwiftPlatform swiftPlatform;
+  private static final UnconfiguredBuildTargetView PSEUDO_BUILD_TARGET =
+      ImmutableUnconfiguredBuildTargetView.of(
+          Paths.get(SWIFT_RUNTIME), BUILD_TARGET_PREFIX + SWIFT_RUNTIME, SWIFT_RUNTIME);
 
-  public SwiftRuntimeNativeLinkable(SwiftPlatform swiftPlatform) {
+  private final SwiftPlatform swiftPlatform;
+  private final BuildTarget buildTarget;
+
+  public SwiftRuntimeNativeLinkable(
+      SwiftPlatform swiftPlatform, TargetConfiguration targetConfiguration) {
     this.swiftPlatform = swiftPlatform;
+    this.buildTarget = PSEUDO_BUILD_TARGET.configure(targetConfiguration);
   }
 
   @Override
   public BuildTarget getBuildTarget() {
-    return PSEUDO_BUILD_TARGET;
+    return buildTarget;
   }
 
   @Override
@@ -78,8 +78,8 @@ public final class SwiftRuntimeNativeLinkable implements NativeLinkable {
       CxxPlatform cxxPlatform,
       Linker.LinkableDepType type,
       boolean forceLinkWhole,
-      ImmutableSet<LanguageExtensions> languageExtensions,
-      ActionGraphBuilder graphBuilder) {
+      ActionGraphBuilder graphBuilder,
+      TargetConfiguration targetConfiguration) {
     NativeLinkableInput.Builder inputBuilder = NativeLinkableInput.builder();
 
     ImmutableList.Builder<Arg> linkerArgsBuilder = ImmutableList.builder();
@@ -90,7 +90,7 @@ public final class SwiftRuntimeNativeLinkable implements NativeLinkable {
   }
 
   @Override
-  public Linkage getPreferredLinkage(CxxPlatform cxxPlatform, ActionGraphBuilder graphBuilder) {
+  public Linkage getPreferredLinkage(CxxPlatform cxxPlatform) {
     ApplePlatformType type = ApplePlatformType.of(cxxPlatform.getFlavor().getName());
     if (type == ApplePlatformType.MAC) {
       return Linkage.ANY;

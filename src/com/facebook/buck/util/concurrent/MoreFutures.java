@@ -16,8 +16,6 @@
 
 package com.facebook.buck.util.concurrent;
 
-import static com.google.common.util.concurrent.MoreExecutors.directExecutor;
-
 import com.google.common.base.Preconditions;
 import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
@@ -31,6 +29,7 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
+import java.util.function.Consumer;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
@@ -148,29 +147,6 @@ public class MoreFutures {
     return waiter;
   }
 
-  public static <V> ListenableFuture<Void> addListenableCallback(
-      ListenableFuture<V> future, FutureCallback<? super V> callback) {
-    return addListenableCallback(future, callback, directExecutor());
-  }
-
-  /**
-   * @return a {@link ListenableFuture} which fails if either input future fails or returns the
-   *     value contained in {@code to} if they both succeed.
-   */
-  public static <F, T> ListenableFuture<T> chainExceptions(
-      ListenableFuture<F> from, ListenableFuture<T> to) {
-    return chainExceptions(from, to, directExecutor());
-  }
-
-  /**
-   * @return a {@link ListenableFuture} which fails if either input future fails or returns the
-   *     value contained in {@code to} if they both succeed.
-   */
-  public static <F, T> ListenableFuture<T> chainExceptions(
-      ListenableFuture<F> from, ListenableFuture<T> to, Executor executor) {
-    return Futures.transformAsync(from, result -> to, executor);
-  }
-
   public static <X extends Throwable> void propagateCauseIfInstanceOf(Throwable e, Class<X> type) {
     if (e.getCause() != null && type.isInstance(e)) {
       Throwables.throwIfUnchecked(e.getCause());
@@ -183,15 +159,23 @@ public class MoreFutures {
    *     error.
    */
   public static <V> FutureCallback<V> finallyCallback(Runnable runnable) {
+    return finallyCallback(ignored -> runnable.run());
+  }
+
+  /**
+   * @return a {@link FutureCallback} which executes the given {@link Consumer} on both success and
+   *     error. This just makes it simpler to add unconditional callbacks.
+   */
+  public static <V> FutureCallback<V> finallyCallback(Consumer<ListenableFuture<V>> callable) {
     return new FutureCallback<V>() {
       @Override
       public void onSuccess(@Nullable V result) {
-        runnable.run();
+        callable.accept(Futures.immediateFuture(result));
       }
 
       @Override
       public void onFailure(@Nonnull Throwable t) {
-        runnable.run();
+        callable.accept(Futures.immediateFailedFuture(t));
       }
     };
   }

@@ -21,13 +21,16 @@ import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.FlavorDomain;
 import com.facebook.buck.core.model.InternalFlavor;
+import com.facebook.buck.core.model.TargetConfiguration;
 import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.core.toolchain.toolprovider.ToolProvider;
+import com.facebook.buck.core.util.log.Logger;
+import com.facebook.buck.cxx.toolchain.linker.Linker;
 import com.facebook.buck.cxx.toolchain.linker.LinkerProvider;
-import com.facebook.buck.log.Logger;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.ImmutableSet;
 import java.util.Optional;
 
@@ -42,6 +45,8 @@ public class CxxPlatforms {
   private static final ImmutableList<String> DEFAULT_CXXPPFLAGS = ImmutableList.of();
   private static final ImmutableList<String> DEFAULT_CUDAFLAGS = ImmutableList.of();
   private static final ImmutableList<String> DEFAULT_CUDAPPFLAGS = ImmutableList.of();
+  private static final ImmutableList<String> DEFAULT_HIPFLAGS = ImmutableList.of();
+  private static final ImmutableList<String> DEFAULT_HIPPPFLAGS = ImmutableList.of();
   private static final ImmutableList<String> DEFAULT_ASMFLAGS = ImmutableList.of();
   private static final ImmutableList<String> DEFAULT_ASMPPFLAGS = ImmutableList.of();
   private static final ImmutableList<String> DEFAULT_LDFLAGS = ImmutableList.of();
@@ -84,14 +89,18 @@ public class CxxPlatforms {
       PreprocessorProvider cxxpp,
       LinkerProvider ld,
       Iterable<String> ldFlags,
+      ImmutableMultimap<Linker.LinkableDepType, String> runtimeLdflags,
       Tool strip,
       ArchiverProvider ar,
+      ArchiveContents archiveContents,
       Optional<ToolProvider> ranlib,
       SymbolNameTool nm,
       ImmutableList<String> asflags,
       ImmutableList<String> asppflags,
       ImmutableList<String> cflags,
       ImmutableList<String> cppflags,
+      ImmutableList<String> cxxflags,
+      ImmutableList<String> cxxppflags,
       String sharedLibraryExtension,
       String sharedLibraryVersionedExtensionFormat,
       String staticLibraryExtension,
@@ -101,9 +110,19 @@ public class CxxPlatforms {
       ImmutableMap<String, String> flagMacros,
       Optional<String> binaryExtension,
       HeaderVerification headerVerification,
+      boolean publicHeadersSymlinksEnabled,
+      boolean privateHeadersSymlinksEnabled,
       PicType picTypeForSharedLinking) {
     // TODO(beng, agallagher): Generalize this so we don't need all these setters.
     CxxPlatform.Builder builder = CxxPlatform.builder();
+
+    if (config.getBinaryExtension().isPresent()) {
+      if (config.getBinaryExtension().get().isEmpty()) {
+        binaryExtension = Optional.empty();
+      } else {
+        binaryExtension = config.getBinaryExtension();
+      }
+    }
 
     builder
         .setFlavor(flavor)
@@ -115,28 +134,36 @@ public class CxxPlatforms {
         .setCxxpp(config.getCxxpp().orElse(cxxpp))
         .setCuda(config.getCuda())
         .setCudapp(config.getCudapp())
+        .setHip(config.getHip())
+        .setHippp(config.getHippp())
         .setAsm(config.getAsm())
         .setAsmpp(config.getAsmpp())
         .setLd(config.getLinkerProvider(ld.getType()).orElse(ld))
         .addAllLdflags(ldFlags)
+        .setRuntimeLdflags(runtimeLdflags)
         .setAr(config.getArchiverProvider(platform).orElse(ar))
         .setRanlib(config.getRanlib().isPresent() ? config.getRanlib() : ranlib)
         .setStrip(config.getStrip().orElse(strip))
+        .setBinaryExtension(binaryExtension)
         .setSharedLibraryExtension(
             config.getSharedLibraryExtension().orElse(sharedLibraryExtension))
         .setSharedLibraryVersionedExtensionFormat(sharedLibraryVersionedExtensionFormat)
-        .setStaticLibraryExtension(staticLibraryExtension)
-        .setObjectFileExtension(objectFileExtension)
+        .setStaticLibraryExtension(
+            config.getStaticLibraryExtension().orElse(staticLibraryExtension))
+        .setObjectFileExtension(config.getObjectFileExtension().orElse(objectFileExtension))
         .setCompilerDebugPathSanitizer(compilerDebugPathSanitizer)
         .setAssemblerDebugPathSanitizer(assemblerDebugPathSanitizer)
         .setFlagMacros(flagMacros)
-        .setBinaryExtension(binaryExtension)
         .setHeaderVerification(headerVerification)
-        .setPublicHeadersSymlinksEnabled(config.getPublicHeadersSymlinksEnabled())
-        .setPrivateHeadersSymlinksEnabled(config.getPrivateHeadersSymlinksEnabled())
+        .setPublicHeadersSymlinksEnabled(
+            config.getPublicHeadersSymlinksSetting().orElse(publicHeadersSymlinksEnabled))
+        .setPrivateHeadersSymlinksEnabled(
+            config.getPrivateHeadersSymlinksSetting().orElse(privateHeadersSymlinksEnabled))
         .setPicTypeForSharedLinking(picTypeForSharedLinking)
         .setConflictingHeaderBasenameWhitelist(config.getConflictingHeaderBasenameWhitelist())
-        .setHeaderMode(config.getHeaderMode());
+        .setHeaderMode(config.getHeaderMode())
+        .setUseArgFile(config.getUseArgFile())
+        .setFilepathLengthLimited(config.getFilepathLengthLimited());
 
     builder.setSymbolNameTool(
         new LazyDelegatingSymbolNameTool(
@@ -149,12 +176,14 @@ public class CxxPlatforms {
               }
             }));
 
+    builder.setArchiveContents(config.getArchiveContents().orElse(archiveContents));
+
     builder.setSharedLibraryInterfaceParams(getSharedLibraryInterfaceParams(config, platform));
 
     builder.addAllCflags(cflags);
-    builder.addAllCxxflags(cflags);
+    builder.addAllCxxflags(cxxflags);
     builder.addAllCppflags(cppflags);
-    builder.addAllCxxppflags(cppflags);
+    builder.addAllCxxppflags(cxxppflags);
     builder.addAllAsflags(asflags);
     builder.addAllAsppflags(asppflags);
     CxxPlatforms.addToolFlagsFromConfig(config, builder);
@@ -179,14 +208,18 @@ public class CxxPlatforms {
         defaultPlatform.getCxxpp(),
         defaultPlatform.getLd(),
         defaultPlatform.getLdflags(),
+        defaultPlatform.getRuntimeLdflags(),
         defaultPlatform.getStrip(),
         defaultPlatform.getAr(),
+        defaultPlatform.getArchiveContents(),
         defaultPlatform.getRanlib(),
         defaultPlatform.getSymbolNameTool(),
         defaultPlatform.getAsflags(),
         defaultPlatform.getAsppflags(),
         defaultPlatform.getCflags(),
         defaultPlatform.getCppflags(),
+        defaultPlatform.getCxxflags(),
+        defaultPlatform.getCxxppflags(),
         defaultPlatform.getSharedLibraryExtension(),
         defaultPlatform.getSharedLibraryVersionedExtensionFormat(),
         defaultPlatform.getStaticLibraryExtension(),
@@ -196,6 +229,8 @@ public class CxxPlatforms {
         defaultPlatform.getFlagMacros(),
         defaultPlatform.getBinaryExtension(),
         defaultPlatform.getHeaderVerification(),
+        defaultPlatform.getPublicHeadersSymlinksEnabled(),
+        defaultPlatform.getPrivateHeadersSymlinksEnabled(),
         defaultPlatform.getPicTypeForSharedLinking());
   }
 
@@ -233,6 +268,8 @@ public class CxxPlatforms {
         .addAllCxxppflags(config.getCxxppflags().orElse(DEFAULT_CXXPPFLAGS))
         .addAllCudaflags(config.getCudaflags().orElse(DEFAULT_CUDAFLAGS))
         .addAllCudappflags(config.getCudappflags().orElse(DEFAULT_CUDAPPFLAGS))
+        .addAllHipflags(config.getHipflags().orElse(DEFAULT_HIPFLAGS))
+        .addAllHipppflags(config.getHipppflags().orElse(DEFAULT_HIPPPFLAGS))
         .addAllAsmflags(config.getAsmflags().orElse(DEFAULT_ASMFLAGS))
         .addAllAsmppflags(config.getAsmppflags().orElse(DEFAULT_ASMPPFLAGS))
         .addAllLdflags(config.getLdflags().orElse(DEFAULT_LDFLAGS))
@@ -240,16 +277,17 @@ public class CxxPlatforms {
         .addAllRanlibflags(config.getRanlibflags().orElse(DEFAULT_RANLIBFLAGS));
   }
 
-  public static CxxPlatform getConfigDefaultCxxPlatform(
+  /** Returns the configured default cxx platform. */
+  public static UnresolvedCxxPlatform getConfigDefaultCxxPlatform(
       CxxBuckConfig cxxBuckConfig,
-      ImmutableMap<Flavor, CxxPlatform> cxxPlatformsMap,
-      CxxPlatform systemDefaultCxxPlatform) {
-    CxxPlatform defaultCxxPlatform;
+      ImmutableMap<Flavor, UnresolvedCxxPlatform> cxxPlatformsMap,
+      UnresolvedCxxPlatform systemDefaultCxxPlatform) {
+    UnresolvedCxxPlatform defaultCxxPlatform;
     Optional<String> defaultPlatform = cxxBuckConfig.getDefaultPlatform();
     if (defaultPlatform.isPresent()) {
       defaultCxxPlatform = cxxPlatformsMap.get(InternalFlavor.of(defaultPlatform.get()));
       if (defaultCxxPlatform == null) {
-        LOG.warn(
+        LOG.info(
             "Couldn't find default platform %s, falling back to system default",
             defaultPlatform.get());
       } else {
@@ -263,52 +301,55 @@ public class CxxPlatforms {
     return systemDefaultCxxPlatform;
   }
 
-  public static Iterable<BuildTarget> getParseTimeDeps(CxxPlatform cxxPlatform) {
+  public static Iterable<BuildTarget> getParseTimeDeps(
+      TargetConfiguration targetConfiguration, CxxPlatform cxxPlatform) {
     ImmutableList.Builder<BuildTarget> deps = ImmutableList.builder();
-    deps.addAll(cxxPlatform.getAspp().getParseTimeDeps());
-    deps.addAll(cxxPlatform.getAs().getParseTimeDeps());
-    deps.addAll(cxxPlatform.getCpp().getParseTimeDeps());
-    deps.addAll(cxxPlatform.getCc().getParseTimeDeps());
-    deps.addAll(cxxPlatform.getCxxpp().getParseTimeDeps());
-    deps.addAll(cxxPlatform.getCxx().getParseTimeDeps());
+    deps.addAll(cxxPlatform.getAspp().getParseTimeDeps(targetConfiguration));
+    deps.addAll(cxxPlatform.getAs().getParseTimeDeps(targetConfiguration));
+    deps.addAll(cxxPlatform.getCpp().getParseTimeDeps(targetConfiguration));
+    deps.addAll(cxxPlatform.getCc().getParseTimeDeps(targetConfiguration));
+    deps.addAll(cxxPlatform.getCxxpp().getParseTimeDeps(targetConfiguration));
+    deps.addAll(cxxPlatform.getCxx().getParseTimeDeps(targetConfiguration));
     if (cxxPlatform.getCudapp().isPresent()) {
-      deps.addAll(cxxPlatform.getCudapp().get().getParseTimeDeps());
+      deps.addAll(cxxPlatform.getCudapp().get().getParseTimeDeps(targetConfiguration));
     }
     if (cxxPlatform.getCuda().isPresent()) {
-      deps.addAll(cxxPlatform.getCuda().get().getParseTimeDeps());
+      deps.addAll(cxxPlatform.getCuda().get().getParseTimeDeps(targetConfiguration));
+    }
+    if (cxxPlatform.getHippp().isPresent()) {
+      deps.addAll(cxxPlatform.getHippp().get().getParseTimeDeps(targetConfiguration));
+    }
+    if (cxxPlatform.getHip().isPresent()) {
+      deps.addAll(cxxPlatform.getHip().get().getParseTimeDeps(targetConfiguration));
     }
     if (cxxPlatform.getAsmpp().isPresent()) {
-      deps.addAll(cxxPlatform.getAsmpp().get().getParseTimeDeps());
+      deps.addAll(cxxPlatform.getAsmpp().get().getParseTimeDeps(targetConfiguration));
     }
     if (cxxPlatform.getAsm().isPresent()) {
-      deps.addAll(cxxPlatform.getAsm().get().getParseTimeDeps());
+      deps.addAll(cxxPlatform.getAsm().get().getParseTimeDeps(targetConfiguration));
     }
-    deps.addAll(cxxPlatform.getLd().getParseTimeDeps());
-    deps.addAll(cxxPlatform.getAr().getParseTimeDeps());
+    deps.addAll(cxxPlatform.getLd().getParseTimeDeps(targetConfiguration));
+    deps.addAll(cxxPlatform.getAr().getParseTimeDeps(targetConfiguration));
     if (cxxPlatform.getRanlib().isPresent()) {
-      deps.addAll(cxxPlatform.getRanlib().get().getParseTimeDeps());
+      deps.addAll(cxxPlatform.getRanlib().get().getParseTimeDeps(targetConfiguration));
     }
-    cxxPlatform.getSharedLibraryInterfaceParams().ifPresent(f -> deps.addAll(f.getParseTimeDeps()));
+    cxxPlatform
+        .getSharedLibraryInterfaceParams()
+        .ifPresent(f -> deps.addAll(f.getParseTimeDeps(targetConfiguration)));
     return deps.build();
   }
 
-  public static Iterable<BuildTarget> getParseTimeDeps(Iterable<CxxPlatform> cxxPlatforms) {
-    ImmutableList.Builder<BuildTarget> deps = ImmutableList.builder();
-    for (CxxPlatform cxxPlatform : cxxPlatforms) {
-      deps.addAll(getParseTimeDeps(cxxPlatform));
-    }
-    return deps.build();
-  }
-
-  public static CxxPlatform getCxxPlatform(
+  /** Returns the configured cxx platform for a particular target. */
+  public static UnresolvedCxxPlatform getCxxPlatform(
       CxxPlatformsProvider cxxPlatformsProvider,
       BuildTarget target,
       Optional<Flavor> defaultCxxPlatformFlavor) {
 
-    FlavorDomain<CxxPlatform> cxxPlatforms = cxxPlatformsProvider.getCxxPlatforms();
+    FlavorDomain<UnresolvedCxxPlatform> cxxPlatforms =
+        cxxPlatformsProvider.getUnresolvedCxxPlatforms();
 
     // First check if the build target is setting a particular target.
-    Optional<CxxPlatform> targetPlatform = cxxPlatforms.getValue(target.getFlavors());
+    Optional<UnresolvedCxxPlatform> targetPlatform = cxxPlatforms.getValue(target.getFlavors());
     if (targetPlatform.isPresent()) {
       return targetPlatform.get();
     }
@@ -319,7 +360,8 @@ public class CxxPlatforms {
     }
 
     // Otherwise, fallback to the description-level default platform.
-    return cxxPlatforms.getValue(cxxPlatformsProvider.getDefaultCxxPlatform().getFlavor());
+    return cxxPlatforms.getValue(
+        cxxPlatformsProvider.getDefaultUnresolvedCxxPlatform().getFlavor());
   }
 
   public static Iterable<BuildTarget> findDepsForTargetFromConstructorArgs(
@@ -330,8 +372,8 @@ public class CxxPlatforms {
 
     // Get any parse time deps from the C/C++ platforms.
     deps.addAll(
-        getParseTimeDeps(
-            getCxxPlatform(cxxPlatformsProvider, buildTarget, defaultCxxPlatformFlavor)));
+        getCxxPlatform(cxxPlatformsProvider, buildTarget, defaultCxxPlatformFlavor)
+            .getParseTimeDeps(buildTarget.getTargetConfiguration()));
 
     return deps.build();
   }

@@ -69,6 +69,16 @@ public interface CxxConstructorArg
     return ImmutableSortedSet.of();
   }
 
+  /**
+   * A list of include directories to be added to the compile command for compiling this cxx target.
+   *
+   * @return a list of private include paths for this cxx target.
+   */
+  @Value.Default
+  default ImmutableSortedSet<String> getIncludeDirectories() {
+    return ImmutableSortedSet.of();
+  }
+
   @Value.Check
   default void checkHeadersUsage() {
     if (getRawHeaders().isEmpty()) {
@@ -128,6 +138,8 @@ public interface CxxConstructorArg
   default PatternMatchedCollection<ImmutableList<StringWithMacros>> getPlatformLinkerFlags() {
     return PatternMatchedCollection.of();
   }
+
+  Optional<String> getExecutableName();
 
   @Value.Default
   default PatternMatchedCollection<ImmutableList<StringWithMacros>> getPostPlatformLinkerFlags() {

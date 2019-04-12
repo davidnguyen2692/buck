@@ -27,12 +27,12 @@ import com.facebook.buck.core.build.stats.BuildRuleDurationTracker;
 import com.facebook.buck.core.model.BuildId;
 import com.facebook.buck.core.rulekey.BuildRuleKeys;
 import com.facebook.buck.core.rulekey.RuleKey;
+import com.facebook.buck.core.rules.impl.FakeBuildRule;
 import com.facebook.buck.distributed.thrift.BuildSlaveRunId;
 import com.facebook.buck.distributed.thrift.StampedeId;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.log.views.JsonViews;
-import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TestDataHelper;
@@ -68,7 +68,7 @@ public class DistBuildPostBuildAnalysisTest {
   private ObjectWriter objectWriter;
 
   @Before
-  public void setUp() throws IOException, InterruptedException {
+  public void setUp() {
     stampedeId.setId("stampede5057850940756389804");
     buildSlaveRunId1.setId("stampede-slave1241653611715395998");
     buildSlaveRunId2.setId("stampede-slave8890909885267341364");
@@ -155,8 +155,7 @@ public class DistBuildPostBuildAnalysisTest {
 
     Map<String, BuildRuleMachineLogEntry> resultMap =
         DistBuildPostBuildAnalysis.extractBuildRules(
-            ruleEvents
-                .stream()
+            ruleEvents.stream()
                 .map(event -> buildRuleFinishedAsMachineReadable(event))
                 .collect(Collectors.toList()));
 
@@ -165,8 +164,7 @@ public class DistBuildPostBuildAnalysisTest {
         resultMap
             .keySet()
             .containsAll(
-                ruleEvents
-                    .stream()
+                ruleEvents.stream()
                     .map(rule -> rule.getBuildRule().getFullyQualifiedName())
                     .collect(Collectors.toList())));
 
@@ -182,8 +180,7 @@ public class DistBuildPostBuildAnalysisTest {
           expected.getRuleKeys().getInputRuleKey().map(rk -> rk.toString()).orElse(""));
       Assert.assertEquals(result.getRuleType().get(), expected.getBuildRule().getType());
       Assert.assertEquals(
-          result.getWallMillisDuration().longValue(),
-          expected.getDuration().getWallMillisDuration());
+          result.getWallMillisDuration(), expected.getDuration().getWallMillisDuration());
       Assert.assertEquals(result.getBuildRuleStatus().get(), expected.getStatus());
       Assert.assertEquals(result.getCacheResultType().get(), expected.getCacheResult().getType());
       Assert.assertEquals(
@@ -192,7 +189,7 @@ public class DistBuildPostBuildAnalysisTest {
   }
 
   @Test
-  public void testFileStructure() throws IOException, InterruptedException {
+  public void testFileStructure() throws IOException {
     ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(
             this, "post_build_analysis", tmpPath.getRoot());

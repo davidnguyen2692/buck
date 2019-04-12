@@ -21,6 +21,7 @@ import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.config.FakeBuckConfig;
+import com.facebook.buck.core.model.BuildId;
 import com.facebook.buck.distributed.thrift.Announcement;
 import com.facebook.buck.distributed.thrift.AnnouncementResponse;
 import com.facebook.buck.distributed.thrift.FrontendRequest;
@@ -30,10 +31,11 @@ import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventBusForTests;
 import com.facebook.buck.slb.ThriftProtocol;
 import com.facebook.buck.slb.ThriftUtil;
-import com.facebook.buck.test.TestResultSummaryVerbosity;
+import com.facebook.buck.test.config.TestResultSummaryVerbosity;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.testutil.integration.HttpdForTests;
 import com.facebook.buck.util.environment.DefaultExecutionEnvironment;
+import com.facebook.buck.util.environment.EnvVariablesProvider;
 import com.facebook.buck.util.environment.ExecutionEnvironment;
 import com.facebook.buck.util.network.RemoteLogBuckConfig;
 import com.facebook.buck.util.timing.Clock;
@@ -119,28 +121,33 @@ public class PublicAnnouncementManagerIntegrationTest {
       BuckEventBus eventBus = BuckEventBusForTests.newInstance(clock);
       ExecutionEnvironment executionEnvironment =
           new DefaultExecutionEnvironment(
-              ImmutableMap.copyOf(System.getenv()), System.getProperties());
+              EnvVariablesProvider.getSystemEnv(), System.getProperties());
       BuckConfig buckConfig =
           new FakeBuckConfig.Builder()
               .setSections(
                   ImmutableMap.of(
                       "log",
                       ImmutableMap.of(
-                          "slb_server_pool", "http://localhost:" + httpd.getRootUri().getPort())))
+                          "slb_server_pool", "http://localhost:" + httpd.getRootUri().getPort()),
+                      "cache",
+                      ImmutableMap.of("repository", REPOSITORY)))
               .build();
 
       TestConsole console = new TestConsole();
       SuperConsoleEventBusListener listener =
           new SuperConsoleEventBusListener(
               new SuperConsoleConfig(FakeBuckConfig.builder().build()),
-              console,
+              new RenderingConsole(clock, console),
               clock,
               /* verbosity */ TestResultSummaryVerbosity.of(false, false),
               executionEnvironment,
               Locale.US,
               logPath,
               TimeZone.getTimeZone("UTC"),
-              Optional.empty());
+              new BuildId("1234-5679"),
+              false,
+              Optional.empty(),
+              ImmutableList.of());
       eventBus.register(listener);
 
       PublicAnnouncementManager manager =
@@ -148,7 +155,6 @@ public class PublicAnnouncementManagerIntegrationTest {
               clock,
               eventBus,
               listener,
-              REPOSITORY,
               new RemoteLogBuckConfig(buckConfig),
               MoreExecutors.newDirectExecutorService());
 

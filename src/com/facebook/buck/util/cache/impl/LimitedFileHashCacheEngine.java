@@ -15,8 +15,8 @@
  */
 package com.facebook.buck.util.cache.impl;
 
+import com.facebook.buck.core.io.ArchiveMemberPath;
 import com.facebook.buck.event.AbstractBuckEvent;
-import com.facebook.buck.io.ArchiveMemberPath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.util.cache.FileHashCacheEngine;
 import com.facebook.buck.util.cache.HashCodeAndFileType;
@@ -32,6 +32,7 @@ import java.nio.file.Path;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -77,12 +78,10 @@ class LimitedFileHashCacheEngine implements FileHashCacheEngine {
     private ImmutableMap<Path, HashCode> loadJarContentsHashes() {
       try {
         return new DefaultJarContentHasher(filesystem, path)
-            .getContentHashes()
-            .entrySet()
-            .stream()
-            .collect(
-                ImmutableMap.toImmutableMap(
-                    entry -> entry.getKey(), entry -> entry.getValue().getHashCode()));
+            .getContentHashes().entrySet().stream()
+                .collect(
+                    ImmutableMap.toImmutableMap(
+                        entry -> entry.getKey(), entry -> entry.getValue().getHashCode()));
       } catch (IOException e) {
         throw new RuntimeException(e);
       }
@@ -208,7 +207,7 @@ class LimitedFileHashCacheEngine implements FileHashCacheEngine {
   }
 
   @Override
-  public HashCode get(Path path) throws IOException {
+  public HashCode get(Path path) {
     return fileSystemMap.get(path).getHashCodeAndFileType().getHashCode();
   }
 
@@ -230,7 +229,7 @@ class LimitedFileHashCacheEngine implements FileHashCacheEngine {
   }
 
   @Override
-  public long getSize(Path relativePath) throws IOException {
+  public long getSize(Path relativePath) {
     return fileSystemMap.get(relativePath).getSize();
   }
 
@@ -259,7 +258,7 @@ class LimitedFileHashCacheEngine implements FileHashCacheEngine {
   public ConcurrentMap<Path, HashCodeAndFileType> asMap() {
     return new ConcurrentHashMap<>(
         Maps.transformValues(
-            fileSystemMap.asMap(), v -> Preconditions.checkNotNull(v).getHashCodeAndFileType()));
+            fileSystemMap.asMap(), v -> Objects.requireNonNull(v).getHashCodeAndFileType()));
   }
 
   @Override

@@ -24,9 +24,9 @@ import com.facebook.buck.core.toolchain.tool.impl.CommandTool;
 import com.facebook.buck.core.toolchain.toolprovider.impl.ConstantToolProvider;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
 import com.facebook.buck.io.ExecutableFinder;
+import com.facebook.buck.util.environment.EnvVariablesProvider;
 import com.google.common.base.Charsets;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
 import com.google.common.io.ByteStreams;
 import java.io.IOException;
 import java.nio.file.Path;
@@ -45,6 +45,7 @@ class HaskellTestUtils {
           .setHaddock(new ConstantToolProvider(new CommandTool.Builder().build()))
           .setHaskellVersion(HaskellVersion.of(8))
           .setShouldCacheLinks(true)
+          .setShouldUseArgsfile(false)
           .setCxxPlatform(CxxPlatformUtils.DEFAULT_PLATFORM)
           .setGhciScriptTemplate(
               () -> {
@@ -102,12 +103,12 @@ class HaskellTestUtils {
     ExecutableFinder executableFinder = new ExecutableFinder();
     Optional<Path> compilerOptional =
         executableFinder.getOptionalExecutable(
-            Paths.get("ghc"), ImmutableMap.copyOf(System.getenv()));
+            Paths.get("ghc"), EnvVariablesProvider.getSystemEnv());
     assumeTrue(compilerOptional.isPresent());
 
     // Find the major version of the haskell compiler.
     ImmutableList<String> cmd = ImmutableList.of(compilerOptional.get().toString(), "--version");
-    Process process = Runtime.getRuntime().exec(cmd.toArray(new String[cmd.size()]));
+    Process process = Runtime.getRuntime().exec(cmd.toArray(new String[0]));
     String output = new String(ByteStreams.toByteArray(process.getInputStream()), Charsets.UTF_8);
     Pattern versionPattern = Pattern.compile(".*version ([0-9]+).*");
     Matcher matcher = versionPattern.matcher(output.trim());

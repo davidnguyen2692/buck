@@ -15,10 +15,10 @@
  */
 package com.facebook.buck.apple;
 
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.toolchain.tool.Tool;
-import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.util.ProcessExecutorParams;
@@ -49,7 +49,7 @@ class RegisterDebugSymbolsStep implements Step {
     ImmutableList<String> lldbCommandPrefix = lldb.getCommandPrefix(resolver);
     ProcessExecutorParams params =
         ProcessExecutorParams.builder()
-            .addCommand(lldbCommandPrefix.toArray(new String[lldbCommandPrefix.size()]))
+            .addCommand(lldbCommandPrefix.toArray(new String[0]))
             .build();
     return StepExecutionResult.of(
         context

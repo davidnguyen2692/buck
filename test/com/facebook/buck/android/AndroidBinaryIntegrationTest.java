@@ -79,6 +79,7 @@ public class AndroidBinaryIntegrationTest extends AbiCompilationModeTest {
   private ProjectFilesystem filesystem;
 
   private static final String SIMPLE_TARGET = "//apps/multidex:app";
+  private static final String RES_D8_TARGET = "//apps/multidex:app_with_resources_and_d8";
   private static final String RAW_DEX_TARGET = "//apps/multidex:app-art";
   private static final String APP_REDEX_TARGET = "//apps/sample:app_redex";
 
@@ -313,6 +314,19 @@ public class AndroidBinaryIntegrationTest extends AbiCompilationModeTest {
   }
 
   @Test
+  public void testD8FindsReferencedResources() throws IOException {
+    workspace.runBuckBuild(RES_D8_TARGET).assertSuccess();
+    BuildTarget dexTarget = BuildTargetFactory.newInstance("//java/com/sample/lib:lib#d8");
+    ProjectFilesystem filesystem =
+        TestProjectFilesystems.createProjectFilesystem(tmpFolder.getRoot());
+    Optional<String> resourcesFromMetadata =
+        DexProducedFromJavaLibrary.readMetadataValue(
+            filesystem, dexTarget, DexProducedFromJavaLibrary.REFERENCED_RESOURCES);
+    assertTrue(resourcesFromMetadata.isPresent());
+    assertEquals("[\"com.sample.top_layout\",\"com.sample2.title\"]", resourcesFromMetadata.get());
+  }
+
+  @Test
   public void testDexingIsInputBased() throws IOException {
     workspace.runBuckBuild(SIMPLE_TARGET).assertSuccess();
 
@@ -428,7 +442,7 @@ public class AndroidBinaryIntegrationTest extends AbiCompilationModeTest {
 
     for (BuildTarget target : buildLog.getAllTargets()) {
       String rawTarget = target.toString();
-      if (rawTarget.contains("libgnustl_shared.so")) {
+      if (rawTarget.contains("libgnustl_shared.so") || rawTarget.contains("libc___shared.so")) {
         // Stripping the C++ runtime is currently not shared.
         continue;
       }
@@ -502,7 +516,36 @@ public class AndroidBinaryIntegrationTest extends AbiCompilationModeTest {
   }
 
   @Test
+  public void testNativeLibGeneratedProguardConfigIsUsedByProguardWithNdkPrior18()
+      throws IOException {
+    AssumeAndroidPlatform.assumeGnuStlIsAvailable();
+    String target = "//apps/sample:app_with_native_lib_proguard";
+    workspace.runBuckBuild(target).assertSuccess();
+
+    Path generatedConfig =
+        workspace.getPath(
+            BuildTargetPaths.getGenPath(
+                filesystem,
+                BuildTargetFactory.newInstance(target)
+                    .withFlavors(AndroidBinaryGraphEnhancer.NATIVE_LIBRARY_PROGUARD_FLAVOR),
+                NativeLibraryProguardGenerator.OUTPUT_FORMAT));
+
+    Path proguardDir =
+        workspace.getPath(
+            BuildTargetPaths.getGenPath(
+                filesystem, BuildTargetFactory.newInstance(target), "%s/proguard"));
+
+    Path proguardCommandLine = proguardDir.resolve("command-line.txt");
+    // Check that the proguard command line references the native lib proguard config.
+    assertTrue(workspace.getFileContents(proguardCommandLine).contains(generatedConfig.toString()));
+    assertEquals(
+        workspace.getFileContents("native/proguard_gen/expected-17.pro"),
+        workspace.getFileContents(generatedConfig));
+  }
+
+  @Test
   public void testNativeLibGeneratedProguardConfigIsUsedByProguard() throws IOException {
+    AssumeAndroidPlatform.assumeGnuStlIsNotAvailable();
     String target = "//apps/sample:app_with_native_lib_proguard";
     workspace.runBuckBuild(target).assertSuccess();
 
@@ -643,6 +686,17 @@ public class AndroidBinaryIntegrationTest extends AbiCompilationModeTest {
   }
 
   @Test
+  public void testErrorReportingDuringManifestMerging() throws IOException {
+    ProcessResult processResult =
+        workspace.runBuckBuild("//apps/sample:dump_invalid_merged_manifest");
+    assertThat(
+        processResult.getStderr(),
+        containsString(
+            "The prefix \"tools\" for attribute \"tools:targetAPI\" "
+                + "associated with an element type \"intent-filter\" is not bound."));
+  }
+
+  @Test
   public void testProguardOutput() throws IOException {
     ImmutableMap<String, Path> outputs =
         workspace.buildMultipleAndReturnOutputs(
@@ -674,5 +728,16 @@ public class AndroidBinaryIntegrationTest extends AbiCompilationModeTest {
     }
     assertTrue(result.isVerifiedUsingV1Scheme());
     assertTrue(result.isVerifiedUsingV2Scheme());
+  }
+
+  @Test
+  public void testClasspathQueryFunctionWorksOnAndroidBinary() throws IOException {
+    Path output = workspace.buildAndReturnOutput("//apps/sample:dump_classpath");
+    String[] actualClasspath = workspace.getFileContents(output).split("\\s+");
+    assertThat(
+        actualClasspath,
+        Matchers.array(
+            Matchers.containsString("//apps/sample:app"),
+            Matchers.containsString("//java/com/sample/lib:lib")));
   }
 }

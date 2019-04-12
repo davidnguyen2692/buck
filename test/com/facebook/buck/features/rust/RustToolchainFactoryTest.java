@@ -20,6 +20,7 @@ import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.config.FakeBuckConfig;
+import com.facebook.buck.core.model.EmptyTargetConfiguration;
 import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.FlavorDomain;
 import com.facebook.buck.core.model.InternalFlavor;
@@ -31,14 +32,14 @@ import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver
 import com.facebook.buck.core.toolchain.ToolchainCreationContext;
 import com.facebook.buck.core.toolchain.ToolchainProvider;
 import com.facebook.buck.core.toolchain.impl.ToolchainProviderBuilder;
-import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
 import com.facebook.buck.cxx.toolchain.CxxPlatformsProvider;
+import com.facebook.buck.cxx.toolchain.UnresolvedCxxPlatform;
 import com.facebook.buck.io.AlwaysFoundExecutableFinder;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.impl.AllExistingProjectFilesystem;
 import com.facebook.buck.rules.keys.config.TestRuleKeyConfigurationFactory;
-import com.facebook.buck.testutil.AllExistingProjectFilesystem;
 import com.facebook.buck.util.FakeProcessExecutor;
 import com.facebook.buck.util.ProcessExecutor;
 import com.google.common.collect.ImmutableList;
@@ -57,7 +58,8 @@ public class RustToolchainFactoryTest {
             .withToolchain(
                 CxxPlatformsProvider.DEFAULT_NAME,
                 CxxPlatformsProvider.of(
-                    CxxPlatformUtils.DEFAULT_PLATFORM, CxxPlatformUtils.DEFAULT_PLATFORMS))
+                    CxxPlatformUtils.DEFAULT_UNRESOLVED_PLATFORM,
+                    CxxPlatformUtils.DEFAULT_PLATFORMS))
             .build();
     ProjectFilesystem filesystem = new AllExistingProjectFilesystem();
     BuckConfig buckConfig = FakeBuckConfig.builder().setFilesystem(filesystem).build();
@@ -68,22 +70,21 @@ public class RustToolchainFactoryTest {
             filesystem,
             new FakeProcessExecutor(),
             new AlwaysFoundExecutableFinder(),
-            TestRuleKeyConfigurationFactory.create());
+            TestRuleKeyConfigurationFactory.create(),
+            () -> EmptyTargetConfiguration.INSTANCE);
     RustToolchainFactory factory = new RustToolchainFactory();
     Optional<RustToolchain> toolchain =
         factory.createToolchain(toolchainProvider, toolchainCreationContext);
     assertThat(
         toolchain.get().getDefaultRustPlatform().getCxxPlatform(),
-        Matchers.equalTo(CxxPlatformUtils.DEFAULT_PLATFORM));
+        Matchers.equalTo(
+            CxxPlatformUtils.DEFAULT_UNRESOLVED_PLATFORM.resolve(new TestActionGraphBuilder())));
     assertThat(
-        toolchain
-            .get()
-            .getRustPlatforms()
-            .getValues()
-            .stream()
+        toolchain.get().getRustPlatforms().getValues().stream()
             .map(RustPlatform::getCxxPlatform)
             .collect(ImmutableList.toImmutableList()),
-        Matchers.contains(CxxPlatformUtils.DEFAULT_PLATFORM));
+        Matchers.contains(
+            CxxPlatformUtils.DEFAULT_UNRESOLVED_PLATFORM.resolve(new TestActionGraphBuilder())));
   }
 
   @Test
@@ -93,7 +94,8 @@ public class RustToolchainFactoryTest {
         DefaultSourcePathResolver.from(new SourcePathRuleFinder(resolver));
 
     Flavor custom = InternalFlavor.of("custom");
-    CxxPlatform cxxPlatform = CxxPlatformUtils.DEFAULT_PLATFORM.withFlavor(custom);
+    UnresolvedCxxPlatform cxxPlatform =
+        CxxPlatformUtils.DEFAULT_UNRESOLVED_PLATFORM.withFlavor(custom);
     ToolchainProvider toolchainProvider =
         new ToolchainProviderBuilder()
             .withToolchain(
@@ -123,7 +125,8 @@ public class RustToolchainFactoryTest {
             filesystem,
             processExecutor,
             executableFinder,
-            TestRuleKeyConfigurationFactory.create());
+            TestRuleKeyConfigurationFactory.create(),
+            () -> EmptyTargetConfiguration.INSTANCE);
 
     RustToolchainFactory factory = new RustToolchainFactory();
     Optional<RustToolchain> toolchain =
@@ -135,7 +138,7 @@ public class RustToolchainFactoryTest {
             .getRustPlatforms()
             .getValue(custom)
             .getRustCompiler()
-            .resolve(resolver)
+            .resolve(resolver, EmptyTargetConfiguration.INSTANCE)
             .getCommandPrefix(pathResolver),
         Matchers.contains(filesystem.resolve(compiler).toString()));
     assertThat(
@@ -145,9 +148,11 @@ public class RustToolchainFactoryTest {
             .getValue(custom)
             .getLinker()
             .get()
-            .resolve(resolver)
+            .resolve(resolver, EmptyTargetConfiguration.INSTANCE)
             .getCommandPrefix(pathResolver),
         Matchers.contains(filesystem.resolve(linker).toString()));
-    assertThat(platform.getCxxPlatform(), Matchers.equalTo(cxxPlatform));
+    assertThat(
+        platform.getCxxPlatform(),
+        Matchers.equalTo(cxxPlatform.resolve(new TestActionGraphBuilder())));
   }
 }

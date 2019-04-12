@@ -22,18 +22,16 @@ import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.attr.HasRuntimeDeps;
-import com.facebook.buck.core.rules.common.BuildDeps;
 import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.core.JavaAbis;
-import com.facebook.buck.jvm.java.ConfiguredCompiler;
+import com.facebook.buck.jvm.java.CompileToJarStepFactory;
 import com.facebook.buck.jvm.java.JarBuildStepsFactory;
 import com.facebook.buck.jvm.java.JavaBuckConfig.UnusedDependenciesAction;
 import com.facebook.buck.jvm.java.PrebuiltJar;
 import com.facebook.buck.jvm.java.RemoveClassesPatternsMatcher;
 import com.facebook.buck.jvm.java.ResourcesParameters;
-import com.facebook.buck.jvm.java.ZipArchiveDependencySupplier;
 import com.facebook.buck.jvm.java.abi.AbiGenerationMode;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
@@ -57,14 +55,13 @@ public class AndroidPrebuiltAar extends AndroidLibrary
       SourcePath nativeLibsDirectory,
       PrebuiltJar prebuiltJar,
       UnzipAar unzipAar,
-      ConfiguredCompiler configuredCompiler,
+      CompileToJarStepFactory configuredCompiler,
       Iterable<PrebuiltJar> exportedDeps,
       boolean requiredForSourceAbi,
       Optional<String> mavenCoords) {
     super(
         androidLibraryBuildTarget,
         projectFilesystem,
-        new BuildDeps(ImmutableSortedSet.copyOf(androidLibraryParams.getBuildDeps())),
         new JarBuildStepsFactory(
             androidLibraryBuildTarget,
             configuredCompiler,
@@ -73,14 +70,13 @@ public class AndroidPrebuiltAar extends AndroidLibrary
             ResourcesParameters.of(),
             /* manifestFile */ Optional.empty(), // Manifest means something else for Android rules
             /* postprocessClassesCommands */ ImmutableList.of(),
-            new ZipArchiveDependencySupplier(ImmutableSortedSet.of()),
             /* trackClassUsage */ false,
             /* trackJavacPhaseEvents */ false,
-            ImmutableSortedSet.of(),
             RemoveClassesPatternsMatcher.EMPTY,
             AbiGenerationMode.CLASS,
             AbiGenerationMode.CLASS,
-            null),
+            ImmutableList.of(),
+            requiredForSourceAbi),
         ruleFinder,
         Optional.of(proguardConfig),
         /* firstOrderPackageableDeps */ androidLibraryParams.getDeclaredDeps().get(),
@@ -99,7 +95,10 @@ public class AndroidPrebuiltAar extends AndroidLibrary
         /* tests */ ImmutableSortedSet.of(),
         /* requiredForSourceAbi */ requiredForSourceAbi,
         UnusedDependenciesAction.IGNORE,
-        Optional.empty());
+        Optional.empty(),
+        null,
+        false,
+        false);
     this.unzipAar = unzipAar;
     this.prebuiltJar = prebuiltJar;
     this.nativeLibsDirectory = nativeLibsDirectory;
@@ -108,6 +107,11 @@ public class AndroidPrebuiltAar extends AndroidLibrary
   @Override
   public String getRDotJavaPackage() {
     return unzipAar.getRDotJavaPackage();
+  }
+
+  @Override
+  public boolean useDependencyFileRuleKeys() {
+    return false;
   }
 
   @Override

@@ -16,10 +16,13 @@
 
 package com.facebook.buck.rules.modern;
 
+import com.facebook.buck.core.model.TargetConfiguration;
 import com.facebook.buck.core.rulekey.AddsToRuleKey;
 import com.facebook.buck.core.rules.modern.annotations.CustomFieldBehavior;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
 import java.lang.reflect.Field;
@@ -34,9 +37,14 @@ import javax.annotation.Nullable;
 public interface ValueVisitor<E extends Exception> {
   <T> void visitList(ImmutableList<T> value, ValueTypeInfo<T> innerType) throws E;
 
-  <T> void visitSet(ImmutableSortedSet<T> value, ValueTypeInfo<T> innerType) throws E;
+  <T> void visitSet(ImmutableSet<T> value, ValueTypeInfo<T> innerType) throws E;
+
+  <T> void visitSortedSet(ImmutableSortedSet<T> value, ValueTypeInfo<T> innerType) throws E;
 
   <K, V> void visitMap(
+      ImmutableMap<K, V> value, ValueTypeInfo<K> keyType, ValueTypeInfo<V> valueType) throws E;
+
+  <K, V> void visitSortedMap(
       ImmutableSortedMap<K, V> value, ValueTypeInfo<K> keyType, ValueTypeInfo<V> valueType)
       throws E;
 
@@ -76,4 +84,6 @@ public interface ValueVisitor<E extends Exception> {
   void visitFloat(Float value) throws E;
 
   void visitDouble(Double value) throws E;
+
+  void visitTargetConfiguration(TargetConfiguration value) throws E;
 }

@@ -38,14 +38,14 @@ import com.facebook.buck.core.sourcepath.DefaultBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.NonHashableSourcePathContainer;
 import com.facebook.buck.core.sourcepath.PathSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.sourcepath.SourcePathFactoryForTests;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.testutil.FakeFileHashCache;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.util.sha1.Sha1HashCode;
 import com.facebook.buck.util.types.Either;
-import com.google.common.base.Preconditions;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -56,6 +56,7 @@ import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.regex.Pattern;
@@ -128,8 +129,6 @@ public class RuleKeyBuilderTest {
           // Buck simple types
           Sha1HashCode.of("a002b39af204cdfaa5fdb67816b13867c32ac52c"),
           Sha1HashCode.of("b67816b13867c32ac52ca002b39af204cdfaa5fd"),
-          new SourceRoot(""),
-          new SourceRoot("42"),
           RULE_KEY_1,
           RULE_KEY_2,
           RuleType.of("", RuleType.Kind.BUILD),
@@ -223,8 +222,10 @@ public class RuleKeyBuilderTest {
                 FILESYSTEM.resolve(PATH_1), HashCode.fromInt(0),
                 FILESYSTEM.resolve(PATH_2), HashCode.fromInt(42)),
             ImmutableMap.of(
-                pathResolver.getAbsoluteArchiveMemberPath(ARCHIVE_PATH_1), HashCode.fromInt(0),
-                pathResolver.getAbsoluteArchiveMemberPath(ARCHIVE_PATH_2), HashCode.fromInt(42)),
+                SourcePathFactoryForTests.toAbsoluteArchiveMemberPath(pathResolver, ARCHIVE_PATH_1),
+                    HashCode.fromInt(0),
+                SourcePathFactoryForTests.toAbsoluteArchiveMemberPath(pathResolver, ARCHIVE_PATH_2),
+                    HashCode.fromInt(42)),
             ImmutableMap.of());
 
     return new RuleKeyBuilder<HashCode>(
@@ -276,7 +277,7 @@ public class RuleKeyBuilderTest {
 
     @Override
     public BuildRule getRule(BuildTarget target) {
-      return Preconditions.checkNotNull(ruleMap.get(target), "No rule for target: " + target);
+      return Objects.requireNonNull(ruleMap.get(target), "No rule for target: " + target);
     }
   }
 

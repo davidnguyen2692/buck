@@ -16,10 +16,7 @@
 
 package com.facebook.buck.distributed.build_slave;
 
-import com.facebook.buck.core.cell.CellProvider;
-import com.facebook.buck.core.model.actiongraph.computation.ActionGraphCache;
-import com.facebook.buck.core.model.actiongraph.computation.ActionGraphParallelizationMode;
-import com.facebook.buck.core.model.actiongraph.computation.IncrementalActionGraphMode;
+import com.facebook.buck.core.model.actiongraph.computation.ActionGraphProvider;
 import com.facebook.buck.core.rules.knowntypes.KnownRuleTypesProvider;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.distributed.DistBuildConfig;
@@ -29,7 +26,7 @@ import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.io.filesystem.ProjectFilesystemFactory;
 import com.facebook.buck.parser.Parser;
 import com.facebook.buck.rules.keys.config.RuleKeyConfiguration;
-import com.facebook.buck.step.ExecutorPool;
+import com.facebook.buck.util.concurrent.ExecutorPool;
 import com.facebook.buck.util.concurrent.WeightedListeningExecutorService;
 import com.facebook.buck.versions.InstrumentedVersionedTargetGraphCache;
 import com.google.common.util.concurrent.ListeningExecutorService;
@@ -46,7 +43,7 @@ abstract class AbstractDelegateAndGraphsInitializerArgs {
 
   public abstract InstrumentedVersionedTargetGraphCache getVersionedTargetGraphCache();
 
-  public abstract ActionGraphCache getActionGraphCache();
+  public abstract ActionGraphProvider getActionGraphProvider();
 
   public abstract Parser getParser();
 
@@ -64,18 +61,5 @@ abstract class AbstractDelegateAndGraphsInitializerArgs {
 
   public abstract KnownRuleTypesProvider getKnownRuleTypesProvider();
 
-  public abstract boolean getShouldInstrumentActionGraph();
-
-  public abstract IncrementalActionGraphMode getIncrementalActionGraphMode();
-
-  public abstract Map<IncrementalActionGraphMode, Double>
-      getIncrementalActionGraphExperimentGroups();
-
   public abstract DistBuildConfig getDistBuildConfig();
-
-  public abstract int getMaxActionGraphParallelism();
-
-  public abstract ActionGraphParallelizationMode getActionGraphParallelizationMode();
-
-  public abstract CellProvider getCellProvider();
 }

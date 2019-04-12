@@ -25,8 +25,6 @@ java_binary(
     deps = [
         ":dalvik",
         "//src/com/facebook/buck/android:utils",
-        "//src/com/facebook/buck/core/cell/name:name",
-        "//src/com/facebook/buck/core/cell/resolver:resolver",
         "//src/com/facebook/buck/core/config:config",
         "//src/com/facebook/buck/core/model:model",
         "//src/com/facebook/buck/core/rulekey:rulekey",
@@ -40,7 +38,6 @@ java_binary(
         "//src/com/facebook/buck/io/watchman:transport",
         "//src/com/facebook/buck/jvm/core:core",
         "//src/com/facebook/buck/jvm/java/classes:classes",
-        "//src/com/facebook/buck/parser:rule_pattern",
         "//src/com/facebook/buck/rules/coercer:interface",
         "//src/com/facebook/buck/step:step",
         "//src/com/facebook/buck/test/result/type:type",
@@ -88,10 +85,10 @@ java_library(
     deps = [
         ":dalvik_stats_tool",
         "//src/com/facebook/buck/android/apkmodule:apkmodule",
+        "//src/com/facebook/buck/core/util/log:log",
         "//src/com/facebook/buck/io:io",
         "//src/com/facebook/buck/io/filesystem:filesystem",
         "//src/com/facebook/buck/jvm/java/classes:classes",
-        "//src/com/facebook/buck/log:api",
         "//src/com/facebook/buck/util:exceptions",
         "//src/com/facebook/buck/util/zip:zip",
         "//third-party/java/guava:guava",

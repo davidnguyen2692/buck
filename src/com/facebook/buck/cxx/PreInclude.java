@@ -19,9 +19,8 @@ package com.facebook.buck.cxx;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.InternalFlavor;
-import com.facebook.buck.core.model.UnflavoredBuildTarget;
+import com.facebook.buck.core.model.TargetConfiguration;
 import com.facebook.buck.core.model.impl.BuildTargetPaths;
-import com.facebook.buck.core.model.impl.ImmutableBuildTarget;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.BuildRuleParams;
@@ -141,7 +140,7 @@ public abstract class PreInclude extends NoopBuildRuleWithDeclaredAndExtraDeps
    * rules' preferred linkage.
    */
   @Override
-  public Linkage getPreferredLinkage(CxxPlatform cxxPlatform, ActionGraphBuilder graphBuilder) {
+  public Linkage getPreferredLinkage(CxxPlatform cxxPlatform) {
     return Linkage.ANY;
   }
 
@@ -164,8 +163,8 @@ public abstract class PreInclude extends NoopBuildRuleWithDeclaredAndExtraDeps
       CxxPlatform cxxPlatform,
       Linker.LinkableDepType type,
       boolean forceLinkWhole,
-      ImmutableSet<LanguageExtensions> languageExtensions,
-      ActionGraphBuilder graphBuilder) {
+      ActionGraphBuilder graphBuilder,
+      TargetConfiguration targetConfiguration) {
     return NativeLinkableInput.of();
   }
 
@@ -202,16 +201,14 @@ public abstract class PreInclude extends NoopBuildRuleWithDeclaredAndExtraDeps
 
   private ImmutableList<CxxHeaders> getIncludes(
       CxxPlatform cxxPlatform, ActionGraphBuilder graphBuilder) {
-    return getCxxPreprocessorInputs(cxxPlatform, graphBuilder)
-        .stream()
+    return getCxxPreprocessorInputs(cxxPlatform, graphBuilder).stream()
         .flatMap(input -> input.getIncludes().stream())
         .collect(ImmutableList.toImmutableList());
   }
 
   private ImmutableSet<FrameworkPath> getFrameworks(
       CxxPlatform cxxPlatform, ActionGraphBuilder graphBuilder) {
-    return getCxxPreprocessorInputs(cxxPlatform, graphBuilder)
-        .stream()
+    return getCxxPreprocessorInputs(cxxPlatform, graphBuilder).stream()
         .flatMap(input -> input.getFrameworks().stream())
         .collect(ImmutableSet.toImmutableSet());
   }
@@ -275,7 +272,7 @@ public abstract class PreInclude extends NoopBuildRuleWithDeclaredAndExtraDeps
         CxxDescriptionEnhancer.frameworkPathToSearchPath(cxxPlatform, pathResolver),
         /* leadingIncludePaths */ Optional.empty(),
         Optional.empty(),
-        ImmutableSortedSet.of());
+        cxxPlatform.getConflictingHeaderBasenameWhitelist());
   }
 
   public abstract CxxPrecompiledHeader getPrecompiledHeader(
@@ -307,12 +304,11 @@ public abstract class PreInclude extends NoopBuildRuleWithDeclaredAndExtraDeps
       CxxSource.Type sourceType,
       CxxToolFlags compilerFlags,
       DepsBuilder depsBuilder,
-      UnflavoredBuildTarget templateTarget,
-      ImmutableSortedSet<Flavor> flavors,
+      BuildTarget buildTarget,
       ActionGraphBuilder graphBuilder) {
     return (CxxPrecompiledHeader)
         graphBuilder.computeIfAbsent(
-            ImmutableBuildTarget.of(templateTarget, flavors),
+            buildTarget,
             target -> {
               // Give the PCH a filename that looks like a header file with .gch appended to it,
               // GCC-style.
@@ -329,8 +325,9 @@ public abstract class PreInclude extends NoopBuildRuleWithDeclaredAndExtraDeps
                       cxxPlatform.getCompilerDebugPathSanitizer(),
                       CxxSourceTypes.getCompiler(
                               cxxPlatform, CxxSourceTypes.getPreprocessorOutputType(sourceType))
-                          .resolve(graphBuilder),
-                      compilerFlags);
+                          .resolve(graphBuilder, buildTarget.getTargetConfiguration()),
+                      compilerFlags,
+                      cxxPlatform.getUseArgFile());
               depsBuilder.add(compilerDelegate);
 
               depsBuilder.add(getHeaderSourcePath());

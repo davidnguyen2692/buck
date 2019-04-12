@@ -23,7 +23,7 @@ import java.util.Optional;
 public class WindowsCompiler extends DefaultCompiler {
 
   public WindowsCompiler(Tool tool) {
-    super(tool);
+    super(tool, false);
   }
 
 
@@ -65,6 +65,11 @@ public class WindowsCompiler extends DefaultCompiler {
   @Override
   public boolean shouldSanitizeOutputBinary() {
     return false;
+  }
+
+  @Override
+  public boolean needsToRemoveCompiledFilenamesFromOutput() {
+    return true;
   }
 
   @Override

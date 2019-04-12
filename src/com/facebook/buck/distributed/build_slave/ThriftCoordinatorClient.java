@@ -16,6 +16,7 @@
 
 package com.facebook.buck.distributed.build_slave;
 
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.distributed.thrift.BuildSlaveRunId;
 import com.facebook.buck.distributed.thrift.CoordinatorService;
 import com.facebook.buck.distributed.thrift.CoordinatorService.Client;
@@ -24,13 +25,13 @@ import com.facebook.buck.distributed.thrift.GetWorkResponse;
 import com.facebook.buck.distributed.thrift.MinionType;
 import com.facebook.buck.distributed.thrift.ReportMinionAliveRequest;
 import com.facebook.buck.distributed.thrift.StampedeId;
-import com.facebook.buck.log.Logger;
 import com.facebook.buck.log.TimedLogger;
 import com.facebook.buck.slb.ThriftException;
 import com.google.common.base.Preconditions;
 import java.io.Closeable;
 import java.io.IOException;
 import java.util.List;
+import java.util.Objects;
 import javax.annotation.Nullable;
 import javax.annotation.concurrent.ThreadSafe;
 import org.apache.thrift.TException;
@@ -63,7 +64,7 @@ public class ThriftCoordinatorClient implements Closeable {
 
   public ThriftCoordinatorClient(
       String remoteHost, StampedeId stampedeId, int connectionTimeoutMillis) {
-    this.remoteHost = Preconditions.checkNotNull(remoteHost);
+    this.remoteHost = Objects.requireNonNull(remoteHost);
     this.stampedeId = stampedeId;
     this.connectionTimeoutMillis = connectionTimeoutMillis;
     this.state = State.NOT_STARTED;
@@ -95,7 +96,7 @@ public class ThriftCoordinatorClient implements Closeable {
     Preconditions.checkState(
         state == State.STARTED, "The client is in state [%s] and cannot be stopped.", state);
     LOG.info("Stopping ThriftCoordinatorClient (for MinionModeRunner)...");
-    Preconditions.checkNotNull(transport).close();
+    Objects.requireNonNull(transport).close();
     LOG.info("Stopped ThriftCoordinatorClient.");
     transport = null;
     client = null;
@@ -192,6 +193,6 @@ public class ThriftCoordinatorClient implements Closeable {
       throw exception;
     }
 
-    return Preconditions.checkNotNull(client);
+    return Objects.requireNonNull(client);
   }
 }

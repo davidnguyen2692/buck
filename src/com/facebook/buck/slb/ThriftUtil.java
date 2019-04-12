@@ -16,7 +16,7 @@
 
 package com.facebook.buck.slb;
 
-import com.facebook.buck.log.Logger;
+import com.facebook.buck.core.util.log.Logger;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.ByteBuffer;
@@ -78,9 +78,9 @@ public final class ThriftUtil {
 
   public static byte[] serialize(ThriftProtocol protocol, TBase<?, ?> source)
       throws ThriftException {
-    TSerializer deserializer = new TSerializer(getProtocolFactory(protocol));
+    TSerializer serializer = new TSerializer(getProtocolFactory(protocol));
     try {
-      return deserializer.serialize(source);
+      return serializer.serialize(source);
     } catch (TException e) {
       throw new ThriftException(e);
     }
@@ -88,9 +88,9 @@ public final class ThriftUtil {
 
   public static ByteBuffer serializeToByteBuffer(ThriftProtocol protocol, TBase<?, ?> source)
       throws ThriftException {
-    TSerializer deserializer = new TSerializer(getProtocolFactory(protocol));
+    TSerializer serializer = new TSerializer(getProtocolFactory(protocol));
     try {
-      return ByteBuffer.wrap(deserializer.serialize(source));
+      return ByteBuffer.wrap(serializer.serialize(source));
     } catch (TException e) {
       throw new ThriftException(e);
     }

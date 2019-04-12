@@ -16,16 +16,30 @@
 
 package com.facebook.buck.versions;
 
+import com.facebook.buck.command.config.BuildBuckConfig;
 import com.facebook.buck.core.config.BuckConfig;
+import com.facebook.buck.core.graph.transformation.compute.ComputeResult;
+import com.facebook.buck.core.graph.transformation.executor.DepsAwareExecutor;
+import com.facebook.buck.core.graph.transformation.executor.impl.DefaultDepsAwareExecutor;
+import com.facebook.buck.core.graph.transformation.executor.impl.DefaultDepsAwareExecutorWithLocalStack;
+import com.facebook.buck.core.graph.transformation.executor.impl.JavaExecutorBackedDefaultDepsAwareExecutor;
+import com.facebook.buck.core.graph.transformation.executor.impl.ToposortBasedDepsAwareExecutor;
+import com.facebook.buck.core.model.TargetConfiguration;
 import com.facebook.buck.core.model.targetgraph.TargetGraphAndBuildTargets;
+import com.facebook.buck.core.parser.buildtargetparser.UnconfiguredBuildTargetFactory;
 import com.facebook.buck.core.util.immutables.BuckStyleTuple;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.event.BuckEvent;
 import com.facebook.buck.event.BuckEventBus;
-import com.facebook.buck.log.Logger;
+import com.facebook.buck.event.ExperimentEvent;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
 import com.facebook.buck.util.cache.CacheStatsTracker;
+import com.facebook.buck.util.randomizedtrial.RandomizedTrial;
+import com.google.common.base.Joiner;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
-import java.util.concurrent.ForkJoinPool;
+import java.util.Map;
+import java.util.Map.Entry;
 import java.util.concurrent.TimeoutException;
 import javax.annotation.Nullable;
 import org.immutables.value.Value;
@@ -43,22 +57,91 @@ public class VersionedTargetGraphCache {
   private TargetGraphAndBuildTargets createdVersionedTargetGraph(
       TargetGraphAndBuildTargets targetGraphAndBuildTargets,
       ImmutableMap<String, VersionUniverse> versionUniverses,
-      ForkJoinPool pool,
-      TypeCoercerFactory typeCoercerFactory)
+      int numberOfThreads,
+      TypeCoercerFactory typeCoercerFactory,
+      UnconfiguredBuildTargetFactory unconfiguredBuildTargetFactory,
+      VersionTargetGraphMode versionTargetGraphMode,
+      Map<VersionTargetGraphMode, Double> versionTargetGraphModeProbabilities,
+      long timeoutSeconds,
+      BuckEventBus eventBus)
       throws VersionException, TimeoutException, InterruptedException {
-    return VersionedTargetGraphBuilder.transform(
-        new VersionUniverseVersionSelector(
-            targetGraphAndBuildTargets.getTargetGraph(), versionUniverses),
-        targetGraphAndBuildTargets,
-        pool,
-        typeCoercerFactory);
+
+    VersionTargetGraphMode resolvedMode = versionTargetGraphMode;
+    if (resolvedMode == VersionTargetGraphMode.EXPERIMENT) {
+      if (versionTargetGraphModeProbabilities.isEmpty()) {
+        resolvedMode =
+            RandomizedTrial.getGroup(
+                "async_version_tg_builder",
+                eventBus.getBuildId().toString(),
+                VersionTargetGraphMode.class);
+      } else {
+        resolvedMode =
+            RandomizedTrial.getGroup(
+                "async_version_tg_builder",
+                eventBus.getBuildId().toString(),
+                versionTargetGraphModeProbabilities);
+      }
+    }
+    Preconditions.checkState(resolvedMode != VersionTargetGraphMode.EXPERIMENT);
+    eventBus.post(
+        new ExperimentEvent("async_version_tg_builder", resolvedMode.toString(), "", null, null));
+
+    if (resolvedMode == VersionTargetGraphMode.DISABLED) {
+      return ParallelVersionedTargetGraphBuilder.transform(
+          new VersionUniverseVersionSelector(
+              targetGraphAndBuildTargets.getTargetGraph(), versionUniverses),
+          targetGraphAndBuildTargets,
+          numberOfThreads,
+          typeCoercerFactory,
+          unconfiguredBuildTargetFactory,
+          timeoutSeconds);
+    } else {
+      try (DepsAwareExecutor<? super ComputeResult, ?> executor =
+          getDepsAwareExecutor(resolvedMode, numberOfThreads)) {
+        TargetGraphAndBuildTargets versionedTargetGraph =
+            AsyncVersionedTargetGraphBuilder.transform(
+                new VersionUniverseVersionSelector(
+                    targetGraphAndBuildTargets.getTargetGraph(), versionUniverses),
+                targetGraphAndBuildTargets,
+                executor,
+                typeCoercerFactory,
+                unconfiguredBuildTargetFactory,
+                timeoutSeconds);
+        return versionedTargetGraph;
+      }
+    }
+  }
+
+  private DepsAwareExecutor<? super ComputeResult, ?> getDepsAwareExecutor(
+      VersionTargetGraphMode resolvedMode, int numberOfThreads) {
+    switch (resolvedMode) {
+      case ENABLED:
+        return DefaultDepsAwareExecutor.of(numberOfThreads);
+      case ENABLED_LS:
+        return DefaultDepsAwareExecutorWithLocalStack.of(numberOfThreads);
+      case ENABLED_JE:
+        return JavaExecutorBackedDefaultDepsAwareExecutor.of(numberOfThreads);
+      case ENABLED_TS:
+        return ToposortBasedDepsAwareExecutor.of(numberOfThreads);
+      case DISABLED:
+        throw new AssertionError("Disabled should be handled already");
+      case EXPERIMENT:
+      default:
+        throw new AssertionError(
+            "EXPERIMENT values should have been resolved to ENABLED or DISABLED.");
+    }
   }
 
   private VersionedTargetGraphCacheResult getVersionedTargetGraph(
       TargetGraphAndBuildTargets targetGraphAndBuildTargets,
       ImmutableMap<String, VersionUniverse> versionUniverses,
-      ForkJoinPool pool,
+      int numberOfThreads,
       TypeCoercerFactory typeCoercerFactory,
+      UnconfiguredBuildTargetFactory unconfiguredBuildTargetFactory,
+      VersionTargetGraphMode versionTargetGraphMode,
+      Map<VersionTargetGraphMode, Double> versionTargetGraphModeProbabilities,
+      long timeoutSeconds,
+      BuckEventBus eventBus,
       CacheStatsTracker statsTracker)
       throws VersionException, TimeoutException, InterruptedException {
 
@@ -91,7 +174,15 @@ public class VersionedTargetGraphCache {
 
     TargetGraphAndBuildTargets newVersionedTargetGraph =
         createdVersionedTargetGraph(
-            targetGraphAndBuildTargets, versionUniverses, pool, typeCoercerFactory);
+            targetGraphAndBuildTargets,
+            versionUniverses,
+            numberOfThreads,
+            typeCoercerFactory,
+            unconfiguredBuildTargetFactory,
+            versionTargetGraphMode,
+            versionTargetGraphModeProbabilities,
+            timeoutSeconds,
+            eventBus);
     cachedVersionedTargetGraph = CachedVersionedTargetGraph.of(newInputs, newVersionedTargetGraph);
     VersionedTargetGraphCacheResult result =
         VersionedTargetGraphCacheResult.of(resultType, newVersionedTargetGraph);
@@ -107,12 +198,18 @@ public class VersionedTargetGraphCache {
    */
   public VersionedTargetGraphCacheResult getVersionedTargetGraph(
       BuckEventBus eventBus,
+      BuckConfig buckConfig,
       TypeCoercerFactory typeCoercerFactory,
+      UnconfiguredBuildTargetFactory unconfiguredBuildTargetFactory,
       TargetGraphAndBuildTargets targetGraphAndBuildTargets,
-      ImmutableMap<String, VersionUniverse> versionUniverses,
-      ForkJoinPool pool,
+      TargetConfiguration targetConfiguration,
       CacheStatsTracker statsTracker)
       throws VersionException, InterruptedException {
+
+    VersionBuckConfig versionBuckConfig = new VersionBuckConfig(buckConfig);
+    ImmutableMap<String, VersionUniverse> versionUniverses =
+        versionBuckConfig.getVersionUniverses(targetConfiguration);
+    int numberOfThreads = buckConfig.getView(BuildBuckConfig.class).getNumThreads();
 
     VersionedTargetGraphEvent.Started started = VersionedTargetGraphEvent.started();
     eventBus.post(started);
@@ -128,8 +225,13 @@ public class VersionedTargetGraphCache {
               getVersionedTargetGraph(
                   targetGraphAndBuildTargets,
                   versionUniverses,
-                  pool,
+                  numberOfThreads,
                   typeCoercerFactory,
+                  unconfiguredBuildTargetFactory,
+                  versionBuckConfig.getVersionTargetGraphMode(),
+                  versionBuckConfig.getVersionTargetGraphModeGroups(),
+                  versionBuckConfig.getVersionTargetGraphTimeoutSeconds(),
+                  eventBus,
                   statsTracker);
           LOG.info("versioned target graph " + result.getType().getDescription());
           eventBus.post(result.getType().getEvent());
@@ -137,6 +239,16 @@ public class VersionedTargetGraphCache {
         } catch (TimeoutException e) {
           eventBus.post(VersionedTargetGraphEvent.timeout());
           LOG.warn("Timed out building versioned target graph.");
+          Map<Thread, StackTraceElement[]> stackTraces = Thread.getAllStackTraces();
+          StringBuilder traces = new StringBuilder(stackTraces.size());
+          for (Entry<Thread, StackTraceElement[]> trace : stackTraces.entrySet()) {
+            traces.append("Thread [");
+            traces.append(trace.getKey().getName());
+            traces.append("],stack:[");
+            Joiner.on(", ").appendTo(traces, trace.getValue());
+            traces.append("],");
+          }
+          LOG.info(traces.toString());
           if (attempt < ATTEMPTS) continue;
           throw new RuntimeException(e);
         }
@@ -146,21 +258,26 @@ public class VersionedTargetGraphCache {
     }
   }
 
-  public TargetGraphAndBuildTargets toVersionedTargetGraph(
+  public VersionedTargetGraphCacheResult toVersionedTargetGraph(
       BuckEventBus eventBus,
-      BuckConfig buckConfig,
+      ImmutableMap<String, VersionUniverse> versionUniverses,
       TypeCoercerFactory typeCoercerFactory,
+      UnconfiguredBuildTargetFactory unconfiguredBuildTargetFactory,
       TargetGraphAndBuildTargets targetGraphAndBuildTargets,
+      int numberOfThreads,
       CacheStatsTracker statsTracker)
-      throws VersionException, TimeoutException, InterruptedException {
+      throws VersionException, InterruptedException, TimeoutException {
     return getVersionedTargetGraph(
-            eventBus,
-            typeCoercerFactory,
-            targetGraphAndBuildTargets,
-            new VersionBuckConfig(buckConfig).getVersionUniverses(),
-            new ForkJoinPool(buckConfig.getNumThreads()),
-            statsTracker)
-        .getTargetGraphAndBuildTargets();
+        targetGraphAndBuildTargets,
+        versionUniverses,
+        numberOfThreads,
+        typeCoercerFactory,
+        unconfiguredBuildTargetFactory,
+        VersionTargetGraphMode.DISABLED,
+        ImmutableMap.of(),
+        20,
+        eventBus,
+        statsTracker);
   }
 
   /**

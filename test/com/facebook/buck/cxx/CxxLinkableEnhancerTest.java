@@ -31,12 +31,15 @@ import com.facebook.buck.core.cell.TestCellPathResolver;
 import com.facebook.buck.core.config.FakeBuckConfig;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
+import com.facebook.buck.core.model.EmptyTargetConfiguration;
+import com.facebook.buck.core.model.TargetConfiguration;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.BuildRuleResolver;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.TestBuildRuleParams;
+import com.facebook.buck.core.rules.impl.FakeBuildRule;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.core.sourcepath.FakeSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
@@ -46,19 +49,18 @@ import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
+import com.facebook.buck.cxx.toolchain.linker.Linker.LinkableDepType;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableInput;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkables;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.rules.FakeBuildRule;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.facebook.buck.shell.Genrule;
 import com.facebook.buck.shell.GenruleBuilder;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -68,6 +70,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Collections;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import org.junit.Test;
 
@@ -93,8 +96,8 @@ public class CxxLinkableEnhancerTest {
         NativeLinkableInput staticInput,
         NativeLinkableInput sharedInput) {
       super(buildTarget, projectFilesystem, params);
-      this.staticInput = Preconditions.checkNotNull(staticInput);
-      this.sharedInput = Preconditions.checkNotNull(sharedInput);
+      this.staticInput = Objects.requireNonNull(staticInput);
+      this.sharedInput = Objects.requireNonNull(sharedInput);
     }
 
     @Override
@@ -110,16 +113,15 @@ public class CxxLinkableEnhancerTest {
     @Override
     public NativeLinkableInput getNativeLinkableInput(
         CxxPlatform cxxPlatform,
-        Linker.LinkableDepType type,
+        LinkableDepType type,
         boolean forceLinkWhole,
-        ImmutableSet<NativeLinkable.LanguageExtensions> languageExtensions,
-        ActionGraphBuilder graphBuilder) {
+        ActionGraphBuilder graphBuilder,
+        TargetConfiguration targetConfiguration) {
       return type == Linker.LinkableDepType.STATIC ? staticInput : sharedInput;
     }
 
     @Override
-    public NativeLinkable.Linkage getPreferredLinkage(
-        CxxPlatform cxxPlatform, ActionGraphBuilder graphBuilder) {
+    public NativeLinkable.Linkage getPreferredLinkage(CxxPlatform cxxPlatform) {
       return Linkage.ANY;
     }
 
@@ -145,7 +147,7 @@ public class CxxLinkableEnhancerTest {
   }
 
   @Test
-  public void testThatBuildTargetSourcePathDepsAndPathsArePropagated() throws Exception {
+  public void testThatBuildTargetSourcePathDepsAndPathsArePropagated() {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     BuildTarget target = BuildTargetFactory.newInstance("//foo:bar");
 
@@ -198,7 +200,7 @@ public class CxxLinkableEnhancerTest {
   }
 
   @Test
-  public void testThatBuildTargetsFromNativeLinkableDepsContributeToActualDeps() throws Exception {
+  public void testThatBuildTargetsFromNativeLinkableDepsContributeToActualDeps() {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
     SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
@@ -253,7 +255,7 @@ public class CxxLinkableEnhancerTest {
   }
 
   @Test
-  public void createCxxLinkableBuildRuleExecutableVsShared() throws Exception {
+  public void createCxxLinkableBuildRuleExecutableVsShared() {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
     SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
@@ -262,7 +264,11 @@ public class CxxLinkableEnhancerTest {
 
     String soname = "soname";
     ImmutableList<String> sonameArgs =
-        ImmutableList.copyOf(CXX_PLATFORM.getLd().resolve(graphBuilder).soname(soname));
+        ImmutableList.copyOf(
+            CXX_PLATFORM
+                .getLd()
+                .resolve(graphBuilder, EmptyTargetConfiguration.INSTANCE)
+                .soname(soname));
 
     // Construct a CxxLink object which links as an executable.
     CxxLink executable =
@@ -348,7 +354,7 @@ public class CxxLinkableEnhancerTest {
   }
 
   @Test
-  public void createCxxLinkableBuildRuleStaticVsSharedDeps() throws Exception {
+  public void createCxxLinkableBuildRuleStaticVsSharedDeps() {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(new TestActionGraphBuilder());
     SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
@@ -501,6 +507,7 @@ public class CxxLinkableEnhancerTest {
         NativeLinkables.getTransitiveNativeLinkableInput(
             cxxPlatform,
             graphBuilder,
+            EmptyTargetConfiguration.INSTANCE,
             ImmutableList.of(top),
             Linker.LinkableDepType.STATIC,
             r -> Optional.empty());
@@ -509,7 +516,7 @@ public class CxxLinkableEnhancerTest {
   }
 
   @Test
-  public void machOBundleWithBundleLoaderHasExpectedArgs() throws Exception {
+  public void machOBundleWithBundleLoaderHasExpectedArgs() {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     BuildTarget target = BuildTargetFactory.newInstance("//foo:bar");
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
@@ -549,7 +556,7 @@ public class CxxLinkableEnhancerTest {
   }
 
   @Test
-  public void machOBundleSourcePathIsInDepsOfRule() throws Exception {
+  public void machOBundleSourcePathIsInDepsOfRule() {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
 

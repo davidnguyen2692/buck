@@ -15,16 +15,23 @@
  */
 package com.facebook.buck.parser;
 
+import com.facebook.buck.command.config.BuildBuckConfig;
+import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.config.ConfigView;
+import com.facebook.buck.core.model.UnconfiguredBuildTargetView;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.watchman.WatchmanWatcher;
 import com.facebook.buck.parser.api.Syntax;
+import com.facebook.buck.parser.exceptions.MissingBuildFileException;
+import com.facebook.buck.parser.implicit.ImplicitInclude;
 import com.google.common.base.Splitter;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import java.nio.file.Path;
+import java.util.Map;
 import java.util.Optional;
 import org.immutables.value.Value;
 
@@ -36,6 +43,7 @@ abstract class AbstractParserConfig implements ConfigView<BuckConfig> {
   public static final String DEFAULT_BUILD_FILE_NAME = "BUCK";
   public static final String BUILDFILE_SECTION_NAME = "buildfile";
   public static final String INCLUDES_PROPERTY_NAME = "includes";
+  public static final String PACKAGE_INCLUDES_PROPERTY_NAME = "package_includes";
 
   private static final long NUM_PARSING_THREADS_DEFAULT = 1L;
   private static final int TARGET_PARSER_THRESHOLD = 100000;
@@ -79,6 +87,10 @@ abstract class AbstractParserConfig implements ConfigView<BuckConfig> {
     ALL
   }
 
+  @Override
+  @Value.Parameter
+  public abstract BuckConfig getDelegate();
+
   @Value.Lazy
   public boolean getAllowEmptyGlobs() {
     return getDelegate()
@@ -102,6 +114,15 @@ abstract class AbstractParserConfig implements ConfigView<BuckConfig> {
         getDelegate().getEntriesForSection(BUILDFILE_SECTION_NAME);
     String includes = Strings.nullToEmpty(entries.get(INCLUDES_PROPERTY_NAME));
     return Splitter.on(' ').trimResults().omitEmptyStrings().split(includes);
+  }
+
+  @Value.Lazy
+  public ImmutableMap<String, ImplicitInclude> getPackageImplicitIncludes() {
+    return getDelegate().getMap(BUILDFILE_SECTION_NAME, PACKAGE_INCLUDES_PROPERTY_NAME).entrySet()
+        .stream()
+        .collect(
+            ImmutableMap.toImmutableMap(
+                Map.Entry::getKey, e -> ImplicitInclude.fromConfigurationString(e.getValue())));
   }
 
   @Value.Lazy
@@ -192,7 +213,7 @@ abstract class AbstractParserConfig implements ConfigView<BuckConfig> {
             .orElse(NUM_PARSING_THREADS_DEFAULT)
             .intValue();
 
-    return Math.min(value, getDelegate().getNumThreads());
+    return Math.min(value, getDelegate().getView(BuildBuckConfig.class).getNumThreads());
   }
 
   @Value.Lazy
@@ -245,15 +266,6 @@ abstract class AbstractParserConfig implements ConfigView<BuckConfig> {
   }
 
   /**
-   * Returns a whether we should show the warning for parser cache mutation when using buck
-   * parser-cache --load
-   */
-  @Value.Lazy
-  public boolean isParserCacheMutationWarningEnabled() {
-    return getDelegate().getBooleanValue("parser", "parser_cache_mutation_warning_enabled", true);
-  }
-
-  /**
    * @return whether native build rules are available for users in build files. If not, they are
    *     only accessible in extension files under the 'native' object
    */
@@ -266,16 +278,6 @@ abstract class AbstractParserConfig implements ConfigView<BuckConfig> {
   @Value.Lazy
   public boolean isWarnAboutDeprecatedSyntax() {
     return getDelegate().getBooleanValue("parser", "warn_about_deprecated_syntax", true);
-  }
-
-  /**
-   * @return whether Buck should invalidate the parser state based on environment variables.
-   *     <p>WARNING: Environment variable changes won't discard the parser state. This setting
-   *     should be used with caution since it can lead to wrong parser results.
-   */
-  @Value.Lazy
-  public boolean shouldIgnoreEnvironmentVariablesChanges() {
-    return getDelegate().getBooleanValue("parser", "ignore_environment_variables_changes", false);
   }
 
   /** @return the type of the glob handler used by the Skylark parser. */
@@ -298,5 +300,66 @@ abstract class AbstractParserConfig implements ConfigView<BuckConfig> {
   @Value.Lazy
   public boolean getEnableConfigurableAttributes() {
     return getDelegate().getBooleanValue("parser", "enable_configurable_attributes", false);
+  }
+
+  @Value.Lazy
+  public boolean getEnableTargetCompatibilityChecks() {
+    return getDelegate().getBooleanValue("parser", "enable_target_compatibility_checks", true);
+  }
+
+  /**
+   * For use in performance-sensitive code or if you don't care if the build file actually exists,
+   * otherwise prefer {@link #getAbsolutePathToBuildFile}.
+   *
+   * @param cell the cell where the given target is defined
+   * @param target target to look up
+   * @return path which may or may not exist.
+   */
+  public Path getAbsolutePathToBuildFileUnsafe(Cell cell, UnconfiguredBuildTargetView target) {
+    Cell targetCell = cell.getCell(target);
+    ProjectFilesystem targetFilesystem = targetCell.getFilesystem();
+    return targetFilesystem
+        .resolve(target.getBasePath())
+        .resolve(targetCell.getBuckConfigView(ParserConfig.class).getBuildFileName());
+  }
+
+  /**
+   * @param cell the cell where the given target is defined
+   * @param target target to look up
+   * @return an absolute path to a build file that contains the definition of the given target.
+   */
+  public Path getAbsolutePathToBuildFile(Cell cell, UnconfiguredBuildTargetView target)
+      throws MissingBuildFileException {
+    Path buildFile = getAbsolutePathToBuildFileUnsafe(cell, target);
+    Cell targetCell = cell.getCell(target);
+    if (!targetCell.getFilesystem().isFile(buildFile)) {
+      throw new MissingBuildFileException(
+          target.getFullyQualifiedName(),
+          target
+              .getBasePath()
+              .resolve(targetCell.getBuckConfig().getView(ParserConfig.class).getBuildFileName()));
+    }
+    return buildFile;
+  }
+
+  /**
+   * Whether the cell is enforcing buck package boundaries for the package at the passed path.
+   *
+   * @param path Path of package (or file in a package) relative to the cell root.
+   */
+  public boolean isEnforcingBuckPackageBoundaries(Path path) {
+    if (!getEnforceBuckPackageBoundary()) {
+      return false;
+    }
+
+    Path absolutePath = getDelegate().getFilesystem().resolve(path);
+
+    ImmutableList<Path> exceptions = getBuckPackageBoundaryExceptions();
+    for (Path exception : exceptions) {
+      if (absolutePath.startsWith(exception)) {
+        return false;
+      }
+    }
+    return true;
   }
 }

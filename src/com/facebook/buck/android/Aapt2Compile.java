@@ -19,6 +19,7 @@ package com.facebook.buck.android;
 import com.facebook.buck.android.toolchain.AndroidPlatformTarget;
 import com.facebook.buck.core.build.buildable.context.BuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
@@ -26,10 +27,10 @@ import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.impl.AbstractBuildRule;
 import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.shell.ShellStep;
-import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.zip.ZipScrubberStep;
@@ -76,6 +77,7 @@ public class Aapt2Compile extends AbstractBuildRule {
                 getOutputPath().getParent())));
     steps.add(
         new Aapt2CompileStep(
+            context.getSourcePathResolver(),
             getProjectFilesystem().getRootPath(),
             androidPlatformTarget,
             context.getSourcePathResolver().getAbsolutePath(resDir),
@@ -101,13 +103,16 @@ public class Aapt2Compile extends AbstractBuildRule {
     private final AndroidPlatformTarget androidPlatformTarget;
     private final Path resDirPath;
     private final Path outputPath;
+    private final SourcePathResolver pathResolver;
 
     Aapt2CompileStep(
+        SourcePathResolver pathResolver,
         Path workingDirectory,
         AndroidPlatformTarget androidPlatformTarget,
         Path resDirPath,
         Path outputPath) {
       super(workingDirectory);
+      this.pathResolver = pathResolver;
       this.androidPlatformTarget = androidPlatformTarget;
       this.resDirPath = resDirPath;
       this.outputPath = outputPath;
@@ -121,8 +126,9 @@ public class Aapt2Compile extends AbstractBuildRule {
     @Override
     protected ImmutableList<String> getShellCommandInternal(ExecutionContext context) {
       ImmutableList.Builder<String> builder = ImmutableList.builder();
+      builder.addAll(
+          androidPlatformTarget.getAapt2Executable().get().getCommandPrefix(pathResolver));
 
-      builder.add(androidPlatformTarget.getAapt2Executable().toString());
       builder.add("compile");
       builder.add("--legacy"); // TODO(dreiss): Maybe make this an option?
       builder.add("-o");

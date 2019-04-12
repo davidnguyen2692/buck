@@ -19,16 +19,17 @@ package com.facebook.buck.distributed;
 import static com.facebook.buck.distributed.ClientStatsTracker.DistBuildClientStat.LOCAL_TARGET_GRAPH_SERIALIZATION;
 
 import com.facebook.buck.core.cell.Cell;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.cell.CellProvider;
-import com.facebook.buck.core.cell.DistBuildCellParams;
 import com.facebook.buck.core.cell.impl.DefaultCellPathResolver;
-import com.facebook.buck.core.cell.impl.DistributedCellProviderFactory;
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
 import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.TargetConfiguration;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraphAndBuildTargets;
 import com.facebook.buck.core.module.BuckModuleManager;
+import com.facebook.buck.core.parser.buildtargetparser.UnconfiguredBuildTargetFactory;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.distributed.thrift.BuildJobState;
 import com.facebook.buck.distributed.thrift.BuildJobStateBuckConfig;
 import com.facebook.buck.distributed.thrift.BuildJobStateCell;
@@ -38,9 +39,6 @@ import com.facebook.buck.distributed.thrift.RemoteCommand;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.ProjectFilesystemFactory;
-import com.facebook.buck.log.Logger;
-import com.facebook.buck.parser.BuildTargetParser;
-import com.facebook.buck.parser.BuildTargetPatternParser;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.cache.ProjectFileHashCache;
 import com.facebook.buck.util.config.Config;
@@ -57,7 +55,9 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Supplier;
 import org.pf4j.PluginManager;
 
 /** Saves and restores the state of a build to/from a thrift data structure. */
@@ -150,7 +150,9 @@ public class DistBuildState {
       ExecutableFinder executableFinder,
       BuckModuleManager moduleManager,
       PluginManager pluginManager,
-      ProjectFilesystemFactory projectFilesystemFactory)
+      ProjectFilesystemFactory projectFilesystemFactory,
+      UnconfiguredBuildTargetFactory unconfiguredBuildTargetFactory,
+      Supplier<TargetConfiguration> targetConfiguration)
       throws InterruptedException, IOException {
     ProjectFilesystem rootCellFilesystem = rootCell.getFilesystem();
 
@@ -183,7 +185,8 @@ public class DistBuildState {
               config,
               projectFilesystem,
               ImmutableMap.copyOf(localBuckConfig.getEnvironment()),
-              cellPathResolver);
+              cellPathResolver,
+              unconfiguredBuildTargetFactory);
 
       Optional<String> cellName =
           remoteCell.getCanonicalName().isEmpty()
@@ -210,7 +213,11 @@ public class DistBuildState {
 
     CellProvider cellProvider =
         DistributedCellProviderFactory.create(
-            Preconditions.checkNotNull(rootCellParams), cellParams.build(), rootCellPathResolver);
+            Objects.requireNonNull(rootCellParams),
+            cellParams.build(),
+            rootCellPathResolver,
+            unconfiguredBuildTargetFactory,
+            targetConfiguration);
 
     ImmutableBiMap<Integer, Cell> cells =
         ImmutableBiMap.copyOf(Maps.transformValues(cellIndex.build(), cellProvider::getCellByPath));
@@ -247,16 +254,16 @@ public class DistBuildState {
       Config rawConfig,
       ProjectFilesystem projectFilesystem,
       ImmutableMap<String, String> environment,
-      CellPathResolver cellPathResolver) {
+      CellPathResolver cellPathResolver,
+      UnconfiguredBuildTargetFactory unconfiguredBuildTargetFactory) {
     return new BuckConfig(
         rawConfig,
         projectFilesystem,
         Architecture.detect(),
         Platform.detect(),
         ImmutableMap.copyOf(environment),
-        target ->
-            BuildTargetParser.INSTANCE.parse(
-                target, BuildTargetPatternParser.fullyQualified(), cellPathResolver));
+        buildTargetName ->
+            unconfiguredBuildTargetFactory.create(cellPathResolver, buildTargetName));
   }
 
   public ImmutableMap<Integer, Cell> getCells() {
@@ -264,13 +271,13 @@ public class DistBuildState {
   }
 
   public Cell getRootCell() {
-    return Preconditions.checkNotNull(cells.get(DistBuildCellIndexer.ROOT_CELL_INDEX));
+    return Objects.requireNonNull(cells.get(DistBuildCellIndexer.ROOT_CELL_INDEX));
   }
 
   public TargetGraphAndBuildTargets createTargetGraph(DistBuildTargetGraphCodec codec)
       throws InterruptedException {
     return codec.createTargetGraph(
-        remoteState.getTargetGraph(), key -> Preconditions.checkNotNull(cells.get(key)));
+        remoteState.getTargetGraph(), key -> Objects.requireNonNull(cells.get(key)));
   }
 
   public ProjectFileHashCache createRemoteFileHashCache(ProjectFileHashCache decoratedCache) {
@@ -281,9 +288,7 @@ public class DistBuildState {
       return decoratedCache;
     }
 
-    ProjectFileHashCache remoteCache =
-        DistBuildFileHashes.createFileHashCache(decoratedCache, remoteFileHashes);
-    return remoteCache;
+    return DistBuildFileHashes.createFileHashCache(decoratedCache, remoteFileHashes);
   }
 
   public ProjectFileHashCache createMaterializerAndPreload(

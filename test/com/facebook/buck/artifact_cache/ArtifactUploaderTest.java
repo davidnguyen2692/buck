@@ -30,7 +30,7 @@ import com.facebook.buck.event.BuckEventBusForTests;
 import com.facebook.buck.io.file.BorrowablePath;
 import com.facebook.buck.io.file.MorePosixFilePermissions;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.testutil.integration.TarInspector;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -126,7 +126,8 @@ public class ArtifactUploaderTest {
         ImmutableMap.of("metadata", "metadata", "build-metadata", "build-metadata"),
         ImmutableSortedSet.of(dir, file, dirFile, metadataFile),
         BUILD_TARGET,
-        filesystem);
+        filesystem,
+        1000);
 
     assertTrue(stored.get());
   }

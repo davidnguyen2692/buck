@@ -8,6 +8,7 @@ java_library(
     deps = [
         "//src/com/facebook/buck/test/result/type:type",
         "//src/com/facebook/buck/test/selectors:selectors",
+        "//src/com/facebook/buck/util/environment:platform",
     ],
 )
 
@@ -22,6 +23,8 @@ java_library(
         "JulLogFormatter.java",
         "SameThreadFailOnTimeout.java",
     ],
+    source = "8",
+    target = "8",
     tests = [
         "//test/com/facebook/buck/testrunner:testrunner",
     ],
@@ -35,10 +38,9 @@ java_library(
         ":base",
         # This is loaded by reflection. Joy.
         "//src/com/facebook/buck/jvm/java/runner:runner",
-        "//src/com/facebook/buck/log:appendablelogrecord",
+        "//src/com/facebook/buck/core/util/log/appendablelogrecord:appendablelogrecord",
         "//src/com/facebook/buck/test/result/type:type",
         "//src/com/facebook/buck/test/selectors:selectors",
-        "//src/com/facebook/buck/util:process_executor",
         "//src/com/facebook/buck/util/concurrent:concurrent_for_junit_runner",
         "//third-party/java/junit:junit",
     ],
@@ -72,6 +74,7 @@ java_library(
         "//src/com/facebook/buck/test/result/type:type",
         "//src/com/facebook/buck/test/selectors:selectors",
         "//third-party/java/guice:guice",
+        "//third-party/java/jsr:jsr305",
         "//third-party/java/testng:testng",
     ],
 )
@@ -102,6 +105,7 @@ genrule(
         "$(exe //py/buck/zip:munger)",
         "--input=$(location :testrunner-bin)",
         "--output=$OUT",
+        "--exclude=",
         "--include=com/facebook/buck/",
     ]),
     visibility = [

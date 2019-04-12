@@ -29,21 +29,27 @@ import static org.junit.Assume.assumeTrue;
 
 import com.facebook.buck.apple.AppleNativeIntegrationTestUtils;
 import com.facebook.buck.apple.toolchain.ApplePlatform;
+import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.log.thrift.rulekeys.FullRuleKey;
 import com.facebook.buck.testutil.ProcessResult;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
+import com.facebook.buck.testutil.integration.TestContext;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.testutil.integration.ZipInspector;
 import com.facebook.buck.util.ExitCode;
+import com.facebook.buck.util.MoreStringsForTests;
 import com.facebook.buck.util.ThriftRuleKeyDeserializer;
 import com.facebook.buck.util.environment.Platform;
+import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Iterables;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.apache.thrift.TException;
@@ -321,5 +327,121 @@ public class BuildCommandIntegrationTest {
         result.getStderr(),
         Matchers.containsString(
             "Must specify at least one build target. See https://buckbuild.com/concept/build_target_pattern.html"));
+  }
+
+  @Test
+  public void testTargetsInFileFilteredByTargetPlatform() throws IOException {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "builds_with_target_filtering", tmp);
+    workspace.setUp();
+
+    workspace
+        .runBuckCommand(
+            "build",
+            "--target-platforms",
+            "//config:osx_x86-64",
+            "--exclude-incompatible-targets",
+            "//:")
+        .assertSuccess();
+
+    workspace.getBuildLog().assertTargetBuiltLocally("//:cat_on_osx");
+    workspace.getBuildLog().assertTargetIsAbsent("//:cat_on_linux");
+
+    workspace
+        .runBuckCommand(
+            "build",
+            "--target-platforms",
+            "//config:linux_x86-64",
+            "--exclude-incompatible-targets",
+            "//:")
+        .assertSuccess();
+
+    workspace.getBuildLog().assertTargetBuiltLocally("//:cat_on_linux");
+    workspace.getBuildLog().assertTargetIsAbsent("//:cat_on_osx");
+  }
+
+  @Test
+  public void configurationRulesNotIncludedWhenBuildingUsingPattern() throws Exception {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(
+            this, "project_with_configuration_rules", tmp);
+    workspace.setUp();
+
+    workspace.runBuckCommand("build", ":").assertSuccess();
+    ImmutableSet<BuildTarget> targets = workspace.getBuildLog().getAllTargets();
+
+    assertEquals(1, targets.size());
+    assertEquals("//:echo", Iterables.getOnlyElement(targets).toString());
+  }
+
+  @Test
+  public void testBuildDoesNotFailWhenDepDoesNotMatchTargetPlatformAndChecksAreDisables()
+      throws IOException {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "builds_with_constraints", tmp);
+    workspace.setUp();
+
+    ProcessResult result =
+        workspace.runBuckCommand(
+            "build",
+            "--target-platforms",
+            "//config:osx_x86-64",
+            "-c",
+            "parser.enable_target_compatibility_checks=false",
+            "//:lib");
+    result.assertSuccess();
+  }
+
+  @Test
+  public void testBuildFailsWhenDepDoesNotMatchTargetPlatform() throws IOException {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "builds_with_constraints", tmp);
+    workspace.setUp();
+
+    ProcessResult result =
+        workspace.runBuckCommand("build", "--target-platforms", "//config:osx_x86-64", "//:lib");
+    result.assertFailure();
+    MatcherAssert.assertThat(
+        result.getStderr(),
+        MoreStringsForTests.containsIgnoringPlatformNewlines(
+            "Build target //:dep is restricted to constraints in \"target_compatible_with\" "
+                + "that do not match the target platform //config:osx_x86-64.\n"
+                + "Target constraints:\n//config:linux"));
+  }
+
+  @Test
+  public void changingTargetPlatformTriggersRebuild() throws IOException {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "builds_with_constraints", tmp);
+    workspace.setUp();
+
+    try (TestContext context = new TestContext()) {
+      workspace.runBuckBuild(
+          Optional.of(context),
+          "--target-platforms",
+          "//config:osx_x86-64",
+          "//:platform_dependent_genrule");
+
+      workspace.getBuildLog().assertTargetBuiltLocally("//:platform_dependent_genrule");
+
+      workspace.runBuckBuild(
+          Optional.of(context),
+          "--target-platforms",
+          "//config:linux_x86-64",
+          "//:platform_dependent_genrule");
+
+      workspace.getBuildLog().assertTargetBuiltLocally("//:platform_dependent_genrule");
+    }
+  }
+
+  @Test
+  public void testBuildSucceedsWhenDepMatchesTargetPlatform() throws IOException {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "builds_with_constraints", tmp);
+    workspace.setUp();
+
+    workspace
+        .runBuckCommand("build", "--target-platforms", "//config:linux_x86-64", "//:lib")
+        .assertSuccess();
   }
 }

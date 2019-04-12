@@ -17,136 +17,84 @@
 package com.facebook.buck.cxx.toolchain;
 
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.TargetConfiguration;
 import com.facebook.buck.core.rules.BuildRuleResolver;
-import com.facebook.buck.core.sourcepath.PathSourcePath;
 import com.facebook.buck.core.toolchain.tool.Tool;
-import com.facebook.buck.core.toolchain.tool.impl.HashedFileTool;
 import com.facebook.buck.core.toolchain.toolprovider.ToolProvider;
-import com.facebook.buck.core.toolchain.toolprovider.impl.ConstantToolProvider;
-import com.facebook.buck.log.Logger;
-import com.facebook.buck.util.Console;
-import com.facebook.buck.util.DefaultProcessExecutor;
-import com.facebook.buck.util.MoreSuppliers;
-import com.facebook.buck.util.ProcessExecutor;
-import com.facebook.buck.util.ProcessExecutorParams;
-import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.CharMatcher;
-import com.google.common.base.Splitter;
+import com.facebook.buck.cxx.toolchain.CxxBuckConfig.ToolType;
 import com.google.common.base.Suppliers;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
-import java.io.IOException;
-import java.nio.file.Path;
-import java.util.EnumSet;
-import java.util.Optional;
 import java.util.function.Supplier;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import javax.annotation.Nonnull;
+import org.immutables.value.Value.Immutable;
+import org.immutables.value.Value.Parameter;
 
 /** A provide for the {@link Preprocessor} and {@link Compiler} C/C++ drivers. */
 public abstract class CxxToolProvider<T> {
 
-  private static final Logger LOG = Logger.get(CxxToolProvider.class);
-  private static final Pattern CLANG_VERSION_PATTERN =
-      Pattern.compile(
-          "\\s*("
-              + // Ignore leading whitespace.
-              "clang version [.0-9]*(\\s*\\(.*\\))?"
-              + // Format used by opensource Clang.
-              "|"
-              + "Apple LLVM version [.0-9]*\\s*\\(clang-[.0-9]*\\)"
-              + // Format used by Apple's clang.
-              ")\\s*"); // Ignore trailing whitespace.
+  @Immutable(builder = false, copy = false, prehash = true)
+  interface CxxToolProviderCacheKey {
+    @Parameter
+    BuildRuleResolver getBuildRuleResolver();
+
+    @Parameter
+    TargetConfiguration getTargetConfiguration();
+  }
 
   private final ToolProvider toolProvider;
   private final Supplier<Type> type;
+  private final ToolType toolType;
+  private final boolean useUnixFileSeparator;
 
-  private final LoadingCache<BuildRuleResolver, T> cache =
+  private final LoadingCache<CxxToolProviderCacheKey, T> cache =
       CacheBuilder.newBuilder()
           .weakKeys()
           .build(
-              new CacheLoader<BuildRuleResolver, T>() {
+              new CacheLoader<CxxToolProviderCacheKey, T>() {
                 @Override
-                public T load(@Nonnull BuildRuleResolver resolver) {
-                  return build(type.get(), toolProvider.resolve(resolver));
+                public T load(@Nonnull CxxToolProviderCacheKey key) {
+                  return build(
+                      type.get(),
+                      toolProvider.resolve(
+                          key.getBuildRuleResolver(), key.getTargetConfiguration()));
                 }
               });
 
-  private CxxToolProvider(ToolProvider toolProvider, Supplier<Type> type) {
+  public CxxToolProvider(
+      ToolProvider toolProvider,
+      Supplier<Type> type,
+      ToolType toolType,
+      boolean useUnixFileSeparator) {
     this.toolProvider = toolProvider;
     this.type = type;
-  }
-
-  /** Build using a {@link ToolProvider} and a required type. */
-  public CxxToolProvider(ToolProvider toolProvider, Type type) {
-    this(toolProvider, Suppliers.ofInstance(type));
+    this.toolType = toolType;
+    this.useUnixFileSeparator = useUnixFileSeparator;
   }
 
   /**
-   * Build using a {@link Path} and an optional type. If the type is absent, the tool will be
-   * executed to infer it.
+   * Build using a {@link ToolProvider} and a required type. It also allows to specify to use Unix
+   * path separators for the NDK compiler.
    */
-  public CxxToolProvider(Supplier<PathSourcePath> path, Optional<Type> type) {
-    this(
-        new ConstantToolProvider(new HashedFileTool(path)),
-        type.map(Suppliers::ofInstance)
-            .orElseGet(() -> MoreSuppliers.memoize(() -> getTypeFromPath(path.get()))::get));
+  public CxxToolProvider(
+      ToolProvider toolProvider, Type type, ToolType toolType, boolean useUnixFileSeparator) {
+    this(toolProvider, Suppliers.ofInstance(type), toolType, useUnixFileSeparator);
   }
 
-  private static Type getTypeFromPath(PathSourcePath path) {
-    ProcessExecutorParams params =
-        ProcessExecutorParams.builder()
-            .addCommand(path.getFilesystem().resolve(path.getRelativePath()).toString())
-            .addCommand("--version")
-            .build();
-    ProcessExecutor.Result result;
-    try {
-      ProcessExecutor processExecutor = new DefaultProcessExecutor(Console.createNullConsole());
-      result =
-          processExecutor.launchAndExecute(
-              params,
-              EnumSet.of(ProcessExecutor.Option.EXPECTING_STD_OUT),
-              Optional.empty(),
-              Optional.empty(),
-              Optional.empty());
-    } catch (InterruptedException | IOException e) {
-      throw new RuntimeException(e);
-    }
-
-    if (result.getExitCode() != 0) {
-      String commandString = params.getCommand().toString();
-      String message = result.getMessageForUnexpectedResult(commandString);
-      LOG.error(message);
-      throw new RuntimeException(message);
-    }
-
-    String stdout = result.getStdout().orElse("");
-    Iterable<String> lines = Splitter.on(CharMatcher.anyOf("\r\n")).split(stdout);
-    LOG.debug("Output of %s: %s", params.getCommand(), lines);
-    return getTypeFromVersionOutput(lines);
-  }
-
-  @VisibleForTesting
-  protected static Type getTypeFromVersionOutput(Iterable<String> lines) {
-    for (String line : lines) {
-      Matcher matcher = CLANG_VERSION_PATTERN.matcher(line);
-      if (matcher.matches()) {
-        return Type.CLANG;
-      }
-    }
-    return Type.GCC;
+  /** Build using a {@link ToolProvider} and a required type. */
+  public CxxToolProvider(ToolProvider toolProvider, Type type, ToolType toolType) {
+    this(toolProvider, Suppliers.ofInstance(type), toolType, false);
   }
 
   protected abstract T build(Type type, Tool tool);
 
-  public T resolve(BuildRuleResolver resolver) {
-    return cache.getUnchecked(resolver);
+  public T resolve(BuildRuleResolver resolver, TargetConfiguration targetConfiguration) {
+    return cache.getUnchecked(ImmutableCxxToolProviderCacheKey.of(resolver, targetConfiguration));
   }
 
-  public Iterable<BuildTarget> getParseTimeDeps() {
-    return toolProvider.getParseTimeDeps();
+  public Iterable<BuildTarget> getParseTimeDeps(TargetConfiguration targetConfiguration) {
+    return toolProvider.getParseTimeDeps(targetConfiguration);
   }
 
   public enum Type {
@@ -156,5 +104,15 @@ public abstract class CxxToolProvider<T> {
     GCC,
     WINDOWS,
     WINDOWS_ML64
+  }
+
+  /** Return tool type of this provider instance */
+  public ToolType getToolType() {
+    return toolType;
+  }
+
+  /** @returns whether the specific CxxTool is accepting paths with Unix path separator only. */
+  public boolean getUseUnixPathSeparator() {
+    return useUnixFileSeparator;
   }
 }

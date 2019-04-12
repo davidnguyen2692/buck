@@ -45,6 +45,7 @@ import com.facebook.buck.core.config.FakeBuckConfig;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
+import com.facebook.buck.core.model.EmptyTargetConfiguration;
 import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.InternalFlavor;
 import com.facebook.buck.core.rulekey.RuleKey;
@@ -54,6 +55,7 @@ import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.BuildRuleResolver;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.TestBuildRuleParams;
+import com.facebook.buck.core.rules.impl.FakeBuildRule;
 import com.facebook.buck.core.rules.impl.NoopBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.core.rules.tool.BinaryBuildRule;
@@ -74,14 +76,13 @@ import com.facebook.buck.cxx.toolchain.PicType;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableInput;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.parser.exceptions.NoSuchBuildTargetException;
-import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.keys.DefaultRuleKeyFactory;
 import com.facebook.buck.rules.keys.TestDefaultRuleKeyFactory;
 import com.facebook.buck.swift.toolchain.SwiftPlatform;
 import com.facebook.buck.testutil.FakeFileHashCache;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.TestLogSink;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.base.Charsets;
@@ -96,6 +97,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
@@ -115,7 +117,7 @@ public class AppleCxxPlatformsTest {
   private Path developerDir;
 
   @Before
-  public void setUp() throws InterruptedException {
+  public void setUp() {
     assumeTrue(Platform.detect() == Platform.MACOS || Platform.detect() == Platform.LINUX);
     projectFilesystem = FakeProjectFilesystem.createJavaOnlyFilesystem();
     developerDir = projectFilesystem.getPath("/Developer");
@@ -231,10 +233,18 @@ public class AppleCxxPlatformsTest {
     assertEquals(InternalFlavor.of("iphoneos8.0-armv7"), cxxPlatform.getFlavor());
     assertEquals(
         "/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang",
-        cxxPlatform.getCc().resolve(ruleResolver).getCommandPrefix(resolver).get(0));
+        cxxPlatform
+            .getCc()
+            .resolve(ruleResolver, EmptyTargetConfiguration.INSTANCE)
+            .getCommandPrefix(resolver)
+            .get(0));
     assertThat(
         ImmutableList.<String>builder()
-            .addAll(cxxPlatform.getCc().resolve(ruleResolver).getCommandPrefix(resolver))
+            .addAll(
+                cxxPlatform
+                    .getCc()
+                    .resolve(ruleResolver, EmptyTargetConfiguration.INSTANCE)
+                    .getCommandPrefix(resolver))
             .addAll(cxxPlatform.getCflags())
             .build(),
         hasConsecutiveItems(
@@ -245,10 +255,18 @@ public class AppleCxxPlatformsTest {
     assertThat(cxxPlatform.getLdflags(), hasConsecutiveItems("-Wl,-sdk_version", "-Wl,8.0"));
     assertEquals(
         "/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang++",
-        cxxPlatform.getCxx().resolve(ruleResolver).getCommandPrefix(resolver).get(0));
+        cxxPlatform
+            .getCxx()
+            .resolve(ruleResolver, EmptyTargetConfiguration.INSTANCE)
+            .getCommandPrefix(resolver)
+            .get(0));
     assertEquals(
         "/Developer/Platforms/iPhoneOS.platform/Developer/usr/bin/ar",
-        cxxPlatform.getAr().resolve(ruleResolver).getCommandPrefix(resolver).get(0));
+        cxxPlatform
+            .getAr()
+            .resolve(ruleResolver, EmptyTargetConfiguration.INSTANCE)
+            .getCommandPrefix(resolver)
+            .get(0));
   }
 
   @Test
@@ -323,10 +341,18 @@ public class AppleCxxPlatformsTest {
     assertEquals(InternalFlavor.of("watchos2.0-armv7k"), cxxPlatform.getFlavor());
     assertEquals(
         "/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang",
-        cxxPlatform.getCc().resolve(ruleResolver).getCommandPrefix(resolver).get(0));
+        cxxPlatform
+            .getCc()
+            .resolve(ruleResolver, EmptyTargetConfiguration.INSTANCE)
+            .getCommandPrefix(resolver)
+            .get(0));
     assertThat(
         ImmutableList.<String>builder()
-            .addAll(cxxPlatform.getCc().resolve(ruleResolver).getCommandPrefix(resolver))
+            .addAll(
+                cxxPlatform
+                    .getCc()
+                    .resolve(ruleResolver, EmptyTargetConfiguration.INSTANCE)
+                    .getCommandPrefix(resolver))
             .addAll(cxxPlatform.getCflags())
             .build(),
         hasConsecutiveItems(
@@ -336,10 +362,18 @@ public class AppleCxxPlatformsTest {
     assertThat(cxxPlatform.getLdflags(), hasConsecutiveItems("-Wl,-sdk_version", "-Wl,2.0"));
     assertEquals(
         "/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang++",
-        cxxPlatform.getCxx().resolve(ruleResolver).getCommandPrefix(resolver).get(0));
+        cxxPlatform
+            .getCxx()
+            .resolve(ruleResolver, EmptyTargetConfiguration.INSTANCE)
+            .getCommandPrefix(resolver)
+            .get(0));
     assertEquals(
         "/Developer/Platforms/WatchOS.platform/Developer/usr/bin/ar",
-        cxxPlatform.getAr().resolve(ruleResolver).getCommandPrefix(resolver).get(0));
+        cxxPlatform
+            .getAr()
+            .resolve(ruleResolver, EmptyTargetConfiguration.INSTANCE)
+            .getCommandPrefix(resolver)
+            .get(0));
   }
 
   @Test
@@ -415,10 +449,18 @@ public class AppleCxxPlatformsTest {
     assertEquals(InternalFlavor.of("appletvos9.1-arm64"), cxxPlatform.getFlavor());
     assertEquals(
         "/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang",
-        cxxPlatform.getCc().resolve(ruleResolver).getCommandPrefix(resolver).get(0));
+        cxxPlatform
+            .getCc()
+            .resolve(ruleResolver, EmptyTargetConfiguration.INSTANCE)
+            .getCommandPrefix(resolver)
+            .get(0));
     assertThat(
         ImmutableList.<String>builder()
-            .addAll(cxxPlatform.getCc().resolve(ruleResolver).getCommandPrefix(resolver))
+            .addAll(
+                cxxPlatform
+                    .getCc()
+                    .resolve(ruleResolver, EmptyTargetConfiguration.INSTANCE)
+                    .getCommandPrefix(resolver))
             .addAll(cxxPlatform.getCflags())
             .build(),
         hasConsecutiveItems(
@@ -429,10 +471,18 @@ public class AppleCxxPlatformsTest {
     assertThat(cxxPlatform.getLdflags(), hasConsecutiveItems("-Wl,-sdk_version", "-Wl,9.1"));
     assertEquals(
         "/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang++",
-        cxxPlatform.getCxx().resolve(ruleResolver).getCommandPrefix(resolver).get(0));
+        cxxPlatform
+            .getCxx()
+            .resolve(ruleResolver, EmptyTargetConfiguration.INSTANCE)
+            .getCommandPrefix(resolver)
+            .get(0));
     assertEquals(
         "/Developer/Platforms/AppleTVOS.platform/Developer/usr/bin/ar",
-        cxxPlatform.getAr().resolve(ruleResolver).getCommandPrefix(resolver).get(0));
+        cxxPlatform
+            .getAr()
+            .resolve(ruleResolver, EmptyTargetConfiguration.INSTANCE)
+            .getCommandPrefix(resolver)
+            .get(0));
   }
 
   @Test
@@ -762,7 +812,7 @@ public class AppleCxxPlatformsTest {
 
   // Create and return some rule keys from a dummy source for the given platforms.
   private ImmutableMap<Flavor, RuleKey> constructCompileRuleKeys(
-      Operation operation, ImmutableMap<Flavor, AppleCxxPlatform> cxxPlatforms) throws IOException {
+      Operation operation, ImmutableMap<Flavor, AppleCxxPlatform> cxxPlatforms) {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
     SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
@@ -919,9 +969,9 @@ public class AppleCxxPlatformsTest {
     assertThat(
         appleCxxPlatform
             .getCodesignProvider()
-            .resolve(buildRuleResolver)
+            .resolve(buildRuleResolver, EmptyTargetConfiguration.INSTANCE)
             .getCommandPrefix(sourcePathResolver),
-        is(Arrays.asList("/usr/bin/codesign")));
+        is(Collections.singletonList("/usr/bin/codesign")));
   }
 
   private abstract static class NoopBinaryBuildRule extends NoopBuildRuleWithDeclaredAndExtraDeps
@@ -964,7 +1014,11 @@ public class AppleCxxPlatformsTest {
         };
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     graphBuilder.computeIfAbsent(buildTarget, target -> buildRule);
-    assertThat(appleCxxPlatform.getCodesignProvider().resolve(graphBuilder), is(codesign));
+    assertThat(
+        appleCxxPlatform
+            .getCodesignProvider()
+            .resolve(graphBuilder, EmptyTargetConfiguration.INSTANCE),
+        is(codesign));
   }
 
   @Test
@@ -984,9 +1038,9 @@ public class AppleCxxPlatformsTest {
     assertThat(
         appleCxxPlatform
             .getCodesignProvider()
-            .resolve(buildRuleResolver)
+            .resolve(buildRuleResolver, EmptyTargetConfiguration.INSTANCE)
             .getCommandPrefix(sourcePathResolver),
-        is(Arrays.asList(codesignPath.toString())));
+        is(Collections.singletonList(codesignPath.toString())));
   }
 
   // The important aspects we check for in rule keys is that the host platform and the path
@@ -1076,8 +1130,7 @@ public class AppleCxxPlatformsTest {
   }
 
   @Test
-  public void appleCxxPlatformWhenNoSwiftToolchainPreferredShouldUseDefaultSwift()
-      throws IOException {
+  public void appleCxxPlatformWhenNoSwiftToolchainPreferredShouldUseDefaultSwift() {
     AppleCxxPlatform platformWithDefaultSwift = buildAppleCxxPlatformWithSwiftToolchain();
     Optional<SwiftPlatform> swiftPlatformOptional = platformWithDefaultSwift.getSwiftPlatform();
     assertThat(swiftPlatformOptional.isPresent(), is(true));
@@ -1167,6 +1220,20 @@ public class AppleCxxPlatformsTest {
             .build(RuleKey::new);
 
     assertNotEquals(ibtoolRuleKey1, ibtoolRuleKey2);
+  }
+
+  @Test
+  public void useFlavoredCxxSections() {
+    AppleCxxPlatform appleCxxPlatform =
+        buildAppleCxxPlatform(
+            projectFilesystem.getPath("/Developer1"),
+            FakeBuckConfig.builder()
+                .setSections(
+                    ImmutableMap.of(
+                        "cxx#iphonesimulator8.0-armv7", ImmutableMap.of("cxxflags", "-flag"),
+                        "apple", ImmutableMap.of("use_flavored_cxx_sections", "true")))
+                .build());
+    assertThat(appleCxxPlatform.getCxxPlatform().getCxxflags(), hasItem("-flag"));
   }
 
   private AppleCxxPlatform buildAppleCxxPlatformWithSwiftToolchain() {

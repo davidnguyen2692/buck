@@ -29,7 +29,6 @@ java_library(
 )
 
 IO_SRCS = [
-    "AbstractCharsetProcessListener.java",
     "AbstractDirectoryCleanerArgs.java",
     "AnsiEnvironmentChecking.java",
     "DefaultFilteredDirectoryCopier.java",
@@ -39,7 +38,6 @@ IO_SRCS = [
     "ListeningCharsetEncoder.java",
     "NamedTemporaryDirectory.java",
     "PkillProcessManager.java",
-    "SimpleProcessListener.java",
     "TimeFormat.java",
     "UnixUserIdFetcher.java",
     "UserIdFetcher.java",
@@ -56,10 +54,10 @@ java_immutables_library(
         ":process_executor",
         ":util",
         "//src/com/facebook/buck/core/exceptions:exceptions",
+        "//src/com/facebook/buck/core/util/log:log",
         "//src/com/facebook/buck/io:io",
         "//src/com/facebook/buck/io/file:file",
         "//src/com/facebook/buck/io/filesystem:filesystem",
-        "//src/com/facebook/buck/log:api",
         "//src/com/facebook/buck/util/environment:platform",
         "//src/com/facebook/buck/util/string:string",
         "//third-party/java/nuprocess:nuprocess",
@@ -99,7 +97,7 @@ java_immutables_library(
     visibility = ["PUBLIC"],
     deps = [
         ":util",
-        "//src/com/facebook/buck/log:api",
+        "//src/com/facebook/buck/core/util/log:log",
         "//src/com/facebook/buck/util/concurrent:concurrent",
         "//src/com/facebook/buck/util/environment:platform",
         "//src/com/facebook/buck/util/string:string",
@@ -129,12 +127,27 @@ java_library(
     ],
 )
 
+ISOLATED_SRCS = [
+    "JavaVersion.java",
+]
+
+java_library(
+    name = "isolated",
+    srcs = ISOLATED_SRCS,
+    visibility = [
+        "PUBLIC",
+    ],
+    deps = [
+        # Do NOT add any deps here. This library is used by code that cannot depend on the rest of Buck.
+    ],
+)
+
 java_immutables_library(
     name = "util",
     srcs = glob(
         ["*.java"],
         exclude = CONSTANT_SRCS + EXCEPTION_SRCS + IO_SRCS +
-                  PACKAGED_RESOURCE_SRCS + PROCESS_EXECUTOR_SRCS,
+                  PACKAGED_RESOURCE_SRCS + PROCESS_EXECUTOR_SRCS + ISOLATED_SRCS,
     ),
     exported_deps = [
         "//src/com/facebook/buck/util/function:function",
@@ -150,11 +163,10 @@ java_immutables_library(
     ],
     deps = [
         ":exceptions",
-        "//src/com/facebook/buck/core/cell/name:name",
         "//src/com/facebook/buck/core/exceptions:exceptions",
         "//src/com/facebook/buck/core/exceptions/handler:handler",
+        "//src/com/facebook/buck/core/util/log:log",
         "//src/com/facebook/buck/event:interfaces",
-        "//src/com/facebook/buck/log:api",
         "//src/com/facebook/buck/util/environment:platform",
         "//src/com/facebook/buck/util/function:function",
         "//src/com/facebook/buck/util/string:string",

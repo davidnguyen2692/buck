@@ -17,7 +17,7 @@
 package com.facebook.buck.apple;
 
 import com.facebook.buck.apple.toolchain.AppleCxxPlatform;
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
@@ -41,12 +41,12 @@ import com.facebook.buck.swift.SwiftDescriptions;
 import com.facebook.buck.swift.SwiftLibraryDescription;
 import com.facebook.buck.swift.SwiftLibraryDescriptionArg;
 import com.facebook.buck.util.RichStream;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Objects;
 import java.util.Optional;
 
 public class AppleLibraryDescriptionSwiftEnhancer {
@@ -67,10 +67,15 @@ public class AppleLibraryDescriptionSwiftEnhancer {
     SourcePathRuleFinder rulePathFinder = new SourcePathRuleFinder(graphBuilder);
     SwiftLibraryDescriptionArg.Builder delegateArgsBuilder = SwiftLibraryDescriptionArg.builder();
     SwiftDescriptions.populateSwiftLibraryDescriptionArg(
-        DefaultSourcePathResolver.from(rulePathFinder), delegateArgsBuilder, args, target);
+        swiftBuckConfig,
+        DefaultSourcePathResolver.from(rulePathFinder),
+        delegateArgsBuilder,
+        args,
+        target);
     SwiftLibraryDescriptionArg swiftArgs = delegateArgsBuilder.build();
 
-    Preprocessor preprocessor = platform.getCpp().resolve(graphBuilder);
+    Preprocessor preprocessor =
+        platform.getCpp().resolve(graphBuilder, target.getTargetConfiguration());
 
     ImmutableSet<BuildRule> inputDeps =
         RichStream.from(inputs)
@@ -146,11 +151,9 @@ public class AppleLibraryDescriptionSwiftEnhancer {
         getObjCGeneratedHeader(buildTarget, graphBuilder, cxxPlatform, headerVisibility);
 
     Path outputPath = BuildTargetPaths.getGenPath(projectFilesystem, buildTarget, "%s");
-    HeaderSymlinkTreeWithHeaderMap headerMapRule =
-        HeaderSymlinkTreeWithHeaderMap.create(
-            buildTarget, projectFilesystem, outputPath, headers, ruleFinder);
 
-    return headerMapRule;
+    return HeaderSymlinkTreeWithHeaderMap.create(
+        buildTarget, projectFilesystem, outputPath, headers, ruleFinder);
   }
 
   public static ImmutableMap<Path, SourcePath> getObjCGeneratedHeader(
@@ -194,7 +197,7 @@ public class AppleLibraryDescriptionSwiftEnhancer {
         break;
     }
 
-    Preconditions.checkNotNull(appleLibType);
+    Objects.requireNonNull(appleLibType);
 
     return buildTarget.withFlavors(appleLibType.getFlavor(), cxxPlatform.getFlavor());
   }

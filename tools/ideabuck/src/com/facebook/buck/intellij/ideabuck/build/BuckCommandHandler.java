@@ -16,9 +16,11 @@
 
 package com.facebook.buck.intellij.ideabuck.build;
 
+import com.facebook.buck.intellij.ideabuck.api.BuckCellManager;
+import com.facebook.buck.intellij.ideabuck.api.BuckCellManager.Cell;
+import com.facebook.buck.intellij.ideabuck.config.BuckExecutableSettingsProvider;
 import com.facebook.buck.intellij.ideabuck.config.BuckModule;
-import com.facebook.buck.intellij.ideabuck.config.BuckSettingsProvider;
-import com.facebook.buck.intellij.ideabuck.ui.BuckEventsConsumer;
+import com.facebook.buck.intellij.ideabuck.ui.tree.BuckTextNode.TextType;
 import com.intellij.execution.ExecutionException;
 import com.intellij.execution.configurations.GeneralCommandLine;
 import com.intellij.execution.process.OSProcessHandler;
@@ -33,6 +35,7 @@ import com.intellij.openapi.vcs.LineHandlerHelper;
 import com.intellij.openapi.vfs.CharsetToolkit;
 import java.io.File;
 import java.nio.charset.Charset;
+import java.nio.file.Path;
 import java.util.regex.Pattern;
 import org.jetbrains.annotations.Nullable;
 
@@ -43,9 +46,9 @@ public abstract class BuckCommandHandler {
   private static final long LONG_TIME = 10 * 1000;
 
   protected final Project project;
+  protected final BuckModule buckModule;
   protected final BuckCommand command;
 
-  private final File workingDirectory;
   private final GeneralCommandLine commandLine;
   private final Object processStateLock = new Object();
   private static final Pattern CHARACTER_DIGITS_PATTERN = Pattern.compile("(?s).*[A-Z0-9a-z]+.*");
@@ -67,8 +70,17 @@ public abstract class BuckCommandHandler {
   /** The partial line from stderr stream. */
   private final StringBuilder stderrLine = new StringBuilder();
 
-  public BuckCommandHandler(Project project, File directory, BuckCommand command) {
-    this(project, directory, command, /* doStartNotify */ false);
+  private static File calcWorkingDirFor(Project project) {
+    BuckCellManager buckCellManager = BuckCellManager.getInstance(project);
+    return buckCellManager
+        .getDefaultCell()
+        .map(Cell::getRootPath)
+        .map(Path::toFile)
+        .orElse(new File(project.getBasePath()));
+  }
+
+  public BuckCommandHandler(Project project, BuckCommand command) {
+    this(project, command, /* doStartNotify */ false);
   }
 
   /**
@@ -76,19 +88,42 @@ public abstract class BuckCommandHandler {
    * @param directory a process directory
    * @param command a command to execute (if empty string, the parameter is ignored)
    * @param doStartNotify true if the handler should call OSHandler#startNotify
+   * @deprecated Use {@link BuckCommandHandler(Project, BuckCommand, boolean)}
    */
+  @Deprecated
   public BuckCommandHandler(
       Project project, File directory, BuckCommand command, boolean doStartNotify) {
+    this(project, command, doStartNotify);
+    Path actualPath = commandLine.getWorkDirectory().toPath();
+    if (!actualPath.equals(directory.toPath())) {
+      LOG.warn(
+          "Running buck command \""
+              + commandLine.getCommandLineString()
+              + "\" from the work directory \""
+              + actualPath.toString()
+              + "\" and not in the requested directory \""
+              + directory.toPath()
+              + "\"");
+    }
+  }
+
+  /**
+   * @param project a project
+   * @param command a command to execute (if empty string, the parameter is ignored)
+   * @param doStartNotify true if the handler should call OSHandler#startNotify
+   */
+  public BuckCommandHandler(Project project, BuckCommand command, boolean doStartNotify) {
     this.doStartNotify = doStartNotify;
 
-    String buckExecutable = BuckSettingsProvider.getInstance().resolveBuckExecutable();
+    String buckExecutable =
+        BuckExecutableSettingsProvider.getInstance(project).resolveBuckExecutable();
 
     this.project = project;
+    this.buckModule = project.getComponent(BuckModule.class);
     this.command = command;
     commandLine = new GeneralCommandLine();
     commandLine.setExePath(buckExecutable);
-    workingDirectory = directory;
-    commandLine.withWorkDirectory(workingDirectory);
+    commandLine.withWorkDirectory(calcWorkingDirFor(project));
     commandLine.addParameter(command.name());
     for (String parameter : command.getParameters()) {
       commandLine.addParameter(parameter);
@@ -99,6 +134,9 @@ public abstract class BuckCommandHandler {
   public synchronized void start() {
     checkNotStarted();
 
+    buckModule
+        .getBuckEventsConsumer()
+        .sendAsConsoleEvent(commandLine.getCommandLineString(), TextType.INFO);
     try {
       startTime = System.currentTimeMillis();
       process = startProcess();
@@ -169,15 +207,19 @@ public abstract class BuckCommandHandler {
     }
     handler.addProcessListener(
         new ProcessListener() {
+          @Override
           public void startNotified(final ProcessEvent event) {}
 
+          @Override
           public void processTerminated(final ProcessEvent event) {
-            BuckCommandHandler.this.processTerminated();
+            BuckCommandHandler.this.processTerminated(event);
           }
 
+          @Override
           public void processWillTerminate(
               final ProcessEvent event, final boolean willBeDestroyed) {}
 
+          @Override
           public void onTextAvailable(final ProcessEvent event, final Key outputType) {
             BuckCommandHandler.this.onTextAvailable(event.getText(), outputType);
           }
@@ -256,7 +298,7 @@ public abstract class BuckCommandHandler {
     }
   }
 
-  protected void processTerminated() {
+  protected void processTerminated(ProcessEvent event) {
     if (stderrLine.length() != 0) {
       onTextAvailable("\n", ProcessOutputTypes.STDERR);
     }
@@ -271,8 +313,6 @@ public abstract class BuckCommandHandler {
    * saved.
    */
   protected void notifyLines(final Key outputType, final Iterable<String> lines) {
-    BuckEventsConsumer buckEventsConsumer =
-        project.getComponent(BuckModule.class).getBuckEventsConsumer();
     if (outputType == ProcessOutputTypes.STDERR) {
       StringBuilder stderr = new StringBuilder();
       for (String line : lines) {
@@ -282,7 +322,7 @@ public abstract class BuckCommandHandler {
         }
       }
       if (stderr.length() != 0) {
-        buckEventsConsumer.consumeConsoleEvent(stderr.toString());
+        buckModule.getBuckEventsConsumer().consumeConsoleEvent(stderr.toString());
       }
     }
   }

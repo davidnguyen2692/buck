@@ -60,7 +60,7 @@ public class AndroidAppModularityGraphEnhancer {
 
     AndroidPackageableCollector collector =
         new AndroidPackageableCollector(
-            originalBuildTarget, buildTargetsToExcludeFromDex, ImmutableSet.of(), apkModuleGraph);
+            originalBuildTarget, buildTargetsToExcludeFromDex, apkModuleGraph);
     collector.addPackageables(
         AndroidPackageableCollector.getPackageableRules(originalDeps), ruleResolver);
     AndroidPackageableCollection packageableCollection = collector.build();
@@ -70,7 +70,10 @@ public class AndroidAppModularityGraphEnhancer {
     // Add dependencies on all the build rules generating third-party JARs.  This is mainly to
     // correctly capture deps when a prebuilt_jar forwards the output from another build rule.
     enhancedDeps.addAll(
-        ruleFinder.filterBuildRuleInputs(packageableCollection.getPathsToThirdPartyJars()));
+        ruleFinder.filterBuildRuleInputs(
+            packageableCollection
+                .getPathsToThirdPartyJars()
+                .get(apkModuleGraph.getRootAPKModule())));
 
     return AndroidAppModularityGraphEnhancementResult.builder()
         .setPackageableCollection(packageableCollection)

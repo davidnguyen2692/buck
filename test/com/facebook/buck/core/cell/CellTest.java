@@ -19,16 +19,18 @@ package com.facebook.buck.core.cell;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertThat;
+import static org.junit.Assert.assertTrue;
 
-import com.facebook.buck.core.cell.name.RelativeCellName;
 import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.config.FakeBuckConfig;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.ProjectFilesystemView;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
+import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.jimfs.Configuration;
 import com.google.common.jimfs.Jimfs;
@@ -160,8 +162,8 @@ public class CellTest {
             .setFilesystem(filesystem1)
             .setCellConfigOverride(
                 CellConfig.builder()
-                    .put(RelativeCellName.fromComponents("second"), "test", "value", "cell2")
-                    .put(RelativeCellName.ALL_CELLS_SPECIAL_NAME, "test", "common_value", "all")
+                    .put(CellName.of("second"), "test", "value", "cell2")
+                    .put(CellName.ALL_CELLS_SPECIAL_NAME, "test", "common_value", "all")
                     .build())
             .build();
     BuildTarget target =
@@ -177,5 +179,51 @@ public class CellTest {
     assertThat(
         cell3.getBuckConfig().getValue("test", "common_value"),
         Matchers.equalTo(Optional.of("all")));
+  }
+
+  @Test
+  public void fileSystemViewForSourceFilesShouldListExistingFile() throws IOException {
+    FileSystem vfs = Jimfs.newFileSystem(Configuration.unix());
+
+    Path root = vfs.getPath("/opt/local/");
+    Path cellRoot = root.resolve("repo");
+    Files.createDirectories(cellRoot);
+    Path someFile = cellRoot.resolve("somefile");
+    Files.createFile(someFile);
+
+    ProjectFilesystem filesystem =
+        TestProjectFilesystems.createProjectFilesystem(cellRoot.toAbsolutePath());
+
+    Cell cell = new TestCellBuilder().setFilesystem(filesystem).build();
+    ProjectFilesystemView view = cell.getFilesystemViewForSourceFiles();
+    ImmutableCollection<Path> list = view.getDirectoryContents(cellRoot);
+
+    assertTrue(list.contains(cellRoot.relativize(someFile)));
+  }
+
+  @Test
+  public void fileSystemViewForSourceFilesShouldIgnoreBuckOut() throws IOException {
+    FileSystem vfs = Jimfs.newFileSystem(Configuration.unix());
+
+    Path root = vfs.getPath("/opt/local/");
+    Path cellRoot = root.resolve("repo");
+    Files.createDirectories(cellRoot);
+
+    ProjectFilesystem filesystem =
+        TestProjectFilesystems.createProjectFilesystem(cellRoot.toAbsolutePath());
+
+    Path buckOutRelative = filesystem.getBuckPaths().getBuckOut();
+    Path buckOut = cellRoot.resolve(buckOutRelative);
+
+    Files.createDirectories(buckOut);
+
+    Cell cell = new TestCellBuilder().setFilesystem(filesystem).build();
+
+    assertTrue(filesystem.isDirectory(buckOutRelative));
+
+    ProjectFilesystemView view = cell.getFilesystemViewForSourceFiles();
+    ImmutableCollection<Path> list = view.getDirectoryContents(cellRoot);
+
+    assertTrue(list.isEmpty());
   }
 }

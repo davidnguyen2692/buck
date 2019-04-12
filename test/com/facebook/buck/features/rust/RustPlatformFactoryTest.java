@@ -19,6 +19,7 @@ package com.facebook.buck.features.rust;
 import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.core.config.FakeBuckConfig;
+import com.facebook.buck.core.model.EmptyTargetConfiguration;
 import com.facebook.buck.core.rules.BuildRuleResolver;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
@@ -27,7 +28,7 @@ import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
 import com.facebook.buck.io.AlwaysFoundExecutableFinder;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.testutil.AllExistingProjectFilesystem;
+import com.facebook.buck.io.filesystem.impl.AllExistingProjectFilesystem;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.hamcrest.Matchers;
@@ -55,10 +56,16 @@ public class RustPlatformFactoryTest {
             new AlwaysFoundExecutableFinder());
     RustPlatform platform = factory.getPlatform("rust", CxxPlatformUtils.DEFAULT_PLATFORM);
     assertThat(
-        platform.getRustCompiler().resolve(resolver).getCommandPrefix(pathResolver),
+        platform
+            .getRustCompiler()
+            .resolve(resolver, EmptyTargetConfiguration.INSTANCE)
+            .getCommandPrefix(pathResolver),
         Matchers.equalTo(ImmutableList.of(filesystem.resolve("compiler").toString())));
     assertThat(
-        platform.getLinkerProvider().resolve(resolver).getCommandPrefix(pathResolver),
+        platform
+            .getLinkerProvider()
+            .resolve(resolver, EmptyTargetConfiguration.INSTANCE)
+            .getCommandPrefix(pathResolver),
         Matchers.equalTo(ImmutableList.of(filesystem.resolve("linker").toString())));
   }
 }

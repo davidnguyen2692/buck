@@ -10,6 +10,7 @@
 /.buckconfig.auto
 /.buckd
 /.buckjavaargs.local
+/.buckversion.local
 /.bucklogging.local.properties
 .fakebuckversion
 /.nobuckcheck

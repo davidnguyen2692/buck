@@ -17,17 +17,17 @@
 package com.facebook.buck.distributed;
 
 import com.facebook.buck.core.cell.Cell;
+import com.facebook.buck.core.io.ArchiveMemberPath;
 import com.facebook.buck.core.model.actiongraph.ActionGraph;
 import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.distributed.thrift.BuildJobStateFileHashEntry;
 import com.facebook.buck.distributed.thrift.BuildJobStateFileHashes;
-import com.facebook.buck.io.ArchiveMemberPath;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.log.Logger;
 import com.facebook.buck.rules.keys.DefaultRuleKeyFactory;
 import com.facebook.buck.rules.keys.RuleKeyFieldLoader;
 import com.facebook.buck.rules.keys.config.RuleKeyConfiguration;
@@ -110,7 +110,8 @@ public class DistBuildFileHashes {
     this.ruleKeys = ruleKeyComputation(actionGraph, this.ruleKeyFactories, executorService);
     this.fileHashes =
         fileHashesComputation(
-            Futures.transform(this.ruleKeys, Functions.constant(null)),
+            Futures.transform(
+                this.ruleKeys, Functions.constant(null), MoreExecutors.directExecutor()),
             ImmutableList.copyOf(this.remoteFileHashes.values()),
             executorService);
   }
@@ -192,9 +193,7 @@ public class DistBuildFileHashes {
   public List<BuildJobStateFileHashes> getFileHashes() throws IOException, InterruptedException {
     try {
       ImmutableList<BuildJobStateFileHashes> hashes =
-          fileHashes
-              .get()
-              .stream()
+          fileHashes.get().stream()
               .map(recordedHash -> recordedHash.getRemoteFileHashes())
               .filter(x -> x.getEntriesSize() > 0)
               .collect(ImmutableList.toImmutableList());

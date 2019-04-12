@@ -22,7 +22,10 @@ import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventBusForTests;
 import com.facebook.buck.json.ProjectBuildFileParseEvents;
 import com.facebook.buck.parser.api.BuildFileManifest;
+import com.facebook.buck.parser.api.ImmutableBuildFileManifest;
 import com.facebook.buck.parser.api.ProjectBuildFileParser;
+import com.facebook.buck.parser.exceptions.BuildFileParseException;
+import com.facebook.buck.skylark.io.GlobSpecWithResult;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedSet;
@@ -30,7 +33,6 @@ import com.google.common.eventbus.Subscribe;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Optional;
-import java.util.concurrent.atomic.AtomicLong;
 import org.hamcrest.Matchers;
 import org.junit.Before;
 import org.junit.Test;
@@ -42,7 +44,6 @@ public class EventReportingProjectBuildFileParserTest {
 
   private EventReportingProjectBuildFileParser parser;
   private ProjectBuildFileParseEventListener listener;
-  private AtomicLong processedBytes;
   private BuildFileManifest allRulesAndMetadata;
 
   private static class ProjectBuildFileParseEventListener {
@@ -80,13 +81,25 @@ public class EventReportingProjectBuildFileParserTest {
     private boolean isClosed;
 
     @Override
-    public BuildFileManifest getBuildFileManifest(Path buildFile, AtomicLong processedBytes) {
+    public BuildFileManifest getBuildFileManifest(Path buildFile) {
       return allRulesAndMetadata;
     }
 
     @Override
     public void reportProfile() {
       isProfileReported = true;
+    }
+
+    @Override
+    public ImmutableSortedSet<String> getIncludedFiles(Path buildFile)
+        throws BuildFileParseException {
+      return ImmutableSortedSet.of();
+    }
+
+    @Override
+    public boolean globResultsMatchCurrentState(
+        Path buildFile, ImmutableList<GlobSpecWithResult> existingGlobsWithResults) {
+      return false;
     }
 
     @Override
@@ -100,20 +113,19 @@ public class EventReportingProjectBuildFileParserTest {
   }
 
   @Before
-  public void setUp() throws Exception {
+  public void setUp() {
     BuckEventBus eventBus = BuckEventBusForTests.newInstance();
     delegate = new TestProjectBuildFileParser();
     listener = new ProjectBuildFileParseEventListener();
     eventBus.register(listener);
     parser = EventReportingProjectBuildFileParser.of(delegate, eventBus);
-    processedBytes = new AtomicLong();
   }
 
   @Test
   public void startEventIsRecordedOnlyOnce() throws Exception {
     assertFalse(listener.isStarted());
-    parser.getBuildFileManifest(SOME_PATH, processedBytes);
-    parser.getBuildFileManifest(SOME_PATH, processedBytes);
+    parser.getBuildFileManifest(SOME_PATH);
+    parser.getBuildFileManifest(SOME_PATH);
     assertTrue(listener.isStarted());
     assertThat(listener.getStartedCount(), Matchers.is(1));
   }
@@ -121,20 +133,20 @@ public class EventReportingProjectBuildFileParserTest {
   @Test
   public void getBuildFileManifestFiresStartEvent() throws Exception {
     assertFalse(listener.isStarted());
-    parser.getBuildFileManifest(SOME_PATH, processedBytes);
+    parser.getBuildFileManifest(SOME_PATH);
     assertTrue(listener.isStarted());
   }
 
   @Test
   public void getBuildFileManifestReturnsUnderlyingRules() throws Exception {
     allRulesAndMetadata =
-        BuildFileManifest.of(
-            ImmutableList.of(),
+        ImmutableBuildFileManifest.of(
+            ImmutableMap.of(),
             ImmutableSortedSet.of(),
             ImmutableMap.of(),
             Optional.empty(),
-            ImmutableMap.of());
-    assertSame(allRulesAndMetadata, parser.getBuildFileManifest(SOME_PATH, processedBytes));
+            ImmutableList.of());
+    assertSame(allRulesAndMetadata, parser.getBuildFileManifest(SOME_PATH));
   }
 
   @Test
@@ -146,7 +158,7 @@ public class EventReportingProjectBuildFileParserTest {
 
   @Test
   public void closeReportsFinishedEvent() throws Exception {
-    parser.getBuildFileManifest(SOME_PATH, processedBytes);
+    parser.getBuildFileManifest(SOME_PATH);
     assertFalse(listener.isFinished());
     parser.close();
     assertTrue(listener.isFinished());

@@ -16,6 +16,7 @@
 
 package com.facebook.buck.android;
 
+import com.facebook.buck.android.device.TargetDevice;
 import com.facebook.buck.android.toolchain.AndroidPlatformTarget;
 import com.facebook.buck.core.build.context.BuildContext;
 import com.facebook.buck.core.model.BuildTarget;
@@ -25,20 +26,17 @@ import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.toolchain.tool.Tool;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.core.JavaLibrary;
 import com.facebook.buck.jvm.java.ForkMode;
-import com.facebook.buck.jvm.java.JavaOptions;
 import com.facebook.buck.jvm.java.JavaTest;
 import com.facebook.buck.jvm.java.TestType;
-import com.facebook.buck.log.Logger;
 import com.facebook.buck.rules.args.Arg;
-import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
-import com.facebook.buck.step.TargetDevice;
 import com.facebook.buck.step.fs.WriteFileStep;
 import com.facebook.buck.util.Optionals;
-import com.facebook.buck.util.types.Either;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -66,7 +64,7 @@ public class RobolectricTest extends JavaTest {
   private final AndroidPlatformTarget androidPlatformTarget;
   private final Optional<DummyRDotJava> optionalDummyRDotJava;
   private final Optional<SourcePath> robolectricManifest;
-  private final Optional<String> robolectricRuntimeDependency;
+  private final Optional<SourcePath> robolectricRuntimeDependency;
 
   /**
    * Used by robolectric test runner to get list of resource directories that can be used for tests.
@@ -94,8 +92,7 @@ public class RobolectricTest extends JavaTest {
       Set<String> labels,
       Set<String> contacts,
       TestType testType,
-      JavaOptions javaOptions,
-      List<String> vmArgs,
+      List<Arg> vmArgs,
       Map<String, String> nativeLibsEnvironment,
       Optional<DummyRDotJava> optionalDummyRDotJava,
       Optional<Long> testRuleTimeoutMs,
@@ -106,24 +103,27 @@ public class RobolectricTest extends JavaTest {
       Optional<Level> stdOutLogLevel,
       Optional<Level> stdErrLogLevel,
       Optional<SourcePath> unbundledResourcesRoot,
-      Optional<String> robolectricRuntimeDependency,
+      Optional<SourcePath> robolectricRuntimeDependency,
       Optional<SourcePath> robolectricManifest,
-      boolean passDirectoriesInFile) {
+      boolean passDirectoriesInFile,
+      Tool javaRuntimeLauncher) {
     super(
         buildTarget,
         projectFilesystem,
         buildRuleParams,
         compiledTestsLibrary,
-        optionalDummyRDotJava
-            .map(
-                r ->
-                    ImmutableSet.<Either<SourcePath, Path>>of(
-                        Either.ofLeft(r.getSourcePathToOutput())))
-            .orElse(ImmutableSet.of()),
+        Optional.of(
+            resolver ->
+                optionalDummyRDotJava
+                    .map(
+                        dummyRDotJava ->
+                            ImmutableList.of(
+                                resolver.getAbsolutePath(dummyRDotJava.getSourcePathToOutput())))
+                    .orElseGet(ImmutableList::of)),
         labels,
         contacts,
         testType,
-        javaOptions.getJavaRuntimeLauncher(),
+        javaRuntimeLauncher,
         vmArgs,
         nativeLibsEnvironment,
         testRuleTimeoutMs,
@@ -159,7 +159,7 @@ public class RobolectricTest extends JavaTest {
   }
 
   @Override
-  protected ImmutableSet<Path> getBootClasspathEntries(ExecutionContext context) {
+  protected ImmutableSet<Path> getBootClasspathEntries() {
     return ImmutableSet.copyOf(androidPlatformTarget.getBootclasspathEntries());
   }
 
@@ -204,7 +204,10 @@ public class RobolectricTest extends JavaTest {
             vmArgsBuilder.add(
                 String.format("-D%s=%s", ROBOLECTRIC_MANIFEST, pathResolver.getAbsolutePath(s))));
     robolectricRuntimeDependency.ifPresent(
-        s -> vmArgsBuilder.add(String.format("-D%s=%s", ROBOLECTRIC_DEPENDENCY_DIR, s)));
+        s ->
+            vmArgsBuilder.add(
+                String.format(
+                    "-D%s=%s", ROBOLECTRIC_DEPENDENCY_DIR, pathResolver.getAbsolutePath(s))));
   }
 
   @VisibleForTesting
@@ -212,7 +215,7 @@ public class RobolectricTest extends JavaTest {
       SourcePathResolver pathResolver, List<HasAndroidResourceDeps> resourceDeps) {
     String argValue;
     if (passDirectoriesInFile) {
-      argValue = "@" + resourceDirectoriesPath;
+      argValue = "@" + getProjectFilesystem().resolve(resourceDirectoriesPath);
     } else {
       argValue =
           Joiner.on(File.pathSeparator)
@@ -228,7 +231,7 @@ public class RobolectricTest extends JavaTest {
       SourcePathResolver pathResolver, List<HasAndroidResourceDeps> resourceDeps) {
     String argValue;
     if (passDirectoriesInFile) {
-      argValue = "@" + assetDirectoriesPath;
+      argValue = "@" + getProjectFilesystem().resolve(assetDirectoriesPath);
     } else {
       argValue =
           Joiner.on(File.pathSeparator)

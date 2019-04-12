@@ -17,7 +17,7 @@
 package com.facebook.buck.android;
 
 import com.facebook.buck.android.redex.RedexOptions;
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.sourcepath.SourcePath;
@@ -44,7 +44,8 @@ public class RedexArgsHelper {
       return Optional.empty();
     }
 
-    Tool redexBinary = androidBuckConfig.getRedexTool(graphBuilder);
+    Tool redexBinary =
+        androidBuckConfig.getRedexTool(graphBuilder, buildTarget.getTargetConfiguration());
 
     StringWithMacrosConverter macrosConverter =
         StringWithMacrosConverter.builder()
@@ -53,8 +54,7 @@ public class RedexArgsHelper {
             .setExpanders(MacroExpandersForAndroidRules.MACRO_EXPANDERS)
             .build();
     List<Arg> redexExtraArgsList =
-        redexExtraArgs
-            .stream()
+        redexExtraArgs.stream()
             .map(x -> macrosConverter.convert(x, graphBuilder))
             .collect(Collectors.toList());
 

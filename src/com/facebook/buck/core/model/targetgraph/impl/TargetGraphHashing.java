@@ -20,11 +20,13 @@ import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.PerfEventId;
 import com.facebook.buck.event.SimplePerfEvent;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.log.Logger;
+import com.facebook.buck.json.JsonObjectHashing;
+import com.facebook.buck.rules.keys.config.RuleKeyConfiguration;
 import com.facebook.buck.util.RichStream;
 import com.facebook.buck.util.hashing.FileHashLoader;
 import com.facebook.buck.util.hashing.StringHashing;
@@ -33,18 +35,20 @@ import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.hash.HashCode;
+import com.google.common.hash.HashFunction;
 import com.google.common.hash.Hasher;
-import com.google.common.hash.Hashing;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.ListeningExecutorService;
 import com.google.common.util.concurrent.MoreExecutors;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
@@ -63,18 +67,27 @@ public class TargetGraphHashing {
   private final FileHashLoader fileHashLoader;
   private final Iterable<TargetNode<?>> roots;
   private final ListeningExecutorService executor;
+  private final RuleKeyConfiguration ruleKeyConfiguration;
+  private final Function<TargetNode<?>, ListenableFuture<?>> targetNodeRawAttributesProvider;
+  private final HashFunction hashFunction;
 
   public TargetGraphHashing(
       BuckEventBus eventBus,
       TargetGraph targetGraph,
       FileHashLoader fileHashLoader,
       Iterable<TargetNode<?>> roots,
-      ListeningExecutorService executor) {
+      ListeningExecutorService executor,
+      RuleKeyConfiguration ruleKeyConfiguration,
+      Function<TargetNode<?>, ListenableFuture<?>> targetNodeRawAttributesProvider,
+      HashFunction hashFunction) {
     this.eventBus = eventBus;
     this.targetGraph = targetGraph;
     this.fileHashLoader = fileHashLoader;
+    this.hashFunction = hashFunction;
     this.roots = roots;
     this.executor = executor;
+    this.ruleKeyConfiguration = ruleKeyConfiguration;
+    this.targetNodeRawAttributesProvider = targetNodeRawAttributesProvider;
   }
 
   /**
@@ -82,7 +95,7 @@ public class TargetGraphHashing {
    * (BuildTarget, HashCode)} pairs for all root build targets and their dependencies.
    */
   public ImmutableMap<BuildTarget, HashCode> hashTargetGraph() throws InterruptedException {
-    try (SimplePerfEvent.Scope scope =
+    try (SimplePerfEvent.Scope ignored =
         SimplePerfEvent.scope(eventBus, PerfEventId.of("ShowTargetHashes"))) {
       return new Runner().run();
     } catch (ExecutionException e) {
@@ -101,15 +114,14 @@ public class TargetGraphHashing {
      *
      * @return the partial {@link Hasher}.
      */
-    private Hasher startNode(TargetNode<?> node) {
-      Hasher hasher = Hashing.sha1().newHasher();
+    private Hasher startNode(TargetNode<?> node, Object nodeAttributes) {
+      Hasher hasher = hashFunction.newHasher();
 
       // Hash the node's build target and rules.
       LOG.verbose("Hashing node %s", node);
       StringHashing.hashStringAndLength(hasher, node.getBuildTarget().toString());
-      HashCode targetRuleHashCode = node.getRawInputsHashCode();
-      LOG.verbose("Got rules hash %s", targetRuleHashCode);
-      hasher.putBytes(targetRuleHashCode.asBytes());
+      JsonObjectHashing.hashJsonObject(hasher, nodeAttributes);
+      hasher.putString(ruleKeyConfiguration.getCoreKey(), StandardCharsets.UTF_8);
 
       // Hash the contents of all input files and directories.
       ProjectFilesystem cellFilesystem = node.getFilesystem();
@@ -148,8 +160,7 @@ public class TargetGraphHashing {
     private ListenableFuture<List<Pair<BuildTarget, HashCode>>> getDepPairsFuture(
         TargetNode<?> node) {
       return Futures.allAsList(
-          node.getParseDeps()
-              .stream()
+          node.getParseDeps().stream()
               .map(
                   dep ->
                       Futures.transform(
@@ -172,13 +183,16 @@ public class TargetGraphHashing {
         future =
             Futures.transformAsync(
                 // Start hashing a node.
-                executor.submit(() -> this.startNode(node)),
+                Futures.transform(
+                    targetNodeRawAttributesProvider.apply(node),
+                    attributes -> startNode(node, attributes),
+                    executor),
                 // Wait for all dependencies to finish hashing.
                 hasher ->
                     Futures.transform(
                         getDepPairsFuture(node),
                         depPairs -> finishNode(node.getBuildTarget(), hasher, depPairs),
-                        MoreExecutors.directExecutor()),
+                        executor),
                 executor);
         futures.put(node.getBuildTarget(), future);
       }

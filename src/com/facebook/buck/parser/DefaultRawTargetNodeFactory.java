@@ -18,28 +18,21 @@ package com.facebook.buck.parser;
 
 import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.description.BaseDescription;
-import com.facebook.buck.core.exceptions.HumanReadableException;
-import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.RuleType;
-import com.facebook.buck.core.model.targetgraph.RawAttributes;
-import com.facebook.buck.core.model.targetgraph.RawTargetNode;
+import com.facebook.buck.core.model.UnconfiguredBuildTargetView;
 import com.facebook.buck.core.model.targetgraph.impl.ImmutableRawTargetNode;
+import com.facebook.buck.core.model.targetgraph.raw.RawTargetNode;
 import com.facebook.buck.core.rules.knowntypes.KnownRuleTypes;
 import com.facebook.buck.core.rules.knowntypes.KnownRuleTypesProvider;
-import com.facebook.buck.event.PerfEventId;
-import com.facebook.buck.event.SimplePerfEvent;
 import com.facebook.buck.parser.api.ProjectBuildFileParser;
 import com.facebook.buck.parser.function.BuckPyFunction;
-import com.facebook.buck.rules.coercer.CoerceFailedException;
-import com.facebook.buck.rules.coercer.ConstructorArgMarshaller;
 import com.facebook.buck.rules.visibility.VisibilityPattern;
-import com.facebook.buck.rules.visibility.VisibilityPatternFactory;
-import com.google.common.base.Preconditions;
+import com.facebook.buck.rules.visibility.parser.VisibilityPatterns;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import java.nio.file.Path;
 import java.util.Map;
-import java.util.function.Function;
+import java.util.Objects;
 
 /**
  * Creates {@link RawTargetNode} instances from raw data coming in form the {@link
@@ -48,18 +41,11 @@ import java.util.function.Function;
 class DefaultRawTargetNodeFactory implements RawTargetNodeFactory<Map<String, Object>> {
 
   private final KnownRuleTypesProvider knownRuleTypesProvider;
-  private final ConstructorArgMarshaller marshaller;
-  private final VisibilityPatternFactory visibilityPatternFactory;
   private final BuiltTargetVerifier builtTargetVerifier;
 
   public DefaultRawTargetNodeFactory(
-      KnownRuleTypesProvider knownRuleTypesProvider,
-      ConstructorArgMarshaller marshaller,
-      VisibilityPatternFactory visibilityPatternFactory,
-      BuiltTargetVerifier builtTargetVerifier) {
+      KnownRuleTypesProvider knownRuleTypesProvider, BuiltTargetVerifier builtTargetVerifier) {
     this.knownRuleTypesProvider = knownRuleTypesProvider;
-    this.marshaller = marshaller;
-    this.visibilityPatternFactory = visibilityPatternFactory;
     this.builtTargetVerifier = builtTargetVerifier;
   }
 
@@ -67,9 +53,8 @@ class DefaultRawTargetNodeFactory implements RawTargetNodeFactory<Map<String, Ob
   public RawTargetNode create(
       Cell cell,
       Path buildFile,
-      BuildTarget target,
-      Map<String, Object> rawAttributes,
-      Function<PerfEventId, SimplePerfEvent.Scope> perfEventScope) {
+      UnconfiguredBuildTargetView target,
+      Map<String, Object> rawAttributes) {
     KnownRuleTypes knownRuleTypes = knownRuleTypesProvider.get(cell);
     RuleType ruleType = parseRuleTypeFromRawRule(knownRuleTypes, rawAttributes);
 
@@ -79,33 +64,23 @@ class DefaultRawTargetNodeFactory implements RawTargetNodeFactory<Map<String, Ob
     builtTargetVerifier.verifyBuildTarget(
         cell, ruleType, buildFile, target, description, rawAttributes);
 
-    ImmutableMap<String, Object> populatedAttributes;
-    ImmutableSet<VisibilityPattern> visibilityPatterns;
-    ImmutableSet<VisibilityPattern> withinViewPatterns;
-    Cell targetCell = cell.getCell(target);
-    try (SimplePerfEvent.Scope scope =
-        perfEventScope.apply(PerfEventId.of("MarshalledConstructorArg.convertRawAttributes"))) {
-      populatedAttributes =
-          marshaller.convertRawAttributes(
-              targetCell.getCellPathResolver(),
-              targetCell.getFilesystem(),
-              target,
-              description.getConstructorArgType(),
-              rawAttributes);
-      visibilityPatterns =
-          visibilityPatternFactory.createFromStringList(
-              cell.getCellPathResolver(), "visibility", rawAttributes.get("visibility"), target);
-      withinViewPatterns =
-          visibilityPatternFactory.createFromStringList(
-              cell.getCellPathResolver(), "within_view", rawAttributes.get("within_view"), target);
-    } catch (CoerceFailedException e) {
-      throw new HumanReadableException(e, "%s: %s", target, e.getMessage());
-    }
+    ImmutableSet<VisibilityPattern> visibilityPatterns =
+        VisibilityPatterns.createFromStringList(
+            cell.getCellPathResolver(),
+            "visibility",
+            rawAttributes.get("visibility"),
+            target.getData());
+    ImmutableSet<VisibilityPattern> withinViewPatterns =
+        VisibilityPatterns.createFromStringList(
+            cell.getCellPathResolver(),
+            "within_view",
+            rawAttributes.get("within_view"),
+            target.getData());
 
     return ImmutableRawTargetNode.of(
-        target,
+        target.getData(),
         ruleType,
-        new RawAttributes(populatedAttributes),
+        ImmutableMap.copyOf(rawAttributes),
         visibilityPatterns,
         withinViewPatterns);
   }
@@ -113,7 +88,7 @@ class DefaultRawTargetNodeFactory implements RawTargetNodeFactory<Map<String, Ob
   private static RuleType parseRuleTypeFromRawRule(
       KnownRuleTypes knownRuleTypes, Map<String, Object> attributes) {
     String type =
-        (String) Preconditions.checkNotNull(attributes.get(BuckPyFunction.TYPE_PROPERTY_NAME));
+        (String) Objects.requireNonNull(attributes.get(BuckPyFunction.TYPE_PROPERTY_NAME));
     return knownRuleTypes.getRuleType(type);
   }
 }

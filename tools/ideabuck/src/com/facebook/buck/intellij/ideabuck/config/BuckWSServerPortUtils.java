@@ -19,18 +19,18 @@ package com.facebook.buck.intellij.ideabuck.config;
 import com.google.common.base.Strings;
 import com.intellij.execution.ExecutionException;
 import com.intellij.execution.configurations.GeneralCommandLine;
+import com.intellij.openapi.project.Project;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 
 public final class BuckWSServerPortUtils {
-  private static final int CONNECTION_FAILED_PORT = -1;
-
   private static final String SEARCH_FOR = "http.port=";
 
-  public static int getPort(String runInPath)
+  /** Returns the port number of Buck's HTTP server, if it can be determined. */
+  public static int getPort(Project project, String path)
       throws NumberFormatException, IOException, ExecutionException {
-    String exec = BuckSettingsProvider.getInstance().resolveBuckExecutable();
+    String exec = BuckExecutableSettingsProvider.getInstance(project).resolveBuckExecutable();
 
     if (Strings.isNullOrEmpty(exec)) {
       throw new RuntimeException("Buck executable is not defined in settings.");
@@ -38,7 +38,7 @@ public final class BuckWSServerPortUtils {
 
     GeneralCommandLine commandLine = new GeneralCommandLine();
     commandLine.setExePath(exec);
-    commandLine.withWorkDirectory(runInPath);
+    commandLine.withWorkDirectory(path);
     commandLine.addParameter("server");
     commandLine.addParameter("status");
     commandLine.addParameter("--http-port");
@@ -47,15 +47,17 @@ public final class BuckWSServerPortUtils {
     Process p = commandLine.createProcess();
     BufferedReader reader = new BufferedReader(new InputStreamReader(p.getInputStream()));
 
-    int port = -2;
     String line;
-    while ((line = reader.readLine()) != null && port != CONNECTION_FAILED_PORT) {
+    while ((line = reader.readLine()) != null) {
       if (line.startsWith(SEARCH_FOR)) {
-        port = Integer.parseInt(line.substring(SEARCH_FOR.length()));
+        return Integer.parseInt(line.substring(SEARCH_FOR.length()));
       }
     }
-    return port;
+    throw new RuntimeException(
+        "Configured buck executable did not report a valid port string,"
+            + " ensure "
+            + commandLine.getCommandLineString()
+            + " can be run from "
+            + path);
   }
-
-  private BuckWSServerPortUtils() {}
 }

@@ -24,9 +24,9 @@ import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.io.watchman.WatchmanOverflowEvent;
 import com.facebook.buck.io.watchman.WatchmanPathEvent;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.util.cache.FileHashCacheMode;
 import com.facebook.buck.util.cache.HashCodeAndFileType;
@@ -56,8 +56,7 @@ public class WatchedFileHashCacheTest {
 
   @Parameterized.Parameters(name = "{0}")
   public static Collection<Object[]> data() {
-    return EnumSet.allOf(FileHashCacheMode.class)
-        .stream()
+    return EnumSet.allOf(FileHashCacheMode.class).stream()
         .map(v -> new Object[] {v})
         .collect(ImmutableList.toImmutableList());
   }

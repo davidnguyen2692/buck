@@ -23,10 +23,15 @@ import com.facebook.buck.core.build.event.BuildRuleEvent;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.rulekey.BuildRuleKeys;
 import com.facebook.buck.core.rulekey.RuleKey;
+import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.event.BuckEventListener;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.log.InvocationInfo;
-import com.facebook.buck.log.Logger;
+import com.facebook.buck.support.bgtasks.BackgroundTask;
+import com.facebook.buck.support.bgtasks.ImmutableBackgroundTask;
+import com.facebook.buck.support.bgtasks.TaskAction;
+import com.facebook.buck.support.bgtasks.TaskManagerScope;
 import com.facebook.buck.util.BuckConstant;
 import com.facebook.buck.util.ThrowingPrintWriter;
 import com.google.common.eventbus.Subscribe;
@@ -40,6 +45,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import javax.annotation.concurrent.GuardedBy;
+import org.immutables.value.Value;
 
 public class RuleKeyLoggerListener implements BuckEventListener {
   private static final Logger LOG = Logger.get(RuleKeyLoggerListener.class);
@@ -50,21 +56,25 @@ public class RuleKeyLoggerListener implements BuckEventListener {
   private final ExecutorService outputExecutor;
   private final int minLinesForAutoFlush;
   private final ProjectFilesystem projectFilesystem;
-
+  private final TaskManagerScope managerScope;
   private final Object lock;
 
   @GuardedBy("lock")
   private List<String> logLines;
 
   public RuleKeyLoggerListener(
-      ProjectFilesystem projectFilesystem, InvocationInfo info, ExecutorService outputExecutor) {
-    this(projectFilesystem, info, outputExecutor, DEFAULT_MIN_LINES_FOR_AUTO_FLUSH);
+      ProjectFilesystem projectFilesystem,
+      InvocationInfo info,
+      ExecutorService outputExecutor,
+      TaskManagerScope managerScope) {
+    this(projectFilesystem, info, outputExecutor, managerScope, DEFAULT_MIN_LINES_FOR_AUTO_FLUSH);
   }
 
   public RuleKeyLoggerListener(
       ProjectFilesystem projectFilesystem,
       InvocationInfo info,
       ExecutorService outputExecutor,
+      TaskManagerScope managerScope,
       int minLinesForAutoFlush) {
     this.projectFilesystem = projectFilesystem;
     this.minLinesForAutoFlush = minLinesForAutoFlush;
@@ -72,6 +82,7 @@ public class RuleKeyLoggerListener implements BuckEventListener {
     this.lock = new Object();
     this.outputExecutor = outputExecutor;
     this.logLines = new ArrayList<>();
+    this.managerScope = managerScope;
   }
 
   @Subscribe
@@ -87,9 +98,7 @@ public class RuleKeyLoggerListener implements BuckEventListener {
     }
 
     List<String> newLogLines =
-        event
-            .getRuleKeys()
-            .stream()
+        event.getRuleKeys().stream()
             .map(key -> String.format("http\t%s\t%s", key.toString(), cacheResultType.toString()))
             .collect(Collectors.toList());
     synchronized (lock) {
@@ -121,17 +130,6 @@ public class RuleKeyLoggerListener implements BuckEventListener {
 
   private static String toTsv(BuildTarget target, RuleKey ruleKey) {
     return String.format("target\t%s\t%s", target.toString(), ruleKey.toString());
-  }
-
-  @Override
-  public void close() {
-    submitFlushLogLines();
-    outputExecutor.shutdown();
-    try {
-      outputExecutor.awaitTermination(1, TimeUnit.HOURS);
-    } catch (InterruptedException e) {
-      Thread.currentThread().interrupt();
-    }
   }
 
   public Path getLogFilePath() {
@@ -170,5 +168,42 @@ public class RuleKeyLoggerListener implements BuckEventListener {
     } catch (IOException e) {
       LOG.error(e, "Failed to flush [%d] logLines to file [%s].", linesToFlush.size(), path);
     }
+  }
+
+  @Override
+  public void close() {
+    submitFlushLogLines();
+    BackgroundTask<RuleKeyLoggerListenerCloseArgs> task =
+        ImmutableBackgroundTask.<RuleKeyLoggerListenerCloseArgs>builder()
+            .setAction(new RuleKeyLoggerListenerCloseAction())
+            .setActionArgs(RuleKeyLoggerListenerCloseArgs.of(outputExecutor))
+            .setName("RuleKeyLoggerListener_close")
+            .build();
+    managerScope.schedule(task);
+  }
+
+  /**
+   * {@link TaskAction} implementation for {@link RuleKeyLoggerListener}. Waits for listener's
+   * output executor to finish and close.
+   */
+  static class RuleKeyLoggerListenerCloseAction
+      implements TaskAction<RuleKeyLoggerListenerCloseArgs> {
+    @Override
+    public void run(RuleKeyLoggerListenerCloseArgs args) {
+      args.getOutputExecutor().shutdown();
+      try {
+        args.getOutputExecutor().awaitTermination(1, TimeUnit.HOURS);
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+      }
+    }
+  }
+
+  /** Arguments to {@link RuleKeyLoggerListenerCloseAction}. */
+  @Value.Immutable
+  @BuckStyleImmutable
+  abstract static class AbstractRuleKeyLoggerListenerCloseArgs {
+    @Value.Parameter
+    public abstract ExecutorService getOutputExecutor();
   }
 }

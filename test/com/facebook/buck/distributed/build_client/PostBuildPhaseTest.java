@@ -66,7 +66,7 @@ public class PostBuildPhaseTest {
   private ConsoleEventsDispatcher consoleEventsDispatcher;
 
   @Before
-  public void setUp() throws IOException, InterruptedException {
+  public void setUp() {
     mockDistBuildService = EasyMock.createMock(DistBuildService.class);
     mockLogStateTracker = EasyMock.createMock(LogStateTracker.class);
     scheduler = Executors.newSingleThreadScheduledExecutor();
@@ -113,8 +113,7 @@ public class PostBuildPhaseTest {
   public void testPublishingBuildSlaveFinishedStats() throws IOException {
     BuildJob job = PostBuildPhaseTest.createBuildJobWithSlaves(stampedeId);
     List<BuildSlaveRunId> buildSlaveRunIds =
-        job.getBuildSlaves()
-            .stream()
+        job.getBuildSlaves().stream()
             .map(BuildSlaveInfo::getBuildSlaveRunId)
             .collect(Collectors.toList());
 
@@ -162,10 +161,7 @@ public class PostBuildPhaseTest {
     assertEquals(stampedeId, capturedStats.getStampedeId());
     assertEquals(2, capturedStats.getBuildSlaveStats().size());
     List<Optional<BuildSlaveFinishedStats>> actualFinishedStats =
-        capturedStats
-            .getBuildSlaveStats()
-            .entrySet()
-            .stream()
+        capturedStats.getBuildSlaveStats().entrySet().stream()
             .sorted(Comparator.comparing(Entry::getKey))
             .map(x -> x.getValue())
             .collect(Collectors.toList());

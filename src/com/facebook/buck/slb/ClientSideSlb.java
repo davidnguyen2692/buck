@@ -16,9 +16,10 @@
 
 package com.facebook.buck.slb;
 
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.event.BuckEventBus;
-import com.facebook.buck.log.CommandThreadFactory;
-import com.facebook.buck.log.Logger;
+import com.facebook.buck.log.GlobalStateManager;
+import com.facebook.buck.util.concurrent.CommandThreadFactory;
 import com.facebook.buck.util.timing.Clock;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
@@ -30,6 +31,7 @@ import java.io.IOException;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -68,13 +70,18 @@ public class ClientSideSlb implements HttpLoadBalancer {
     this(
         config,
         Executors.newSingleThreadScheduledExecutor(
-            new CommandThreadFactory("ClientSideSlb", Thread.MAX_PRIORITY)),
+            new CommandThreadFactory(
+                "ClientSideSlb",
+                GlobalStateManager.singleton().getThreadToCommandRegister(),
+                Thread.MAX_PRIORITY)),
         clientBuilder
             .dispatcher(
                 new Dispatcher(
                     Executors.newCachedThreadPool(
                         new CommandThreadFactory(
-                            "ClientSideSlb/OkHttpClient", Thread.MAX_PRIORITY))))
+                            "ClientSideSlb/OkHttpClient",
+                            GlobalStateManager.singleton().getThreadToCommandRegister(),
+                            Thread.MAX_PRIORITY))))
             .connectTimeout(config.getConnectionTimeoutMillis(), TimeUnit.MILLISECONDS)
             .readTimeout(config.getConnectionTimeoutMillis(), TimeUnit.MILLISECONDS)
             .writeTimeout(config.getConnectionTimeoutMillis(), TimeUnit.MILLISECONDS)
@@ -85,9 +92,9 @@ public class ClientSideSlb implements HttpLoadBalancer {
   ClientSideSlb(
       ClientSideSlbConfig config, ScheduledExecutorService executor, OkHttpClient pingClient) {
     this.clock = config.getClock();
-    this.pingEndpoint = Preconditions.checkNotNull(config.getPingEndpoint());
-    this.serverPool = Preconditions.checkNotNull(config.getServerPool());
-    this.eventBus = Preconditions.checkNotNull(config.getEventBus());
+    this.pingEndpoint = Objects.requireNonNull(config.getPingEndpoint());
+    this.serverPool = Objects.requireNonNull(config.getServerPool());
+    this.eventBus = Objects.requireNonNull(config.getEventBus());
     Preconditions.checkArgument(serverPool.size() > 0, "No server URLs passed.");
 
     this.healthManager =
@@ -154,11 +161,11 @@ public class ClientSideSlb implements HttpLoadBalancer {
       eventBus.post(new LoadBalancerPingEvent(eventData.build()));
       LOG.verbose("all pings complete %s", toString());
     } catch (InterruptedException ex) {
-      LOG.warn(ex, "ClientSideSlb was interrupted");
+      LOG.info(ex, "ClientSideSlb was interrupted");
       Thread.currentThread().interrupt();
       throw new RuntimeException(ex);
     } catch (ExecutionException ex) {
-      LOG.verbose(ex, "some pings failed");
+      LOG.warn(ex, "Some pings failed");
     }
   }
 

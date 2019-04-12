@@ -210,25 +210,21 @@ public class DescriptorAndSignatureFactoryTestBase {
   }
 
   private FieldNode getFieldNode(ClassNode classNode, Name name) {
-    return classNode
-        .fields
-        .stream()
+    return classNode.fields.stream()
         .filter(field -> name.contentEquals(field.name))
         .findFirst()
         .orElse(null);
   }
 
   private MethodNode getMethodNode(ClassNode classNode, Name name) {
-    return classNode
-        .methods
-        .stream()
+    return classNode.methods.stream()
         .filter(field -> name.contentEquals(field.name))
         .findFirst()
         .orElse(null);
   }
 
   private ClassNode getClassNode(String classBinaryName) throws IOException {
-    ClassNode classNode = new ClassNode(Opcodes.ASM6);
+    ClassNode classNode = new ClassNode(Opcodes.ASM7);
     correctClasses.acceptClassVisitor(classBinaryName, 0, classNode);
     return classNode;
   }

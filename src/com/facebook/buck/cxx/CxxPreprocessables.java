@@ -67,14 +67,6 @@ public class CxxPreprocessables {
       }
     },
 
-    /** Headers should be included with `-iquote`. */
-    IQUOTE {
-      @Override
-      public Iterable<String> includeArgs(Preprocessor pp, Iterable<String> includeRoots) {
-        return pp.quoteIncludeArgs(includeRoots);
-      }
-    },
-
     /** Headers are not added by buck */
     RAW {
       @Override
@@ -143,7 +135,7 @@ public class CxxPreprocessables {
       CxxPlatform cxxPlatform,
       ActionGraphBuilder graphBuilder,
       Iterable<? extends BuildRule> inputs) {
-    return getTransitiveCxxPreprocessorInput(cxxPlatform, graphBuilder, inputs, x -> true);
+    return getTransitiveCxxPreprocessorInput(cxxPlatform, graphBuilder, inputs, x -> false);
   }
 
   /**

@@ -38,6 +38,7 @@ import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.rulekey.BuildRuleKeys;
 import com.facebook.buck.core.rulekey.RuleKey;
+import com.facebook.buck.core.rules.impl.FakeBuildRule;
 import com.facebook.buck.distributed.DistBuildMode;
 import com.facebook.buck.distributed.DistBuildService;
 import com.facebook.buck.distributed.DistBuildUtil;
@@ -59,7 +60,6 @@ import com.facebook.buck.distributed.thrift.StampedeId;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventBusForTests;
 import com.facebook.buck.event.ConsoleEvent;
-import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.keys.FakeRuleKeyFactory;
 import com.facebook.buck.util.network.hostname.HostnameFetching;
 import com.facebook.buck.util.timing.SettableFakeClock;
@@ -324,9 +324,7 @@ public class DistBuildSlaveEventBusListenerTest {
     verify(distBuildServiceMock);
 
     List<BuildSlaveEvent> progressEvents =
-        capturedBuildSlaveEvents
-            .getValues()
-            .stream()
+        capturedBuildSlaveEvents.getValues().stream()
             .flatMap(List::stream)
             .filter(
                 event ->
@@ -538,7 +536,9 @@ public class DistBuildSlaveEventBusListenerTest {
     for (int i = 0; i < 6; ++i) {
       scheduledEvents.add(
           HttpArtifactCacheEvent.newStoreScheduledEvent(
-              Optional.of("fake"), ImmutableSet.of(), StoreType.ARTIFACT));
+              Optional.of(BuildTargetFactory.newInstance("//target:fake")),
+              ImmutableSet.of(),
+              StoreType.ARTIFACT));
 
       startedEvents.add(HttpArtifactCacheEvent.newStoreStartedEvent(scheduledEvents.get(i)));
 
@@ -684,9 +684,7 @@ public class DistBuildSlaveEventBusListenerTest {
 
     verify(distBuildServiceMock);
     List<String> capturedEventsTargets =
-        capturedEventsLists
-            .getValues()
-            .stream()
+        capturedEventsLists.getValues().stream()
             .flatMap(List::stream)
             .filter(event -> event.eventType.equals(BuildSlaveEventType.BUILD_RULE_UNLOCKED_EVENT))
             .map(event -> event.getBuildRuleUnlockedEvent().getBuildTarget())

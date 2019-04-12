@@ -28,7 +28,8 @@ import com.facebook.buck.core.rules.TestBuildRuleParams;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.core.sourcepath.DefaultBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.PathSourcePath;
-import com.facebook.buck.features.go.GoListStep.FileType;
+import com.facebook.buck.cxx.toolchain.linker.Linker;
+import com.facebook.buck.features.go.GoListStep.ListType;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
@@ -41,7 +42,8 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Maps;
 import java.nio.file.Paths;
-import java.util.Arrays;
+import java.util.Collections;
+import java.util.Optional;
 import org.hamcrest.Matchers;
 import org.junit.Assert;
 import org.junit.Rule;
@@ -128,7 +130,8 @@ public class GoDescriptorsTest {
   public void testBuildRuleAsSrcAddsRuleToDependencies() {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
 
-    GoPlatform goPlatform = GoTestUtils.DEFAULT_PLATFORM.withGoArch("amd64").withGoOs("linux");
+    GoPlatform goPlatform =
+        GoTestUtils.DEFAULT_PLATFORM.withGoArch(GoArch.AMD64).withGoOs(GoOs.LINUX);
     ProjectFilesystem filesystem =
         TestProjectFilesystems.createProjectFilesystem(tmpPath.getRoot());
     BuildTarget target =
@@ -159,12 +162,10 @@ public class GoDescriptorsTest {
             goPlatform,
             ImmutableList.of(),
             ImmutableList.of(),
-            Arrays.asList(FileType.GoFiles));
+            Collections.singletonList(ListType.GoFiles));
 
     Assert.assertTrue(
-        compile
-            .getBuildDeps()
-            .stream()
+        compile.getBuildDeps().stream()
             .map(BuildRule::getBuildTarget)
             .collect(ImmutableList.toImmutableList())
             .contains(srcTarget));
@@ -196,6 +197,8 @@ public class GoDescriptorsTest {
             params,
             graphBuilder,
             goBuckConfig,
+            Linker.LinkableDepType.STATIC_PIC,
+            Optional.empty(),
             ImmutableSet.of(
                 PathSourcePath.of(filesystem, Paths.get("not_build_target.go")),
                 DefaultBuildTargetSourcePath.of(srcTarget)),
@@ -208,9 +211,7 @@ public class GoDescriptorsTest {
 
     System.out.println(binary.getBuildDeps());
     GoCompile compile =
-        binary
-            .getBuildDeps()
-            .stream()
+        binary.getBuildDeps().stream()
             .filter(
                 dep ->
                     dep.getBuildTarget()
@@ -221,9 +222,7 @@ public class GoDescriptorsTest {
             .get();
 
     Assert.assertTrue(
-        compile
-            .getBuildDeps()
-            .stream()
+        compile.getBuildDeps().stream()
             .map(BuildRule::getBuildTarget)
             .collect(ImmutableList.toImmutableList())
             .contains(srcTarget));

@@ -31,6 +31,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import org.hamcrest.Matchers;
+import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
@@ -53,6 +54,19 @@ public class WindowsCxxIntegrationTest {
   }
 
   @Test
+  public void testFilenameIsFilteredOut() throws IOException {
+    ProcessResult runResult = workspace.runBuckCommand("build", "//simple:simple#windows-x86_64");
+    runResult.assertSuccess();
+    final String input = "simple.cpp";
+    assertThat(
+        runResult.getStderr().split("\n"),
+        Matchers.not(Matchers.hasItemInArray(Matchers.matchesPattern(input + "\\s*"))));
+    assertThat(
+        runResult.getStdout().split("\n"),
+        Matchers.not(Matchers.hasItemInArray(Matchers.matchesPattern(input + "\\s*"))));
+  }
+
+  @Test
   public void simpleBinary64() throws IOException {
     ProcessResult runResult = workspace.runBuckCommand("run", "//app:hello#windows-x86_64");
     runResult.assertSuccess();
@@ -62,10 +76,24 @@ public class WindowsCxxIntegrationTest {
   }
 
   @Test
+  public void simpleBinary64WithDebugFull() throws IOException {
+    ProcessResult runResult = workspace.runBuckCommand("build", "//app:pdb");
+    runResult.assertSuccess();
+  }
+
+  @Test
   public void simpleBinaryWithLib() throws IOException {
     ProcessResult runResult = workspace.runBuckCommand("run", "//app_lib:app_lib#windows-x86_64");
     runResult.assertSuccess();
     assertThat(runResult.getStdout(), Matchers.containsString("BUCK ON WINDOWS"));
+  }
+
+  @Test
+  public void simpleBinaryWithWholeLib() throws IOException {
+    ProcessResult runResult =
+        workspace.runBuckCommand("run", "//app_wholelib:app_wholelib#windows-x86_64");
+    runResult.assertSuccess();
+    assertThat(runResult.getStdout(), Matchers.containsString("hello from lib"));
   }
 
   @Test
@@ -120,5 +148,80 @@ public class WindowsCxxIntegrationTest {
         Files.exists(
             workspace.resolve(
                 "buck-out/gen/implib/implib_debug#shared,windows-x86_64/implib_debug.pdb")));
+  }
+
+  @Test
+  public void errorVerifyHeaders() throws IOException {
+    ProcessResult result;
+    result =
+        workspace.runBuckBuild(
+            "-c",
+            "cxx.untracked_headers=error",
+            "-c",
+            "cxx.untracked_headers_whitelist=/usr/include/stdc-predef\\.h",
+            "//header_check:untracked_header#windows-x86_64");
+    result.assertFailure();
+    Assert.assertThat(
+        result.getStderr(),
+        Matchers.containsString(
+            String.format(
+                "header_check\\untracked_header.cpp: included an untracked header: %n"
+                    + "header_check\\untracked_header.h")));
+  }
+
+  @Test
+  public void errorVerifyNestedHeaders() throws IOException {
+    ProcessResult result;
+    result =
+        workspace.runBuckBuild(
+            "-c",
+            "cxx.untracked_headers=error",
+            "-c",
+            "cxx.untracked_headers_whitelist=/usr/include/stdc-predef\\.h",
+            "-c",
+            "cxx.detailed_untracked_header_messages=true",
+            "//header_check:nested_untracked_header#windows-x86_64");
+    result.assertFailure();
+    Assert.assertThat(
+        result.getStderr(),
+        Matchers.containsString(
+            String.format(
+                "header_check\\nested_untracked_header.cpp: included an untracked header: %n"
+                    + "header_check\\untracked_header.h, which is included by: %n"
+                    + "header_check\\untracked_header_includer.h, which is included by: %n"
+                    + "header_check\\parent_header.h")));
+  }
+
+  @Test
+  public void errorVerifyNestedHeadersWithCycle() throws IOException {
+    ProcessResult result;
+    result =
+        workspace.runBuckBuild(
+            "-c",
+            "cxx.untracked_headers=error",
+            "-c",
+            "cxx.untracked_headers_whitelist=/usr/include/stdc-predef\\.h",
+            "-c",
+            "cxx.detailed_untracked_header_messages=true",
+            "//header_check:nested_untracked_header_with_cycle#windows-x86_64");
+    result.assertFailure();
+    Assert.assertThat(
+        result.getStderr(),
+        Matchers.containsString(
+            String.format(
+                "header_check\\nested_untracked_header_with_cycle.cpp: included an untracked header: %n"
+                    + "header_check\\untracked_header.h, which is included by: %n"
+                    + "header_check\\untracked_header_includer.h, which is included by: %n"
+                    + "header_check\\parent_header.h")));
+  }
+
+  @Test
+  public void compilationDatabaseCanBeBuilt() throws IOException {
+    workspace.runBuckBuild("//app:hello#compilation-database,windows-x86_64").assertSuccess();
+    workspace.runBuckBuild("//app_asm:app_asm#compilation-database,windows-x86_64").assertSuccess();
+    workspace.runBuckBuild("//app_lib:app_lib#compilation-database,windows-x86_64").assertSuccess();
+    workspace.runBuckBuild("//lib:lib#compilation-database,windows-x86_64,static").assertSuccess();
+    workspace.runBuckBuild("//lib:lib#compilation-database,windows-x86_64,shared").assertSuccess();
+    workspace.runBuckBuild("//lib:lib#compilation-database,windows-x86_64").assertSuccess();
   }
 }

@@ -15,16 +15,16 @@
  */
 package com.facebook.buck.distributed.build_client;
 
-import com.facebook.buck.distributed.DistBuildStatus;
 import com.facebook.buck.distributed.DistBuildStatusEvent;
+import com.facebook.buck.distributed.ImmutableDistBuildStatus;
 import com.facebook.buck.distributed.thrift.BuildJob;
 import com.facebook.buck.distributed.thrift.BuildSlaveStatus;
 import com.facebook.buck.distributed.thrift.BuildStatus;
 import com.facebook.buck.distributed.thrift.CoordinatorBuildProgress;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.ConsoleEvent;
-import com.google.common.base.Preconditions;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import javax.annotation.Nullable;
 
@@ -38,7 +38,7 @@ public class ConsoleEventsDispatcher {
   }
 
   public void postDistBuildProgressEvent(CoordinatorBuildProgress buildProgress) {
-    buckEventBus.post(new DistBuildRemoteProgressEvent(Preconditions.checkNotNull(buildProgress)));
+    buckEventBus.post(new DistBuildRemoteProgressEvent(Objects.requireNonNull(buildProgress)));
   }
 
   public void postDistBuildStatusEvent(BuildJob job, List<BuildSlaveStatus> slaveStatuses) {
@@ -56,8 +56,7 @@ public class ConsoleEventsDispatcher {
       stage = Optional.of(job.getStatus().toString());
     }
 
-    DistBuildStatus status =
-        DistBuildStatus.builder().setStatus(stage).setSlaveStatuses(slaveStatuses).build();
+    ImmutableDistBuildStatus status = new ImmutableDistBuildStatus(stage, slaveStatuses);
     buckEventBus.post(new DistBuildStatusEvent(job, status));
   }
 

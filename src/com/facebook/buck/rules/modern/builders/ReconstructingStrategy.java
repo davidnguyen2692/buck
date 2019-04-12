@@ -16,9 +16,13 @@
 
 package com.facebook.buck.rules.modern.builders;
 
-import com.facebook.buck.core.build.engine.BuildExecutorRunner;
+import com.facebook.buck.core.build.engine.BuildResult;
+import com.facebook.buck.core.build.engine.BuildRuleSuccessType;
+import com.facebook.buck.core.build.engine.BuildStrategyContext;
 import com.facebook.buck.core.cell.Cell;
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.cell.CellPathResolver;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rules.AbstractBuildRuleResolver;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
@@ -29,10 +33,15 @@ import com.facebook.buck.rules.modern.ModernBuildRule;
 import com.facebook.buck.rules.modern.Serializer;
 import com.facebook.buck.rules.modern.Serializer.Delegate;
 import com.facebook.buck.step.Step;
+import com.facebook.buck.step.StepFailedException;
+import com.facebook.buck.step.StepRunner;
+import com.facebook.buck.util.Scope;
+import com.facebook.buck.util.exceptions.BuckUncheckedExecutionException;
 import com.google.common.base.Preconditions;
 import com.google.common.hash.HashCode;
-import com.google.common.util.concurrent.ListeningExecutorService;
+import com.google.common.util.concurrent.ListenableFuture;
 import java.io.ByteArrayInputStream;
+import java.io.IOException;
 import java.io.InputStream;
 import java.util.Map;
 import java.util.Optional;
@@ -69,7 +78,8 @@ class ReconstructingStrategy extends AbstractModernBuildRuleStrategy {
                     .getCellByPath(cellResolver.getCellPathOrThrow(name))
                     .getFilesystem(),
             Class::forName,
-            () -> DefaultSourcePathResolver.from(ruleFinder));
+            () -> DefaultSourcePathResolver.from(ruleFinder),
+            rootCell.getToolchainProvider());
   }
 
   DataProvider getProvider(HashCode hash) {
@@ -87,29 +97,48 @@ class ReconstructingStrategy extends AbstractModernBuildRuleStrategy {
   }
 
   @Override
-  public void build(
-      ListeningExecutorService service, BuildRule rule, BuildExecutorRunner executorRunner) {
-    Preconditions.checkState(rule instanceof ModernBuildRule);
+  public StrategyBuildResult build(BuildRule rule, BuildStrategyContext strategyContext) {
+    ListenableFuture<Optional<BuildResult>> buildResult =
+        strategyContext
+            .getExecutorService()
+            .submit(
+                () -> {
+                  try (Scope ignored = strategyContext.buildRuleScope()) {
+                    Preconditions.checkState(rule instanceof ModernBuildRule);
+                    ModernBuildRule<?> converted = (ModernBuildRule<?>) rule;
+                    Buildable original = converted.getBuildable();
+                    HashCode hash = serializer.serialize(original);
+                    Buildable reconstructed =
+                        deserializer.deserialize(getProvider(hash), Buildable.class);
+                    ModernBuildRule.injectFieldsIfNecessary(
+                        rule.getProjectFilesystem(),
+                        rule.getBuildTarget(),
+                        reconstructed,
+                        new SourcePathRuleFinder(
+                            new AbstractBuildRuleResolver() {
+                              @Override
+                              public Optional<BuildRule> getRuleOptional(BuildTarget buildTarget) {
+                                throw new RuntimeException(
+                                    "Cannot resolve rules in deserialized MBR state.");
+                              }
+                            }));
 
-    executorRunner.runWithExecutor(
-        (executionContext, buildRuleBuildContext, buildableContext, stepRunner) -> {
-          ModernBuildRule<?> converted = (ModernBuildRule<?>) rule;
+                    for (Step step :
+                        ModernBuildRule.stepsForBuildable(
+                            strategyContext.getBuildRuleBuildContext(),
+                            reconstructed,
+                            rule.getProjectFilesystem(),
+                            rule.getBuildTarget())) {
+                      StepRunner.runStep(strategyContext.getExecutionContext(), step);
+                    }
+                    converted.recordOutputs(strategyContext.getBuildableContext());
+                  } catch (IOException | StepFailedException | InterruptedException e) {
+                    throw new BuckUncheckedExecutionException(e);
+                  }
 
-          Buildable original = converted.getBuildable();
-          HashCode hash = serializer.serialize(original);
-          Buildable reconstructed = deserializer.deserialize(getProvider(hash), Buildable.class);
-
-          for (Step step :
-              ModernBuildRule.stepsForBuildable(
-                  buildRuleBuildContext,
-                  reconstructed,
-                  rule.getProjectFilesystem(),
-                  rule.getBuildTarget())) {
-            stepRunner.runStepForBuildTarget(
-                executionContext, step, Optional.of(rule.getBuildTarget()));
-          }
-
-          converted.recordOutputs(buildableContext);
-        });
+                  return Optional.of(
+                      strategyContext.createBuildResult(BuildRuleSuccessType.BUILT_LOCALLY));
+                });
+    return StrategyBuildResult.nonCancellable(buildResult);
   }
 }

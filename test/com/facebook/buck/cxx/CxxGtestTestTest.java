@@ -21,6 +21,7 @@ import static org.junit.Assert.assertEquals;
 import com.facebook.buck.core.cell.TestCellPathResolver;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
+import com.facebook.buck.core.model.EmptyTargetConfiguration;
 import com.facebook.buck.core.rules.BuildRuleResolver;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.TestBuildRuleParams;
@@ -100,14 +101,17 @@ public class CxxGtestTestTest {
                 filesystem,
                 ruleFinder,
                 TestCellPathResolver.get(filesystem),
-                CxxPlatformUtils.DEFAULT_PLATFORM.getLd().resolve(ruleResolver),
+                CxxPlatformUtils.DEFAULT_PLATFORM
+                    .getLd()
+                    .resolve(ruleResolver, EmptyTargetConfiguration.INSTANCE),
                 Paths.get("output"),
                 ImmutableMap.of(),
                 ImmutableList.of(),
                 Optional.empty(),
                 Optional.empty(),
                 /* cacheable */ true,
-                /* thinLto */ false),
+                /* thinLto */ false,
+                /* fatLto */ false),
             new CommandTool.Builder().addArg(StringArg.of("")).build(),
             ImmutableMap.of(),
             ImmutableList.of(),

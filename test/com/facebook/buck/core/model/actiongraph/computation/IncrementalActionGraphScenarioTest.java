@@ -25,14 +25,13 @@ import static org.junit.Assume.assumeTrue;
 
 import com.facebook.buck.core.build.engine.RuleDepsCache;
 import com.facebook.buck.core.build.engine.impl.DefaultRuleDepsCache;
-import com.facebook.buck.core.cell.TestCellBuilder;
 import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.config.FakeBuckConfig;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.model.FlavorDomain;
 import com.facebook.buck.core.model.InternalFlavor;
-import com.facebook.buck.core.model.UnflavoredBuildTarget;
+import com.facebook.buck.core.model.UnflavoredBuildTargetView;
 import com.facebook.buck.core.model.actiongraph.ActionGraph;
 import com.facebook.buck.core.model.actiongraph.ActionGraphAndBuilder;
 import com.facebook.buck.core.model.targetgraph.AbstractNodeBuilder;
@@ -40,6 +39,7 @@ import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraphAndBuildTargets;
 import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
+import com.facebook.buck.core.parser.buildtargetparser.ParsingUnconfiguredBuildTargetFactory;
 import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
@@ -57,10 +57,12 @@ import com.facebook.buck.cxx.CxxDescriptionEnhancer;
 import com.facebook.buck.cxx.CxxLibraryBuilder;
 import com.facebook.buck.cxx.CxxTestBuilder;
 import com.facebook.buck.cxx.CxxTestUtils;
+import com.facebook.buck.cxx.PrebuiltCxxLibraryBuilder;
 import com.facebook.buck.cxx.SharedLibraryInterfacePlatforms;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
-import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
+import com.facebook.buck.cxx.toolchain.StaticUnresolvedCxxPlatform;
+import com.facebook.buck.cxx.toolchain.UnresolvedCxxPlatform;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
 import com.facebook.buck.cxx.toolchain.linker.Linker.LinkableDepType;
 import com.facebook.buck.event.BuckEventBus;
@@ -79,6 +81,7 @@ import com.facebook.buck.features.python.toolchain.PythonEnvironment;
 import com.facebook.buck.features.python.toolchain.PythonPlatform;
 import com.facebook.buck.features.python.toolchain.PythonVersion;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.jvm.java.PrebuiltJarBuilder;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.coercer.SourceSortedSet;
@@ -88,14 +91,12 @@ import com.facebook.buck.rules.keys.config.TestRuleKeyConfigurationFactory;
 import com.facebook.buck.rules.macros.LocationMacro;
 import com.facebook.buck.rules.macros.StringWithMacrosUtils;
 import com.facebook.buck.shell.GenruleBuilder;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
-import com.facebook.buck.util.CloseableMemoizedSupplier;
 import com.facebook.buck.util.RichStream;
+import com.facebook.buck.versions.ParallelVersionedTargetGraphBuilder;
 import com.facebook.buck.versions.Version;
 import com.facebook.buck.versions.VersionUniverse;
 import com.facebook.buck.versions.VersionUniverseVersionSelector;
 import com.facebook.buck.versions.VersionedAliasBuilder;
-import com.facebook.buck.versions.VersionedTargetGraphBuilder;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -114,6 +115,9 @@ import org.junit.Test;
 import org.junit.rules.ExpectedException;
 
 public class IncrementalActionGraphScenarioTest {
+
+  private static final int NUMBER_OF_THREADS = ForkJoinPool.commonPool().getParallelism();
+
   @Rule public ExpectedException expectedException = ExpectedException.none();
 
   private static final PythonPlatform PY2 = createPy2Platform(Optional.empty());
@@ -125,9 +129,9 @@ public class IncrementalActionGraphScenarioTest {
   private PythonBuckConfig pythonBuckConfig;
   private FlavorDomain<PythonPlatform> pythonPlatforms;
   private BuckEventBus eventBus;
-  private CloseableMemoizedSupplier<ForkJoinPool> fakePoolSupplier;
   private RuleKeyFieldLoader fieldLoader;
   private ActionGraphCache cache;
+  private ActionGraphProvider provider;
 
   @Before
   public void setUp() {
@@ -137,15 +141,15 @@ public class IncrementalActionGraphScenarioTest {
     pythonBuckConfig = new PythonBuckConfig(buckConfig);
     pythonPlatforms = FlavorDomain.of("Python Platform", PY2, PY3);
     eventBus = BuckEventBusForTests.newInstance();
-    fakePoolSupplier =
-        CloseableMemoizedSupplier.of(
-            () -> {
-              throw new IllegalStateException(
-                  "should not use parallel executor for single threaded action graph construction in test");
-            },
-            ignored -> {});
     fieldLoader = new RuleKeyFieldLoader(TestRuleKeyConfigurationFactory.create());
     cache = new ActionGraphCache(0);
+    provider =
+        new ActionGraphProviderBuilder()
+            .withActionGraphCache(cache)
+            .withRuleKeyConfiguration(TestRuleKeyConfigurationFactory.createWithSeed(0))
+            .withEventBus(eventBus)
+            .withIncrementalActionGraphMode(IncrementalActionGraphMode.ENABLED)
+            .build();
   }
 
   @Test
@@ -372,13 +376,15 @@ public class IncrementalActionGraphScenarioTest {
             versionedAliasBuilder.build(filesystem),
             libraryBuilder.build(filesystem));
     TargetGraph versionedTargetGraph =
-        VersionedTargetGraphBuilder.transform(
+        ParallelVersionedTargetGraphBuilder.transform(
                 new VersionUniverseVersionSelector(
                     unversionedTargetGraph, ImmutableMap.of("1", universe1, "2", universe2)),
                 TargetGraphAndBuildTargets.of(
                     unversionedTargetGraph, ImmutableSet.of(binaryTarget, binaryTarget2)),
-                new ForkJoinPool(),
-                new DefaultTypeCoercerFactory())
+                NUMBER_OF_THREADS,
+                new DefaultTypeCoercerFactory(),
+                new ParsingUnconfiguredBuildTargetFactory(),
+                20)
             .getTargetGraph();
     ActionGraphAndBuilder result = createActionGraph(versionedTargetGraph);
     queryTransitiveDeps(result);
@@ -428,10 +434,12 @@ public class IncrementalActionGraphScenarioTest {
             .build();
     CxxBuckConfig cxxBuckConfig = new CxxBuckConfig(buckConfig);
 
-    Optional<CxxPlatform> testPlatform =
-        SharedLibraryInterfacePlatforms.getTestPlatform(filesystem, buckConfig, cxxBuckConfig);
+    Optional<UnresolvedCxxPlatform> testPlatform =
+        SharedLibraryInterfacePlatforms.getTestPlatform(filesystem, buckConfig, cxxBuckConfig)
+            .map(StaticUnresolvedCxxPlatform::new);
     assumeTrue(testPlatform.isPresent());
-    FlavorDomain cxxFlavorDomain = FlavorDomain.of("C/C++ Platform", testPlatform.get());
+    FlavorDomain<UnresolvedCxxPlatform> cxxFlavorDomain =
+        FlavorDomain.of("C/C++ Platform", testPlatform.get());
 
     BuildTarget sharedLibraryTarget = BuildTargetFactory.newInstance("//:shared_lib");
     CxxLibraryBuilder sharedLibraryBuilder =
@@ -543,13 +551,15 @@ public class IncrementalActionGraphScenarioTest {
             versionedAliasBuilder.build(filesystem),
             libraryBuilder.build(filesystem));
     TargetGraph versionedTargetGraph =
-        VersionedTargetGraphBuilder.transform(
+        ParallelVersionedTargetGraphBuilder.transform(
                 new VersionUniverseVersionSelector(
                     unversionedTargetGraph, ImmutableMap.of("1", universe1, "2", universe2)),
                 TargetGraphAndBuildTargets.of(
                     unversionedTargetGraph, ImmutableSet.of(compilationDatabaseTarget)),
-                new ForkJoinPool(),
-                new DefaultTypeCoercerFactory())
+                NUMBER_OF_THREADS,
+                new DefaultTypeCoercerFactory(),
+                new ParsingUnconfiguredBuildTargetFactory(),
+                20)
             .getTargetGraph();
 
     ActionGraphAndBuilder result = createActionGraph(versionedTargetGraph);
@@ -567,13 +577,15 @@ public class IncrementalActionGraphScenarioTest {
             versionedAliasBuilder.build(filesystem),
             libraryBuilder.build(filesystem));
     TargetGraph newVersionedTargetGraph =
-        VersionedTargetGraphBuilder.transform(
+        ParallelVersionedTargetGraphBuilder.transform(
                 new VersionUniverseVersionSelector(
                     newUnversionedTargetGraph, ImmutableMap.of("1", universe1, "2", universe2)),
                 TargetGraphAndBuildTargets.of(
                     newUnversionedTargetGraph, ImmutableSet.of(binaryTarget)),
-                new ForkJoinPool(),
-                new DefaultTypeCoercerFactory())
+                NUMBER_OF_THREADS,
+                new DefaultTypeCoercerFactory(),
+                new ParsingUnconfiguredBuildTargetFactory(),
+                20)
             .getTargetGraph();
 
     ActionGraphAndBuilder newResult = createActionGraph(newVersionedTargetGraph);
@@ -1041,23 +1053,43 @@ public class IncrementalActionGraphScenarioTest {
                 ImmutableSortedSet.of(
                     SourceWithFlags.of(FakeSourcePath.of("binary.cpp"), ImmutableList.of())));
 
-    createActionGraph(TargetGraphFactory.newInstance(buildNodes(builder)), false);
+    createActionGraph(TargetGraphFactory.newInstance(buildNodes(builder)));
 
     CxxBinaryBuilder builder2 =
         new CxxBinaryBuilder(target)
             .setSrcs(
                 ImmutableSortedSet.of(
                     SourceWithFlags.of(FakeSourcePath.of("binary2.cpp"), ImmutableList.of())));
-    createActionGraph(TargetGraphFactory.newInstance(buildNodes(builder2)), true);
+
+    provider =
+        new ActionGraphProviderBuilder()
+            .withActionGraphCache(cache)
+            .withRuleKeyConfiguration(TestRuleKeyConfigurationFactory.createWithSeed(0))
+            .withEventBus(eventBus)
+            .withSkipActionGraphCache()
+            .build();
+
+    createActionGraph(TargetGraphFactory.newInstance(buildNodes(builder2)));
+
+    provider =
+        new ActionGraphProviderBuilder()
+            .withActionGraphCache(cache)
+            .withRuleKeyConfiguration(TestRuleKeyConfigurationFactory.createWithSeed(0))
+            .withEventBus(eventBus)
+            .build();
 
     ActionGraphAndBuilder lastResult =
-        createActionGraph(TargetGraphFactory.newInstance(buildNodes(builder)), false);
+        createActionGraph(TargetGraphFactory.newInstance(buildNodes(builder)));
     assertFalse(Iterables.isEmpty(lastResult.getActionGraphBuilder().getBuildRules()));
   }
 
   @Test
   public void testBuildRuleResolverInActionGraphCacheNotInvalidated() {
-    cache = new ActionGraphCache(2);
+    provider =
+        new ActionGraphProviderBuilder()
+            .withMaxEntries(2)
+            .withRuleKeyConfiguration(TestRuleKeyConfigurationFactory.createWithSeed(0))
+            .build();
 
     BuildTarget target = BuildTargetFactory.newInstance("//:bin");
     CxxBinaryBuilder builder =
@@ -1066,7 +1098,7 @@ public class IncrementalActionGraphScenarioTest {
                 ImmutableSortedSet.of(
                     SourceWithFlags.of(FakeSourcePath.of("binary.cpp"), ImmutableList.of())));
 
-    createActionGraph(TargetGraphFactory.newInstance(buildNodes(builder)), false);
+    createActionGraph(TargetGraphFactory.newInstance(buildNodes(builder)));
 
     CxxBinaryBuilder builder2 =
         new CxxBinaryBuilder(target)
@@ -1076,7 +1108,7 @@ public class IncrementalActionGraphScenarioTest {
     createActionGraph(builder2);
 
     ActionGraphAndBuilder lastResult =
-        createActionGraph(TargetGraphFactory.newInstance(buildNodes(builder)), false);
+        createActionGraph(TargetGraphFactory.newInstance(buildNodes(builder)));
     assertFalse(Iterables.isEmpty(lastResult.getActionGraphBuilder().getBuildRules()));
   }
 
@@ -1084,7 +1116,12 @@ public class IncrementalActionGraphScenarioTest {
   public void testBuildRuleResolverNotInActionGraphCacheInvalidated() {
     expectedException.expect(IllegalStateException.class);
 
-    cache = new ActionGraphCache(2);
+    provider =
+        new ActionGraphProviderBuilder()
+            .withMaxEntries(2)
+            .withRuleKeyConfiguration(TestRuleKeyConfigurationFactory.createWithSeed(0))
+            .withIncrementalActionGraphMode(IncrementalActionGraphMode.ENABLED)
+            .build();
 
     BuildTarget target = BuildTargetFactory.newInstance("//:bin");
     CxxBinaryBuilder builder =
@@ -1121,13 +1158,56 @@ public class IncrementalActionGraphScenarioTest {
                 ImmutableSortedSet.of(
                     SourceWithFlags.of(FakeSourcePath.of("binary.cpp"), ImmutableList.of())));
 
+    provider =
+        new ActionGraphProviderBuilder()
+            .withActionGraphCache(cache)
+            .withRuleKeyConfiguration(TestRuleKeyConfigurationFactory.createWithSeed(0))
+            .withEventBus(eventBus)
+            .withSkipActionGraphCache()
+            .build();
+
     ActionGraphAndBuilder firstResult =
-        createActionGraph(TargetGraphFactory.newInstance(buildNodes(builder)), true);
+        createActionGraph(TargetGraphFactory.newInstance(buildNodes(builder)));
 
     ActionGraphAndBuilder lastResult =
-        createActionGraph(TargetGraphFactory.newInstance(buildNodes(builder)), true);
+        createActionGraph(TargetGraphFactory.newInstance(buildNodes(builder)));
 
     assertCommonBuildRulesNotSame(firstResult, lastResult, target.getUnflavoredBuildTarget());
+  }
+
+  @Test
+  public void testPrebuiltCxxLibrary() {
+    UnresolvedCxxPlatform plat1 = CxxPlatformUtils.DEFAULT_UNRESOLVED_PLATFORM;
+    UnresolvedCxxPlatform plat2 =
+        CxxPlatformUtils.DEFAULT_UNRESOLVED_PLATFORM.withFlavor(InternalFlavor.of("other"));
+    FlavorDomain<UnresolvedCxxPlatform> platforms = FlavorDomain.of("C/C++ Platform", plat1, plat2);
+
+    // Create an action graph with two different binaries using two different platforms, both
+    // consuming the same location macro exported by a library dependency.
+    GenruleBuilder genBuilder =
+        GenruleBuilder.newGenruleBuilder(BuildTargetFactory.newInstance("//:gen"))
+            .setOut("out")
+            .setCmd("command");
+    PrebuiltCxxLibraryBuilder libBuilder =
+        new PrebuiltCxxLibraryBuilder(BuildTargetFactory.newInstance("//:lib"), platforms)
+            .setHeaderOnly(true)
+            .setExportedPreprocessorFlags(
+                ImmutableList.of(
+                    StringWithMacrosUtils.format("%s", LocationMacro.of(genBuilder.getTarget()))));
+    CxxTestBuilder test1Builder =
+        new CxxTestBuilder(
+                BuildTargetFactory.newInstance("//:test1"), cxxBuckConfig, plat1, platforms)
+            .setSrcs(ImmutableSortedSet.of(SourceWithFlags.of(FakeSourcePath.of("test.cpp"))))
+            .setDeps(ImmutableSortedSet.of(libBuilder.getTarget()));
+    CxxTestBuilder test2Builder =
+        new CxxTestBuilder(
+                BuildTargetFactory.newInstance("//:test2"), cxxBuckConfig, plat2, platforms)
+            .setSrcs(ImmutableSortedSet.of(SourceWithFlags.of(FakeSourcePath.of("test.cpp"))))
+            .setDeps(ImmutableSortedSet.of(libBuilder.getTarget()));
+
+    // Build a graph from the first binary followed by the second to verify caches work correctly.
+    createActionGraph(genBuilder, libBuilder, test1Builder);
+    createActionGraph(genBuilder, libBuilder, test2Builder);
   }
 
   private void assertBuildRulesSame(
@@ -1140,7 +1220,7 @@ public class IncrementalActionGraphScenarioTest {
   private void assertBuildRulesSame(
       ActionGraphAndBuilder expectedActionGraph,
       ActionGraphAndBuilder actualActionGraph,
-      UnflavoredBuildTarget unflavoredTarget) {
+      UnflavoredBuildTargetView unflavoredTarget) {
     assertBuildRulesSame(
         filterRules(expectedActionGraph, unflavoredTarget),
         filterRules(actualActionGraph, unflavoredTarget));
@@ -1175,7 +1255,7 @@ public class IncrementalActionGraphScenarioTest {
   private void assertCommonBuildRulesNotSame(
       ActionGraphAndBuilder lastActionGraph,
       ActionGraphAndBuilder newActionGraph,
-      UnflavoredBuildTarget unflavoredTarget) {
+      UnflavoredBuildTargetView unflavoredTarget) {
     ImmutableMap<BuildRule, BuildRule> lastBuildRuleMap =
         buildBuildRuleMap(filterRules(lastActionGraph, unflavoredTarget));
     ImmutableMap<BuildRule, BuildRule> newBuildRuleMap =
@@ -1187,7 +1267,7 @@ public class IncrementalActionGraphScenarioTest {
   }
 
   private Iterable<BuildRule> filterRules(
-      ActionGraphAndBuilder actionGraph, UnflavoredBuildTarget unflavoredTarget) {
+      ActionGraphAndBuilder actionGraph, UnflavoredBuildTargetView unflavoredTarget) {
     return RichStream.from(actionGraph.getActionGraph().getNodes())
         .filter(
             x ->
@@ -1240,24 +1320,7 @@ public class IncrementalActionGraphScenarioTest {
   }
 
   private ActionGraphAndBuilder createActionGraph(TargetGraph targetGraph) {
-    return createActionGraph(targetGraph, false);
-  }
-
-  private ActionGraphAndBuilder createActionGraph(
-      TargetGraph targetGraph, boolean skipActionGraphCache) {
-    ActionGraphAndBuilder result =
-        cache.getActionGraph(
-            eventBus,
-            false, /* checkActionGraphs */
-            skipActionGraphCache,
-            targetGraph,
-            new TestCellBuilder().build().getCellProvider(),
-            TestRuleKeyConfigurationFactory.createWithSeed(0),
-            ActionGraphParallelizationMode.DISABLED,
-            false,
-            IncrementalActionGraphMode.ENABLED,
-            ImmutableMap.of(),
-            fakePoolSupplier);
+    ActionGraphAndBuilder result = provider.getActionGraph(targetGraph);
     // Grab a copy of the data since we invalidate the collections in previous BuildRuleResolvers.
     return ActionGraphAndBuilder.of(
         new ActionGraph(
@@ -1290,14 +1353,16 @@ public class IncrementalActionGraphScenarioTest {
   private static PythonPlatform createPy2Platform(Optional<BuildTarget> cxxLibrary) {
     return new TestPythonPlatform(
         InternalFlavor.of("py2"),
-        new PythonEnvironment(Paths.get("python2"), PythonVersion.of("CPython", "2.6")),
+        new PythonEnvironment(
+            Paths.get("python2"), PythonVersion.of("CPython", "2.6"), PythonBuckConfig.SECTION),
         cxxLibrary);
   }
 
   private static PythonPlatform createPy3Platform(Optional<BuildTarget> cxxLibrary) {
     return new TestPythonPlatform(
         InternalFlavor.of("py3"),
-        new PythonEnvironment(Paths.get("python3"), PythonVersion.of("CPython", "3.5")),
+        new PythonEnvironment(
+            Paths.get("python3"), PythonVersion.of("CPython", "3.5"), PythonBuckConfig.SECTION),
         cxxLibrary);
   }
 }

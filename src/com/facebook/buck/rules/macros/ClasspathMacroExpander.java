@@ -16,16 +16,13 @@
 
 package com.facebook.buck.rules.macros;
 
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
 import com.facebook.buck.core.macros.MacroException;
-import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.jvm.core.HasClasspathEntries;
 import com.facebook.buck.rules.args.Arg;
-import com.facebook.buck.rules.args.WriteToFileArg;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Ordering;
 import java.io.File;
@@ -44,13 +41,6 @@ public class ClasspathMacroExpander extends BuildTargetMacroExpander<ClasspathMa
     return ClasspathMacro.class;
   }
 
-  @Override
-  protected ClasspathMacro parse(
-      BuildTarget target, CellPathResolver cellNames, ImmutableList<String> input)
-      throws MacroException {
-    return ClasspathMacro.of(parseBuildTarget(target, cellNames, input));
-  }
-
   private HasClasspathEntries getHasClasspathEntries(BuildRule rule) throws MacroException {
     if (!(rule instanceof HasClasspathEntries)) {
       throw new MacroException(
@@ -62,37 +52,14 @@ public class ClasspathMacroExpander extends BuildTargetMacroExpander<ClasspathMa
   }
 
   @Override
-  public Arg makeExpandToFileArg(BuildTarget target, String prefix, Arg delegate) {
-    return new ClassPathWriteToFileArg(target, prefix, delegate);
-  }
-
-  @Override
   protected Arg expand(SourcePathResolver resolver, ClasspathMacro ignored, BuildRule rule)
       throws MacroException {
     return new ClasspathArg(
-        getHasClasspathEntries(rule)
-            .getTransitiveClasspathDeps()
-            .stream()
+        getHasClasspathEntries(rule).getTransitiveClasspathDeps().stream()
             .map(BuildRule::getSourcePathToOutput)
             .filter(Objects::nonNull)
             .sorted()
             .collect(ImmutableList.toImmutableList()));
-  }
-
-  // javac is the canonical reader of classpaths, and its code for reading classpaths from
-  // files is a little weird:
-  // http://hg.openjdk.java.net/jdk7/jdk7/langtools/file/ce654f4ecfd8/src/share/classes/com/sun/tools/javac/main/CommandLine.java#l74
-  // The # characters that might be present in classpaths due to flavoring would be read as
-  // comments. As a simple workaround, we quote the entire classpath.
-  private static class ClassPathWriteToFileArg extends WriteToFileArg {
-    public ClassPathWriteToFileArg(BuildTarget target, String prefix, Arg delegate) {
-      super(target, prefix, delegate);
-    }
-
-    @Override
-    protected String getContent(SourcePathResolver pathResolver) {
-      return "'" + super.getContent(pathResolver) + "'";
-    }
   }
 
   private class ClasspathArg implements Arg {
@@ -105,8 +72,7 @@ public class ClasspathMacroExpander extends BuildTargetMacroExpander<ClasspathMa
     @Override
     public void appendToCommandLine(Consumer<String> consumer, SourcePathResolver pathResolver) {
       consumer.accept(
-          classpath
-              .stream()
+          classpath.stream()
               .map(dep -> pathResolver.getAbsolutePath(dep))
               .map(Object::toString)
               .sorted(Ordering.natural())

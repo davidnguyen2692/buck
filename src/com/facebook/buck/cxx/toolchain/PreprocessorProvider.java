@@ -16,24 +16,31 @@
 
 package com.facebook.buck.cxx.toolchain;
 
-import com.facebook.buck.core.sourcepath.PathSourcePath;
 import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.core.toolchain.toolprovider.ToolProvider;
-import com.google.common.base.Suppliers;
-import java.util.Optional;
+import com.facebook.buck.cxx.toolchain.CxxBuckConfig.ToolType;
 import java.util.function.Supplier;
 
 public class PreprocessorProvider extends CxxToolProvider<Preprocessor> {
-  public PreprocessorProvider(PathSourcePath path, Optional<Type> type) {
-    super(Suppliers.ofInstance(path), type);
+  public PreprocessorProvider(ToolProvider toolProvider, Supplier<Type> type, ToolType toolType) {
+    super(toolProvider, type, toolType, false);
   }
 
-  public PreprocessorProvider(Supplier<PathSourcePath> path, Optional<Type> type) {
-    super(path, type);
+  public PreprocessorProvider(
+      ToolProvider toolProvider,
+      Supplier<Type> type,
+      ToolType toolType,
+      boolean useUnixPathSeparator) {
+    super(toolProvider, type, toolType, useUnixPathSeparator);
   }
 
-  public PreprocessorProvider(ToolProvider toolProvider, Type type) {
-    super(toolProvider, type);
+  public PreprocessorProvider(ToolProvider toolProvider, Type type, ToolType toolType) {
+    super(toolProvider, type, toolType, false);
+  }
+
+  public PreprocessorProvider(
+      ToolProvider toolProvider, Type type, ToolType toolType, boolean useUnixPathSeparator) {
+    super(toolProvider, type, toolType, useUnixPathSeparator);
   }
 
   @Override

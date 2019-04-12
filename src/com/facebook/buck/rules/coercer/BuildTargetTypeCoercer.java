@@ -16,17 +16,21 @@
 
 package com.facebook.buck.rules.coercer;
 
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
-import com.facebook.buck.core.exceptions.BuildTargetParseException;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.model.UnflavoredBuildTarget;
-import com.facebook.buck.io.file.MorePaths;
+import com.facebook.buck.core.model.TargetConfiguration;
+import com.facebook.buck.core.model.UnconfiguredBuildTargetView;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.parser.BuildTargetParser;
-import com.facebook.buck.parser.BuildTargetPatternParser;
 import java.nio.file.Path;
 
 public class BuildTargetTypeCoercer extends LeafTypeCoercer<BuildTarget> {
+
+  private final TypeCoercer<UnconfiguredBuildTargetView> unconfiguredBuildTargetTypeCoercer;
+
+  public BuildTargetTypeCoercer(
+      TypeCoercer<UnconfiguredBuildTargetView> unconfiguredBuildTargetTypeCoercer) {
+    this.unconfiguredBuildTargetTypeCoercer = unconfiguredBuildTargetTypeCoercer;
+  }
 
   @Override
   public Class<BuildTarget> getOutputClass() {
@@ -38,25 +42,15 @@ public class BuildTargetTypeCoercer extends LeafTypeCoercer<BuildTarget> {
       CellPathResolver cellRoots,
       ProjectFilesystem alsoUnused,
       Path pathRelativeToProjectRoot,
+      TargetConfiguration targetConfiguration,
       Object object)
       throws CoerceFailedException {
     if (!(object instanceof String)) {
       throw CoerceFailedException.simple(object, getOutputClass());
     }
-    String param = (String) object;
 
-    try {
-      String baseName =
-          UnflavoredBuildTarget.BUILD_TARGET_PREFIX
-              + MorePaths.pathWithUnixSeparators(pathRelativeToProjectRoot);
-
-      return BuildTargetParser.INSTANCE.parse(
-          param, BuildTargetPatternParser.forBaseName(baseName), cellRoots);
-    } catch (BuildTargetParseException e) {
-      throw new CoerceFailedException(
-          String.format(
-              "Unable to find the target %s.\n%s", object, e.getHumanReadableErrorMessage()),
-          e);
-    }
+    return unconfiguredBuildTargetTypeCoercer
+        .coerce(cellRoots, alsoUnused, pathRelativeToProjectRoot, targetConfiguration, object)
+        .configure(targetConfiguration);
   }
 }

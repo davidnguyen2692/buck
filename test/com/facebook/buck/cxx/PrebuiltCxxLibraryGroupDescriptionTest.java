@@ -20,6 +20,7 @@ import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
+import com.facebook.buck.core.model.EmptyTargetConfiguration;
 import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
@@ -44,7 +45,7 @@ import org.junit.Test;
 public class PrebuiltCxxLibraryGroupDescriptionTest {
 
   @Test
-  public void exportedPreprocessorFlags() throws Exception {
+  public void exportedPreprocessorFlags() {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     BuildTarget target = BuildTargetFactory.newInstance("//:lib");
     CxxPreprocessorDep lib =
@@ -59,7 +60,7 @@ public class PrebuiltCxxLibraryGroupDescriptionTest {
   }
 
   @Test
-  public void includeDirs() throws Exception {
+  public void includeDirs() {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     BuildTarget target = BuildTargetFactory.newInstance("//:lib");
     SourcePath includes = FakeSourcePath.of("include");
@@ -76,7 +77,7 @@ public class PrebuiltCxxLibraryGroupDescriptionTest {
   }
 
   @Test
-  public void staticLink() throws Exception {
+  public void staticLink() {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     BuildTarget target = BuildTargetFactory.newInstance("//:lib");
     SourcePath path = FakeSourcePath.of("include");
@@ -88,7 +89,10 @@ public class PrebuiltCxxLibraryGroupDescriptionTest {
                 .build(graphBuilder);
     assertThat(
         lib.getNativeLinkableInput(
-            CxxPlatformUtils.DEFAULT_PLATFORM, Linker.LinkableDepType.STATIC, graphBuilder),
+            CxxPlatformUtils.DEFAULT_PLATFORM,
+            Linker.LinkableDepType.STATIC,
+            graphBuilder,
+            EmptyTargetConfiguration.INSTANCE),
         Matchers.equalTo(
             NativeLinkableInput.builder()
                 .addArgs(
@@ -99,7 +103,7 @@ public class PrebuiltCxxLibraryGroupDescriptionTest {
   }
 
   @Test
-  public void staticPicLink() throws Exception {
+  public void staticPicLink() {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     BuildTarget target = BuildTargetFactory.newInstance("//:lib");
     SourcePath path = FakeSourcePath.of("include");
@@ -111,7 +115,10 @@ public class PrebuiltCxxLibraryGroupDescriptionTest {
                 .build(graphBuilder);
     assertThat(
         lib.getNativeLinkableInput(
-            CxxPlatformUtils.DEFAULT_PLATFORM, Linker.LinkableDepType.STATIC_PIC, graphBuilder),
+            CxxPlatformUtils.DEFAULT_PLATFORM,
+            Linker.LinkableDepType.STATIC_PIC,
+            graphBuilder,
+            EmptyTargetConfiguration.INSTANCE),
         Matchers.equalTo(
             NativeLinkableInput.builder()
                 .addArgs(
@@ -122,7 +129,7 @@ public class PrebuiltCxxLibraryGroupDescriptionTest {
   }
 
   @Test
-  public void sharedLink() throws Exception {
+  public void sharedLink() {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     BuildTarget target = BuildTargetFactory.newInstance("//:lib");
     SourcePath lib1 = FakeSourcePath.of("dir/lib1.so");
@@ -137,7 +144,10 @@ public class PrebuiltCxxLibraryGroupDescriptionTest {
                 .build(graphBuilder);
     assertThat(
         lib.getNativeLinkableInput(
-            CxxPlatformUtils.DEFAULT_PLATFORM, Linker.LinkableDepType.SHARED, graphBuilder),
+            CxxPlatformUtils.DEFAULT_PLATFORM,
+            Linker.LinkableDepType.SHARED,
+            graphBuilder,
+            EmptyTargetConfiguration.INSTANCE),
         Matchers.equalTo(
             NativeLinkableInput.builder()
                 .addArgs(
@@ -149,7 +159,7 @@ public class PrebuiltCxxLibraryGroupDescriptionTest {
   }
 
   @Test
-  public void exportedDeps() throws Exception {
+  public void exportedDeps() {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     BuildTarget target = BuildTargetFactory.newInstance("//:lib");
     CxxLibrary dep =
@@ -167,7 +177,7 @@ public class PrebuiltCxxLibraryGroupDescriptionTest {
   }
 
   @Test
-  public void providedSharedLibs() throws Exception {
+  public void providedSharedLibs() {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     BuildTarget target = BuildTargetFactory.newInstance("//:lib");
     SourcePath lib1 = FakeSourcePath.of("dir/lib1.so");
@@ -181,7 +191,10 @@ public class PrebuiltCxxLibraryGroupDescriptionTest {
                 .build(graphBuilder);
     assertThat(
         lib.getNativeLinkableInput(
-            CxxPlatformUtils.DEFAULT_PLATFORM, Linker.LinkableDepType.SHARED, graphBuilder),
+            CxxPlatformUtils.DEFAULT_PLATFORM,
+            Linker.LinkableDepType.SHARED,
+            graphBuilder,
+            EmptyTargetConfiguration.INSTANCE),
         Matchers.equalTo(
             NativeLinkableInput.builder()
                 .addArgs(SourcePathArg.of(lib1), SourcePathArg.of(lib2))
@@ -192,7 +205,7 @@ public class PrebuiltCxxLibraryGroupDescriptionTest {
   }
 
   @Test
-  public void preferredLinkage() throws Exception {
+  public void preferredLinkage() {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
 
     NativeLinkable any =
@@ -202,7 +215,7 @@ public class PrebuiltCxxLibraryGroupDescriptionTest {
                 .setStaticLink(ImmutableList.of("-something"))
                 .build(graphBuilder);
     assertThat(
-        any.getPreferredLinkage(CxxPlatformUtils.DEFAULT_PLATFORM, graphBuilder),
+        any.getPreferredLinkage(CxxPlatformUtils.DEFAULT_PLATFORM),
         Matchers.equalTo(NativeLinkable.Linkage.ANY));
 
     NativeLinkable staticOnly =
@@ -211,7 +224,7 @@ public class PrebuiltCxxLibraryGroupDescriptionTest {
                 .setStaticLink(ImmutableList.of("-something"))
                 .build(graphBuilder);
     assertThat(
-        staticOnly.getPreferredLinkage(CxxPlatformUtils.DEFAULT_PLATFORM, graphBuilder),
+        staticOnly.getPreferredLinkage(CxxPlatformUtils.DEFAULT_PLATFORM),
         Matchers.equalTo(NativeLinkable.Linkage.STATIC));
 
     NativeLinkable sharedOnly =
@@ -220,7 +233,7 @@ public class PrebuiltCxxLibraryGroupDescriptionTest {
                 .setSharedLink(ImmutableList.of("-something"))
                 .build(graphBuilder);
     assertThat(
-        sharedOnly.getPreferredLinkage(CxxPlatformUtils.DEFAULT_PLATFORM, graphBuilder),
+        sharedOnly.getPreferredLinkage(CxxPlatformUtils.DEFAULT_PLATFORM),
         Matchers.equalTo(NativeLinkable.Linkage.SHARED));
   }
 
@@ -242,13 +255,16 @@ public class PrebuiltCxxLibraryGroupDescriptionTest {
     NativeLinkable library = (NativeLinkable) builder.build(graphBuilder);
     NativeLinkableInput input =
         library.getNativeLinkableInput(
-            CxxPlatformUtils.DEFAULT_PLATFORM, Linker.LinkableDepType.STATIC, graphBuilder);
+            CxxPlatformUtils.DEFAULT_PLATFORM,
+            Linker.LinkableDepType.STATIC,
+            graphBuilder,
+            EmptyTargetConfiguration.INSTANCE);
     SourcePath lib = cxxGenrule.getGenrule(CxxPlatformUtils.DEFAULT_PLATFORM, graphBuilder);
     assertThat(input.getArgs(), Matchers.contains(SourcePathArg.of(lib)));
   }
 
   @Test
-  public void supportedPlatforms() throws Exception {
+  public void supportedPlatforms() {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     CxxLibrary dep1 =
         (CxxLibrary)
@@ -273,7 +289,10 @@ public class PrebuiltCxxLibraryGroupDescriptionTest {
 
     assertThat(
         lib.getNativeLinkableInput(
-            CxxPlatformUtils.DEFAULT_PLATFORM, Linker.LinkableDepType.SHARED, graphBuilder),
+            CxxPlatformUtils.DEFAULT_PLATFORM,
+            Linker.LinkableDepType.SHARED,
+            graphBuilder,
+            EmptyTargetConfiguration.INSTANCE),
         Matchers.equalTo(NativeLinkableInput.of()));
 
     assertThat(

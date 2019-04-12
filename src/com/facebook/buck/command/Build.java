@@ -17,16 +17,16 @@
 package com.facebook.buck.command;
 
 import com.facebook.buck.artifact_cache.ArtifactCache;
+import com.facebook.buck.command.config.BuildBuckConfig;
 import com.facebook.buck.core.build.context.BuildContext;
 import com.facebook.buck.core.build.engine.BuildEngine;
 import com.facebook.buck.core.build.engine.BuildEngineBuildContext;
 import com.facebook.buck.core.build.engine.BuildEngineResult;
 import com.facebook.buck.core.build.engine.BuildResult;
 import com.facebook.buck.core.build.event.BuildEvent;
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.config.BuckConfig;
-import com.facebook.buck.core.exceptions.ExceptionWithHumanReadableMessage;
-import com.facebook.buck.core.exceptions.handler.HumanReadableExceptionAugmentor;
 import com.facebook.buck.core.model.BuildId;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
@@ -35,18 +35,15 @@ import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.event.ThrowableConsoleEvent;
 import com.facebook.buck.io.filesystem.BuckPaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.core.JavaPackageFinder;
-import com.facebook.buck.log.Logger;
-import com.facebook.buck.step.ExecutionContext;
-import com.facebook.buck.step.StepFailedException;
 import com.facebook.buck.util.CleanBuildShutdownException;
 import com.facebook.buck.util.Console;
-import com.facebook.buck.util.ErrorLogger;
 import com.facebook.buck.util.ExitCode;
 import com.facebook.buck.util.Threads;
 import com.facebook.buck.util.environment.Platform;
@@ -72,7 +69,6 @@ import java.util.Optional;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.ExecutionException;
 import java.util.stream.Collectors;
-import java.util.stream.StreamSupport;
 import org.immutables.value.Value;
 
 public class Build implements Closeable {
@@ -87,7 +83,6 @@ public class Build implements Closeable {
   private final JavaPackageFinder javaPackageFinder;
   private final Clock clock;
   private final BuildEngineBuildContext buildContext;
-  private final HumanReadableExceptionAugmentor errorAugmentor;
   private boolean symlinksCreated = false;
 
   public Build(
@@ -107,9 +102,6 @@ public class Build implements Closeable {
     this.javaPackageFinder = javaPackageFinder;
     this.clock = clock;
     this.buildContext = createBuildContext(isKeepGoing);
-    this.errorAugmentor =
-        new HumanReadableExceptionAugmentor(
-            this.rootCell.getBuckConfig().getErrorMessageAugmentations());
   }
 
   private BuildEngineBuildContext createBuildContext(boolean isKeepGoing) {
@@ -122,7 +114,11 @@ public class Build implements Closeable {
                 .setBuildCellRootPath(rootCell.getRoot())
                 .setJavaPackageFinder(javaPackageFinder)
                 .setEventBus(executionContext.getBuckEventBus())
-                .setShouldDeleteTemporaries(rootCell.getBuckConfig().getShouldDeleteTemporaries())
+                .setShouldDeleteTemporaries(
+                    rootCell
+                        .getBuckConfig()
+                        .getView(BuildBuckConfig.class)
+                        .getShouldDeleteTemporaries())
                 .build())
         .setClock(clock)
         .setArtifactCache(artifactCache)
@@ -145,24 +141,30 @@ public class Build implements Closeable {
       Iterable<BuildTarget> targetsish,
       BuckEventBus eventBus,
       Console console,
-      Optional<Path> pathToBuildReport) {
-    ExitCode exitCode;
-    try {
-      ImmutableList<BuildRule> rulesToBuild = getRulesToBuild(targetsish);
-      List<BuildEngineResult> resultFutures = initializeBuild(rulesToBuild);
-      exitCode =
-          waitForBuildToFinishAndPrintFailuresToEventBus(
-              rulesToBuild, resultFutures, eventBus, console, pathToBuildReport);
-    } catch (Exception e) {
-      reportExceptionToUser(eventBus, e);
-      exitCode = ExitCode.BUILD_ERROR;
-    }
+      Optional<Path> pathToBuildReport)
+      throws Exception {
 
-    return exitCode;
+    ImmutableList<BuildRule> rulesToBuild = getRulesToBuild(targetsish);
+    List<BuildEngineResult> resultFutures = initializeBuild(rulesToBuild);
+    return waitForBuildToFinishAndPrintFailuresToEventBus(
+        rulesToBuild, resultFutures, eventBus, console, pathToBuildReport);
   }
 
   public void terminateBuildWithFailure(Throwable failure) {
     buildEngine.terminateBuildWithFailure(failure);
+  }
+
+  /** Setup all the symlinks necessary for a build */
+  private synchronized void setupBuildSymlinks() throws IOException {
+    // Symlinks should only be created once, across all invocations of build, otherwise
+    // there will be file system conflicts.
+    if (symlinksCreated) {
+      return;
+    }
+    // Setup symlinks required when configuring the output path.
+    createConfiguredBuckOutSymlinks();
+    createProjectRootFile();
+    symlinksCreated = true;
   }
 
   /**
@@ -170,19 +172,13 @@ public class Build implements Closeable {
    * the `project.buck_out_compat_link` setting to `true`, we symlink the original output path
    * (`buck-out/`) to this newly configured location for backwards compatibility.
    */
-  private synchronized void createConfiguredBuckOutSymlinks() throws IOException {
-    // Symlinks should only be created once, across all invocations of Build, otherwise
-    // there will be file system conflicts.
-    if (symlinksCreated) {
-      return;
-    }
-
+  private void createConfiguredBuckOutSymlinks() throws IOException {
     for (Cell cell : rootCell.getAllCells()) {
       BuckConfig buckConfig = cell.getBuckConfig();
       ProjectFilesystem filesystem = cell.getFilesystem();
       BuckPaths configuredPaths = filesystem.getBuckPaths();
       if (!configuredPaths.getConfiguredBuckOut().equals(configuredPaths.getBuckOut())
-          && buckConfig.getBuckOutCompatLink()
+          && buckConfig.getView(BuildBuckConfig.class).getBuckOutCompatLink()
           && Platform.detect() != Platform.WINDOWS) {
         BuckPaths unconfiguredPaths =
             configuredPaths.withConfiguredBuckOut(configuredPaths.getBuckOut());
@@ -201,8 +197,18 @@ public class Build implements Closeable {
         }
       }
     }
+  }
 
-    symlinksCreated = true;
+  private void createProjectRootFile() throws IOException {
+    for (Cell cell : rootCell.getAllCells()) {
+      ProjectFilesystem filesystem = cell.getFilesystem();
+      BuckPaths buckPaths = filesystem.getBuckPaths();
+
+      filesystem.deleteFileAtPathIfExists(buckPaths.getProjectRootDir());
+
+      filesystem.writeContentsToPath(
+          filesystem.getRootPath().toString(), buckPaths.getProjectRootDir());
+    }
   }
 
   /**
@@ -215,13 +221,11 @@ public class Build implements Closeable {
     // It is important to use this logic to determine the set of rules to build rather than
     // build.getActionGraph().getNodesWithNoIncomingEdges() because, due to graph enhancement,
     // there could be disconnected subgraphs in the DependencyGraph that we do not want to build.
-    ImmutableSet<BuildTarget> targetsToBuild =
-        StreamSupport.stream(targetish.spliterator(), false).collect(ImmutableSet.toImmutableSet());
+    ImmutableSet<BuildTarget> targetsToBuild = ImmutableSet.copyOf(targetish);
 
     ImmutableList<BuildRule> rulesToBuild =
         ImmutableList.copyOf(
-            targetsToBuild
-                .stream()
+            targetsToBuild.stream()
                 .map(buildTarget -> getGraphBuilder().requireRule(buildTarget))
                 .collect(ImmutableSet.toImmutableSet()));
 
@@ -259,8 +263,7 @@ public class Build implements Closeable {
 
       return BuildExecutionResult.builder()
           .setFailures(
-              buildResults
-                  .stream()
+              buildResults.stream()
                   .filter(input -> !input.isSuccess())
                   .collect(Collectors.toList()))
           .setResults(resultBuilder)
@@ -295,16 +298,12 @@ public class Build implements Closeable {
    */
   public List<BuildEngineResult> initializeBuild(ImmutableList<BuildRule> rulesToBuild)
       throws IOException {
-    // Setup symlinks required when configuring the output path.
-    createConfiguredBuckOutSymlinks();
 
-    List<BuildEngineResult> resultFutures =
-        rulesToBuild
-            .stream()
-            .map(rule -> buildEngine.build(buildContext, executionContext, rule))
-            .collect(ImmutableList.toImmutableList());
+    setupBuildSymlinks();
 
-    return resultFutures;
+    return rulesToBuild.stream()
+        .map(rule -> buildEngine.build(buildContext, executionContext, rule))
+        .collect(ImmutableList.toImmutableList());
   }
 
   private BuildExecutionResult waitForBuildToFinish(
@@ -358,7 +357,7 @@ public class Build implements Closeable {
 
     SourcePathResolver pathResolver =
         DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
-    BuildReport buildReport = new BuildReport(buildExecutionResult, pathResolver);
+    BuildReport buildReport = new BuildReport(buildExecutionResult, pathResolver, rootCell);
 
     if (buildContext.isKeepGoing()) {
       String buildReportText = buildReport.generateForConsole(console);
@@ -414,7 +413,8 @@ public class Build implements Closeable {
       List<BuildEngineResult> resultFutures,
       BuckEventBus eventBus,
       Console console,
-      Optional<Path> pathToBuildReport) {
+      Optional<Path> pathToBuildReport)
+      throws Exception {
 
     ExitCode exitCode = ExitCode.BUILD_ERROR;
 
@@ -429,48 +429,12 @@ public class Build implements Closeable {
       exitCode = ExitCode.map(code);
     } catch (CleanBuildShutdownException e) {
       LOG.warn(e, "Build shutdown cleanly.");
-    } catch (Exception e) {
-      if (e instanceof BuildExecutionException) {
-        pathToBuildReport.ifPresent(
-            path -> writePartialBuildReport(eventBus, path, (BuildExecutionException) e));
-      } else if (e instanceof InterruptedException) {
-        // TODO(buck_team): we should rather propagate exception otherwise command status is
-        // recorded to event bus as completed, not interrupted
-        exitCode = ExitCode.SIGNAL_INTERRUPT;
-      }
-      reportExceptionToUser(eventBus, e);
+    } catch (BuildExecutionException e) {
+      pathToBuildReport.ifPresent(path -> writePartialBuildReport(eventBus, path, e));
+      throw e;
     }
 
     return exitCode;
-  }
-
-  private void reportExceptionToUser(BuckEventBus eventBus, Exception e) {
-    if (e instanceof RuntimeException) {
-      e = rootCauseOfBuildException(e);
-    }
-    new ErrorLogger(
-            eventBus, "Build failed: ", "Got an exception during the build.", this.errorAugmentor)
-        .logException(e);
-  }
-
-  /**
-   * Returns a root cause of the build exception {@code e}.
-   *
-   * @param e The build exception.
-   * @return The root cause exception for why the build failed.
-   */
-  private Exception rootCauseOfBuildException(Exception e) {
-    Throwable cause = e.getCause();
-    if (!(cause instanceof Exception)) {
-      return e;
-    }
-    if (cause instanceof IOException
-        || cause instanceof StepFailedException
-        || cause instanceof InterruptedException
-        || cause instanceof ExceptionWithHumanReadableMessage) {
-      return (Exception) cause;
-    }
-    return e;
   }
 
   /**
@@ -487,7 +451,8 @@ public class Build implements Closeable {
     // root, so it is not appropriate to use ProjectFilesystem to write the output.
     SourcePathResolver pathResolver =
         DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
-    BuildReport buildReport = new BuildReport(e.createBuildExecutionResult(), pathResolver);
+    BuildReport buildReport =
+        new BuildReport(e.createBuildExecutionResult(), pathResolver, rootCell);
     try {
       String jsonBuildReport = buildReport.generateJsonBuildReport();
       eventBus.post(BuildEvent.buildReport(jsonBuildReport));

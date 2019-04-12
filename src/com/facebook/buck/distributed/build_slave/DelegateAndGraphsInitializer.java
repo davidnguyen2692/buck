@@ -16,36 +16,36 @@
 
 package com.facebook.buck.distributed.build_slave;
 
+import com.facebook.buck.command.config.BuildBuckConfig;
 import com.facebook.buck.core.build.engine.delegate.CachingBuildEngineDelegate;
 import com.facebook.buck.core.build.engine.delegate.LocalCachingBuildEngineDelegate;
 import com.facebook.buck.core.cell.Cell;
+import com.facebook.buck.core.model.EmptyTargetConfiguration;
 import com.facebook.buck.core.model.actiongraph.ActionGraphAndBuilder;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraphAndBuildTargets;
 import com.facebook.buck.core.model.targetgraph.impl.TargetNodeFactory;
+import com.facebook.buck.core.parser.buildtargetparser.ParsingUnconfiguredBuildTargetFactory;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.distributed.DistBuildCachingEngineDelegate;
 import com.facebook.buck.distributed.DistBuildConfig;
 import com.facebook.buck.distributed.DistBuildTargetGraphCodec;
 import com.facebook.buck.distributed.build_slave.BuildSlaveTimingStatsTracker.SlaveEvents;
-import com.facebook.buck.log.Logger;
 import com.facebook.buck.parser.DefaultParserTargetNodeFactory;
 import com.facebook.buck.parser.ParserTargetNodeFactory;
+import com.facebook.buck.parser.ParsingContext;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
-import com.facebook.buck.rules.coercer.ConstructorArgMarshaller;
+import com.facebook.buck.rules.coercer.DefaultConstructorArgMarshaller;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.coercer.PathTypeCoercer;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
-import com.facebook.buck.rules.visibility.VisibilityPatternFactory;
-import com.facebook.buck.step.ExecutorPool;
-import com.facebook.buck.util.CloseableMemoizedSupplier;
 import com.facebook.buck.util.cache.ProjectFileHashCache;
 import com.facebook.buck.util.cache.impl.DefaultFileHashCache;
 import com.facebook.buck.util.cache.impl.StackedFileHashCache;
-import com.facebook.buck.util.concurrent.MostExecutors;
+import com.facebook.buck.util.concurrent.ExecutorPool;
 import com.facebook.buck.versions.VersionException;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.util.concurrent.Futures;
@@ -55,8 +55,7 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.util.HashSet;
 import java.util.Map;
-import java.util.Optional;
-import java.util.concurrent.ForkJoinPool;
+import java.util.Objects;
 
 /** Initializes the build engine delegate, the target graph and the action graph. */
 public class DelegateAndGraphsInitializer {
@@ -74,7 +73,7 @@ public class DelegateAndGraphsInitializer {
                 () -> {
                   try {
                     return createDelegateAndGraphs();
-                  } catch (InterruptedException | IOException e) {
+                  } catch (InterruptedException e) {
                     LOG.error(
                         e, "Critical failure while creating the build engine delegate and graphs.");
                     throw new RuntimeException(e);
@@ -91,7 +90,7 @@ public class DelegateAndGraphsInitializer {
         delegateAndGraphs, x -> x.getActionGraphAndBuilder(), MoreExecutors.directExecutor());
   }
 
-  private DelegateAndGraphs createDelegateAndGraphs() throws IOException, InterruptedException {
+  private DelegateAndGraphs createDelegateAndGraphs() throws InterruptedException {
     LOG.info("Starting to preload source files.");
     StackedFileHashCaches stackedCaches = createStackedFileHashesAndPreload();
     LOG.info("Finished pre-loading source files.");
@@ -117,13 +116,16 @@ public class DelegateAndGraphsInitializer {
       DistBuildTargetGraphCodec codec = createGraphCodec();
       ImmutableMap<Integer, Cell> cells = args.getState().getCells();
       TargetGraphAndBuildTargets targetGraphAndBuildTargets =
-          Preconditions.checkNotNull(
+          Objects.requireNonNull(
               codec.createTargetGraph(
                   args.getState().getRemoteState().getTargetGraph(),
-                  key -> Preconditions.checkNotNull(cells.get(key))));
+                  key -> Objects.requireNonNull(cells.get(key))));
 
       try {
-        if (args.getState().getRemoteRootCellConfig().getBuildVersions()) {
+        if (args.getState()
+            .getRemoteRootCellConfig()
+            .getView(BuildBuckConfig.class)
+            .getBuildVersions()) {
           targetGraph =
               args.getVersionedTargetGraphCache()
                   .toVersionedTargetGraph(
@@ -131,7 +133,9 @@ public class DelegateAndGraphsInitializer {
                       args.getState().getRemoteRootCellConfig(),
                       new DefaultTypeCoercerFactory(
                           PathTypeCoercer.PathExistenceVerificationMode.DO_NOT_VERIFY),
-                      targetGraphAndBuildTargets)
+                      new ParsingUnconfiguredBuildTargetFactory(),
+                      targetGraphAndBuildTargets,
+                      EmptyTargetConfiguration.INSTANCE)
                   .getTargetGraph();
         } else {
           targetGraph = targetGraphAndBuildTargets.getTargetGraph();
@@ -150,35 +154,7 @@ public class DelegateAndGraphsInitializer {
   private ActionGraphAndBuilder createActionGraphAndResolver(TargetGraph targetGraph) {
     args.getTimingStatsTracker().startTimer(SlaveEvents.ACTION_GRAPH_CREATION_TIME);
     try {
-      LOG.info(
-          String.format(
-              "Parallel action graph mode: [%s]. Parallel action graph threads [%d]",
-              args.getActionGraphParallelizationMode(), args.getMaxActionGraphParallelism()));
-      ActionGraphAndBuilder actionGraphAndBuilder =
-          args.getActionGraphCache()
-              .getActionGraph(
-                  args.getBuckEventBus(),
-                  /* checkActionGraphs */ false,
-                  /* skipActionGraphCache */ false,
-                  Preconditions.checkNotNull(targetGraph),
-                  args.getCellProvider(),
-                  args.getRuleKeyConfiguration(),
-                  args.getActionGraphParallelizationMode(),
-                  Optional.empty(),
-                  args.getShouldInstrumentActionGraph(),
-                  args.getIncrementalActionGraphMode(),
-                  args.getIncrementalActionGraphExperimentGroups(),
-                  CloseableMemoizedSupplier.of(
-                      () -> {
-                        int threadCount = args.getMaxActionGraphParallelism();
-                        LOG.info(
-                            String.format(
-                                "Creating parallel action graph construction pool with [%d] threads.",
-                                threadCount));
-                        return MostExecutors.forkJoinPoolWithThreadLimit(threadCount, 16);
-                      },
-                      ForkJoinPool::shutdownNow));
-      return actionGraphAndBuilder;
+      return args.getActionGraphProvider().getActionGraph(Objects.requireNonNull(targetGraph));
     } finally {
       args.getTimingStatsTracker().stopTimer(SlaveEvents.ACTION_GRAPH_CREATION_TIME);
     }
@@ -192,7 +168,7 @@ public class DelegateAndGraphsInitializer {
     if (remoteConfig.materializeSourceFilesOnDemand()) {
       SourcePathRuleFinder ruleFinder =
           new SourcePathRuleFinder(
-              Preconditions.checkNotNull(actionGraphAndBuilder).getActionGraphBuilder());
+              Objects.requireNonNull(actionGraphAndBuilder).getActionGraphBuilder());
       cachingBuildEngineDelegate =
           new DistBuildCachingEngineDelegate(
               DefaultSourcePathResolver.from(ruleFinder),
@@ -211,22 +187,23 @@ public class DelegateAndGraphsInitializer {
   private StackedFileHashCache createStackOfDefaultFileHashCache() throws InterruptedException {
     ImmutableList.Builder<ProjectFileHashCache> allCachesBuilder = ImmutableList.builder();
     Cell rootCell = args.getState().getRootCell();
+    BuildBuckConfig buildBuckConfig = rootCell.getBuckConfig().getView(BuildBuckConfig.class);
 
     // 1. Add all cells (including the root cell).
     for (Path cellPath : rootCell.getKnownRoots()) {
       Cell cell = rootCell.getCell(cellPath);
       allCachesBuilder.add(
           DefaultFileHashCache.createDefaultFileHashCache(
-              cell.getFilesystem(), rootCell.getBuckConfig().getFileHashCacheMode()));
+              cell.getFilesystem(), buildBuckConfig.getFileHashCacheMode()));
       allCachesBuilder.add(
           DefaultFileHashCache.createBuckOutFileHashCache(
-              cell.getFilesystem(), rootCell.getBuckConfig().getFileHashCacheMode()));
+              cell.getFilesystem(), buildBuckConfig.getFileHashCacheMode()));
     }
 
     // 2. Add the Operating System roots.
     allCachesBuilder.addAll(
         DefaultFileHashCache.createOsRootDirectoriesCaches(
-            args.getProjectFilesystemFactory(), rootCell.getBuckConfig().getFileHashCacheMode()));
+            args.getProjectFilesystemFactory(), buildBuckConfig.getFileHashCacheMode()));
 
     return new StackedFileHashCache(allCachesBuilder.build());
   }
@@ -243,22 +220,21 @@ public class DelegateAndGraphsInitializer {
     ParserTargetNodeFactory<Map<String, Object>> parserTargetNodeFactory =
         DefaultParserTargetNodeFactory.createForDistributedBuild(
             args.getKnownRuleTypesProvider(),
-            new ConstructorArgMarshaller(typeCoercerFactory),
-            new TargetNodeFactory(typeCoercerFactory),
-            new VisibilityPatternFactory(),
-            args.getRuleKeyConfiguration());
+            new DefaultConstructorArgMarshaller(typeCoercerFactory),
+            new TargetNodeFactory(
+                typeCoercerFactory, PathTypeCoercer.PathExistenceVerificationMode.DO_NOT_VERIFY));
 
     return new DistBuildTargetGraphCodec(
-        Preconditions.checkNotNull(args.getExecutorService()),
+        Objects.requireNonNull(args.getExecutorService()),
         parserTargetNodeFactory,
         input -> {
           try {
             return args.getParser()
                 .getTargetNodeRawAttributes(
-                    args.getBuckEventBus(),
-                    args.getState().getRootCell().getCell(input.getBuildTarget()),
-                    /* enableProfiling */ false,
-                    args.getExecutorService(),
+                    ParsingContext.builder(
+                            args.getState().getRootCell().getCell(input.getBuildTarget()),
+                            args.getExecutorService())
+                        .build(),
                     input);
           } catch (BuildFileParseException e) {
             throw new RuntimeException(e);
@@ -297,7 +273,7 @@ public class DelegateAndGraphsInitializer {
                       .createMaterializerAndPreload(
                           cache,
                           args.getProvider(),
-                          Preconditions.checkNotNull(args.getExecutors().get(ExecutorPool.CPU)));
+                          Objects.requireNonNull(args.getExecutors().get(ExecutorPool.CPU)));
                 } catch (IOException exception) {
                   throw new RuntimeException(
                       String.format(

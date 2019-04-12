@@ -20,9 +20,9 @@ import com.android.common.sdklib.build.ApkBuilder;
 import com.android.sdklib.build.ApkCreationException;
 import com.android.sdklib.build.DuplicateFileException;
 import com.android.sdklib.build.SealedApkException;
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.step.StepExecutionResults;
@@ -57,7 +57,6 @@ public class ApkBuilderStep implements Step {
   private final ImmutableSet<Path> jarFilesThatMayContainResources;
   private final boolean debugMode;
   private final ImmutableList<String> javaRuntimeLauncher;
-  private final int apkCompressionLevel;
   private final AppBuilderBase appBuilderBase;
 
   /**
@@ -68,7 +67,6 @@ public class ApkBuilderStep implements Step {
    * @param nativeLibraryDirectories List of paths to native directories.
    * @param zipFiles List of paths to zipfiles to be included into the apk.
    * @param debugMode Whether or not to run ApkBuilder with debug mode turned on.
-   * @param apkCompressionLevel
    */
   public ApkBuilderStep(
       ProjectFilesystem filesystem,
@@ -82,8 +80,7 @@ public class ApkBuilderStep implements Step {
       Path pathToKeystore,
       Supplier<KeystoreProperties> keystorePropertiesSupplier,
       boolean debugMode,
-      ImmutableList<String> javaRuntimeLauncher,
-      int apkCompressionLevel) {
+      ImmutableList<String> javaRuntimeLauncher) {
     this.filesystem = filesystem;
     this.resourceApk = resourceApk;
     this.pathToOutputApkFile = pathToOutputApkFile;
@@ -94,14 +91,12 @@ public class ApkBuilderStep implements Step {
     this.zipFiles = zipFiles;
     this.debugMode = debugMode;
     this.javaRuntimeLauncher = javaRuntimeLauncher;
-    this.apkCompressionLevel = apkCompressionLevel;
     this.appBuilderBase =
         new AppBuilderBase(filesystem, keystorePropertiesSupplier, pathToKeystore);
   }
 
   @Override
-  public StepExecutionResult execute(ExecutionContext context)
-      throws IOException, InterruptedException {
+  public StepExecutionResult execute(ExecutionContext context) throws IOException {
     PrintStream output = null;
     if (context.getVerbosity().shouldUseVerbosityFlagIfAvailable()) {
       output = context.getStdOut();
@@ -117,8 +112,7 @@ public class ApkBuilderStep implements Step {
               filesystem.getPathForRelativePath(dexFile).toFile(),
               privateKeyAndCertificate.privateKey,
               privateKeyAndCertificate.certificate,
-              output,
-              apkCompressionLevel);
+              output);
       builder.setDebugMode(debugMode);
       for (Path nativeLibraryDirectory : nativeLibraryDirectories) {
         builder.addNativeLibraries(

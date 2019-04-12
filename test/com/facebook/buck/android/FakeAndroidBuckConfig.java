@@ -51,6 +51,11 @@ public class FakeAndroidBuckConfig {
     return this;
   }
 
+  public FakeAndroidBuckConfig setSdkPathSearchOrder(String searchOrder) {
+    androidSection.put("sdk_path_search_order", searchOrder);
+    return this;
+  }
+
   public FakeAndroidBuckConfig setBuildToolsVersion(String buildToolsVersion) {
     androidSection.put("build_tools_version", buildToolsVersion);
     return this;
@@ -63,6 +68,11 @@ public class FakeAndroidBuckConfig {
 
   public FakeAndroidBuckConfig setNdkRepositoryPath(String ndkRepository) {
     ndkSection.put("ndk_repository_path", ndkRepository);
+    return this;
+  }
+
+  public FakeAndroidBuckConfig setNdkSearchOrder(String searchOrder) {
+    ndkSection.put("ndk_search_order", searchOrder);
     return this;
   }
 

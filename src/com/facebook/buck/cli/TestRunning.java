@@ -16,11 +16,17 @@
 
 package com.facebook.buck.cli;
 
+import com.facebook.buck.android.AndroidBinary;
+import com.facebook.buck.android.AndroidInstrumentationApk;
+import com.facebook.buck.android.AndroidInstrumentationTest;
+import com.facebook.buck.android.HasInstallableApk;
 import com.facebook.buck.core.build.context.BuildContext;
 import com.facebook.buck.core.build.engine.BuildEngine;
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleResolver;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
@@ -30,6 +36,8 @@ import com.facebook.buck.core.test.event.TestStatusMessageEvent;
 import com.facebook.buck.core.test.event.TestSummaryEvent;
 import com.facebook.buck.core.test.rule.TestRule;
 import com.facebook.buck.core.toolchain.tool.Tool;
+import com.facebook.buck.core.toolchain.toolprovider.ToolProvider;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.io.BuildCellRelativePath;
@@ -41,10 +49,9 @@ import com.facebook.buck.jvm.java.GenerateCodeCoverageReportStep;
 import com.facebook.buck.jvm.java.JacocoConstants;
 import com.facebook.buck.jvm.java.JavaBuckConfig;
 import com.facebook.buck.jvm.java.JavaLibraryWithTests;
+import com.facebook.buck.jvm.java.JavaOptions;
 import com.facebook.buck.jvm.java.JavaTest;
 import com.facebook.buck.jvm.java.JavacOptions;
-import com.facebook.buck.log.Logger;
-import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepFailedException;
 import com.facebook.buck.step.StepRunner;
@@ -86,6 +93,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -117,12 +125,12 @@ public class TestRunning {
   @SuppressWarnings("PMD.EmptyCatchBlock")
   public static int runTests(
       CommandRunnerParams params,
+      BuildRuleResolver ruleResolver,
       Iterable<TestRule> tests,
       ExecutionContext executionContext,
       TestRunningOptions options,
       ListeningExecutorService service,
       BuildEngine buildEngine,
-      StepRunner stepRunner,
       BuildContext buildContext,
       SourcePathRuleFinder ruleFinder)
       throws IOException, InterruptedException {
@@ -144,7 +152,7 @@ public class TestRunning {
                       buildContext.getBuildCellRootPath(),
                       library.getProjectFilesystem(),
                       JacocoConstants.getJacocoOutputDir(library.getProjectFilesystem())))) {
-            stepRunner.runStepForBuildTarget(executionContext, step, Optional.empty());
+            StepRunner.runStep(executionContext, step);
           }
         } catch (StepFailedException e) {
           params
@@ -257,7 +265,7 @@ public class TestRunning {
               UUID testUUID =
                   testUUIDMap.get(
                       testResultSummary.getTestCaseName() + ":" + testResultSummary.getTestName());
-              Preconditions.checkNotNull(testUUID);
+              Objects.requireNonNull(testUUID);
               params.getBuckEventBus().post(TestSummaryEvent.finished(testUUID, testResultSummary));
             }
 
@@ -294,7 +302,6 @@ public class TestRunning {
     for (TestRun testRun : parallelTestRuns) {
       ListenableFuture<TestResults> testResults =
           runStepsAndYieldResult(
-              stepRunner,
               executionContext,
               testRun.getSteps(),
               testRun.getTestResultsCallable(),
@@ -331,7 +338,6 @@ public class TestRunning {
                       transformTestResults(
                           params,
                           runStepsAndYieldResult(
-                              stepRunner,
                               executionContext,
                               testRun.getSteps(),
                               testRun.getTestResultsCallable(),
@@ -404,23 +410,32 @@ public class TestRunning {
         JavaBuckConfig javaBuckConfig = params.getBuckConfig().getView(JavaBuckConfig.class);
         DefaultJavaPackageFinder defaultJavaPackageFinder =
             javaBuckConfig.createDefaultJavaPackageFinder();
-        stepRunner.runStepForBuildTarget(
+
+        JavaOptions javaOptions = javaBuckConfig.getDefaultJavaOptions();
+        ToolProvider javaRuntimeProvider = javaOptions.getJavaRuntimeProvider();
+        Preconditions.checkState(
+            Iterables.isEmpty(
+                javaRuntimeProvider.getParseTimeDeps(params.getTargetConfiguration())),
+            "Using a rule-defined java runtime does not currently support generating code coverage.");
+
+        StepRunner.runStep(
             executionContext,
             getReportCommand(
                 rulesUnderTestForCoverage,
                 defaultJavaPackageFinder,
-                javaBuckConfig.getDefaultJavaOptions().getJavaRuntimeLauncher(),
+                javaRuntimeProvider.resolve(ruleResolver, params.getTargetConfiguration()),
                 params.getCell().getFilesystem(),
                 buildContext.getSourcePathResolver(),
                 ruleFinder,
                 JacocoConstants.getJacocoOutputDir(params.getCell().getFilesystem()),
                 options.getCoverageReportFormats(),
                 options.getCoverageReportTitle(),
-                javaBuckConfig.getDefaultJavacOptions().getSpoolMode()
+                javaBuckConfig
+                        .getDefaultJavacOptions(params.getTargetConfiguration())
+                        .getSpoolMode()
                     == JavacOptions.SpoolMode.INTERMEDIATE_TO_DISK,
                 options.getCoverageIncludes(),
-                options.getCoverageExcludes()),
-            Optional.empty());
+                options.getCoverageExcludes()));
       } catch (StepFailedException e) {
         params
             .getBuckEventBus()
@@ -492,7 +507,7 @@ public class TestRunning {
 
           @Override
           public void onFailure(Throwable throwable) {
-            LOG.warn(throwable, "Test command step failed, marking %s as failed", testRule);
+            LOG.info(throwable, "Test command step failed, marking %s as failed", testRule);
             // If the test command steps themselves fail, report this as special test result.
             TestResults testResults =
                 TestResults.of(
@@ -511,9 +526,7 @@ public class TestRunning {
                                     "",
                                     "")))),
                     testRule.getContacts(),
-                    testRule
-                        .getLabels()
-                        .stream()
+                    testRule.getLabels().stream()
                         .map(Object::toString)
                         .collect(ImmutableSet.toImmutableSet()));
             TestResults newTestResults = postTestResults(testResults);
@@ -562,6 +575,33 @@ public class TestRunning {
             ImmutableSortedSet<BuildTarget> depTests = ((JavaLibraryWithTests) dep).getTests();
             if (depTests.contains(test.getBuildTarget())) {
               rulesUnderTest.add(dep);
+            }
+          }
+        }
+      }
+      if (test instanceof AndroidInstrumentationTest) {
+        // Look at the transitive dependencies for `tests` attribute that refers to this test.
+        AndroidInstrumentationTest androidInstrumentationTest = (AndroidInstrumentationTest) test;
+
+        HasInstallableApk apk = androidInstrumentationTest.getApk();
+        if (apk instanceof AndroidBinary) {
+          AndroidBinary androidBinary = (AndroidBinary) apk;
+          Iterable<JavaLibrary> transitiveDeps = androidBinary.getTransitiveClasspathDeps();
+
+          if (androidBinary instanceof AndroidInstrumentationApk) {
+            transitiveDeps =
+                Iterables.concat(
+                    transitiveDeps,
+                    ((AndroidInstrumentationApk) androidBinary)
+                        .getApkUnderTest()
+                        .getTransitiveClasspathDeps());
+          }
+          for (JavaLibrary dep : transitiveDeps) {
+            if (dep instanceof JavaLibraryWithTests) {
+              ImmutableSortedSet<BuildTarget> depTests = ((JavaLibraryWithTests) dep).getTests();
+              if (depTests.contains(test.getBuildTarget())) {
+                rulesUnderTest.add(dep);
+              }
             }
           }
         }
@@ -791,7 +831,6 @@ public class TestRunning {
   }
 
   private static ListenableFuture<TestResults> runStepsAndYieldResult(
-      StepRunner stepRunner,
       ExecutionContext context,
       List<Step> steps,
       Callable<TestResults> interpretResults,
@@ -804,7 +843,7 @@ public class TestRunning {
           LOG.debug("Test steps will run for %s", buildTarget);
           eventBus.post(TestRuleEvent.started(buildTarget));
           for (Step step : steps) {
-            stepRunner.runStepForBuildTarget(context, step, Optional.of(buildTarget));
+            StepRunner.runStep(context, step);
           }
           LOG.debug("Test steps did run for %s", buildTarget);
           eventBus.post(TestRuleEvent.finished(buildTarget));

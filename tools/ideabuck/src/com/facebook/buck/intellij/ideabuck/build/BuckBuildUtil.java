@@ -18,15 +18,19 @@ package com.facebook.buck.intellij.ideabuck.build;
 
 import com.facebook.buck.intellij.ideabuck.file.BuckFileUtil;
 import com.facebook.buck.intellij.ideabuck.lang.BuckFile;
+import com.facebook.buck.intellij.ideabuck.lang.psi.BuckArgument;
+import com.facebook.buck.intellij.ideabuck.lang.psi.BuckArgumentList;
 import com.facebook.buck.intellij.ideabuck.lang.psi.BuckExpression;
+import com.facebook.buck.intellij.ideabuck.lang.psi.BuckFunctionTrailer;
 import com.facebook.buck.intellij.ideabuck.lang.psi.BuckLoadTargetArgument;
-import com.facebook.buck.intellij.ideabuck.lang.psi.BuckPsiUtils;
-import com.facebook.buck.intellij.ideabuck.lang.psi.BuckRuleBody;
 import com.facebook.buck.intellij.ideabuck.lang.psi.BuckTypes;
+import com.facebook.buck.intellij.ideabuck.util.BuckPsiUtils;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiManager;
+import com.intellij.psi.util.PsiTreeUtil;
+import java.util.List;
 import org.jetbrains.annotations.Nullable;
 
 public final class BuckBuildUtil {
@@ -35,7 +39,6 @@ public final class BuckBuildUtil {
   public static final String BUCK_FILE_NAME = BuckFileUtil.getBuildFileName();
 
   // TODO(#7908675): Use Buck's classes and get rid of these.
-  public static final String PROJECT_CONFIG_RULE_NAME = "project_config";
   public static final String SRC_TARGET_PROPERTY_NAME = "src_target";
 
   private BuckBuildUtil() {}
@@ -68,7 +71,6 @@ public final class BuckBuildUtil {
    */
   @Nullable
   public static VirtualFile resolveExtensionFile(BuckLoadTargetArgument loadTarget) {
-    Project project = loadTarget.getProject();
     String target = loadTarget.getText();
     target = target.substring(1, target.length() - 1); // strip quotes
     if (!BuckBuildUtil.isValidAbsoluteTarget(target)) {
@@ -76,6 +78,7 @@ public final class BuckBuildUtil {
     }
     String packagePath = BuckBuildUtil.extractAbsoluteTarget(target);
     String fileName = BuckBuildUtil.extractTargetName(target);
+    Project project = loadTarget.getProject();
     @Nullable
     VirtualFile packageDirectory = project.getBaseDir().findFileByRelativePath(packagePath);
     return packageDirectory != null ? packageDirectory.findChild(fileName) : null;
@@ -105,15 +108,12 @@ public final class BuckBuildUtil {
 
     PsiElement[] children = buckFile.getChildren();
     for (PsiElement child : children) {
-      if (child.getNode().getElementType() == BuckTypes.RULE_BLOCK) {
-        PsiElement ruleName = child.getFirstChild();
+      if (child.getNode().getElementType() == BuckTypes.STATEMENT) {
+        BuckFunctionTrailer functionTrailer =
+            PsiTreeUtil.findChildOfType(child, BuckFunctionTrailer.class);
         // Find rule "project_config"
-        if (ruleName != null
-            && BuckPsiUtils.testType(ruleName, BuckTypes.RULE_NAME)
-            && ruleName.getText().equals(PROJECT_CONFIG_RULE_NAME)) {
-          // Find property "src_target"
-          PsiElement bodyElement = BuckPsiUtils.findChildWithType(child, BuckTypes.RULE_BODY);
-          return getPropertyValue((BuckRuleBody) bodyElement, SRC_TARGET_PROPERTY_NAME);
+        if (functionTrailer != null) {
+          return getPropertyValue(functionTrailer.getArgumentList(), SRC_TARGET_PROPERTY_NAME);
         }
       }
     }
@@ -124,37 +124,21 @@ public final class BuckBuildUtil {
    * Get the value of a property in a specific buck rule body. TODO(#7908675): We should use Buck's
    * own classes for it.
    */
-  public static String getPropertyValue(BuckRuleBody body, String name) {
-    if (body == null) {
+  public static String getPropertyValue(BuckArgumentList argumentList, String name) {
+    if (argumentList == null) {
       return null;
     }
-    PsiElement[] children = body.getChildren();
-    for (PsiElement child : children) {
-      if (BuckPsiUtils.testType(child, BuckTypes.PROPERTY)) {
-        PsiElement lvalue = child.getFirstChild();
+    List<BuckArgument> arguments = argumentList.getArgumentList();
+    for (BuckArgument arg : arguments) {
+      PsiElement lvalue = arg.getIdentifier();
+      if (lvalue != null) {
         PsiElement propertyName = lvalue.getFirstChild();
         if (propertyName != null && propertyName.getText().equals(name)) {
-          BuckExpression expression =
-              (BuckExpression) BuckPsiUtils.findChildWithType(child, BuckTypes.EXPRESSION);
-          return expression != null ? BuckPsiUtils.getStringValueFromExpression(expression) : null;
+          BuckExpression expression = arg.getExpression();
+          return BuckPsiUtils.getStringValueFromExpression(expression);
         }
       }
     }
     return null;
-  }
-
-  /**
-   * Find the buck file from a directory. TODO(#7908675): We should use Buck's own classes for it.
-   */
-  public static VirtualFile getBuckFileFromDirectory(VirtualFile file) {
-    if (file == null) {
-      return null;
-    }
-    VirtualFile buckFile = file.findChild(BUCK_FILE_NAME);
-    while (buckFile == null && file != null) {
-      buckFile = file.findChild(BUCK_FILE_NAME);
-      file = file.getParent();
-    }
-    return buckFile;
   }
 }

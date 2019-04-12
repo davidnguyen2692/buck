@@ -33,7 +33,6 @@ import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
-import com.google.common.collect.Ordering;
 import com.google.common.hash.HashCode;
 import java.io.IOException;
 import java.nio.file.Path;
@@ -83,9 +82,9 @@ public class JavaLibraryRules {
         graphBuilder,
         deps,
         r ->
-            r instanceof JavaLibrary || r instanceof CalculateAbi
-                ? Optional.of(r.getBuildDeps())
-                : Optional.empty(),
+            r instanceof JavaLibrary
+                ? Optional.of(((JavaLibrary) r).getDepsForTransitiveClasspathEntries())
+                : r instanceof CalculateAbi ? Optional.of(r.getBuildDeps()) : Optional.empty(),
         true);
   }
 
@@ -120,14 +119,5 @@ public class JavaLibraryRules {
       }
     }
     return abiRules.build();
-  }
-
-  public static ZipArchiveDependencySupplier getAbiClasspath(
-      ActionGraphBuilder graphBuilder, Iterable<BuildRule> inputs) {
-    return new ZipArchiveDependencySupplier(
-        getAbiRules(graphBuilder, inputs)
-            .stream()
-            .map(BuildRule::getSourcePathToOutput)
-            .collect(ImmutableSortedSet.toImmutableSortedSet(Ordering.natural())));
   }
 }

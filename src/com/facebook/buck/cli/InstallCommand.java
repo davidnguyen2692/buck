@@ -20,6 +20,7 @@ import com.facebook.buck.android.AdbHelper;
 import com.facebook.buck.android.AndroidBinary;
 import com.facebook.buck.android.AndroidInstallConfig;
 import com.facebook.buck.android.HasInstallableApk;
+import com.facebook.buck.android.device.TargetDeviceOptions;
 import com.facebook.buck.android.exopackage.AndroidDevicesHelper;
 import com.facebook.buck.android.exopackage.AndroidDevicesHelperFactory;
 import com.facebook.buck.apple.AppleBundle;
@@ -34,6 +35,7 @@ import com.facebook.buck.apple.simulator.AppleSimulatorDiscovery;
 import com.facebook.buck.apple.toolchain.ApplePlatform;
 import com.facebook.buck.cli.UninstallCommand.UninstallOptions;
 import com.facebook.buck.command.Build;
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.description.impl.DescriptionCache;
@@ -51,18 +53,16 @@ import com.facebook.buck.core.rules.common.InstallTrigger;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.event.InstallEvent;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.log.Logger;
 import com.facebook.buck.parser.ParserConfig;
-import com.facebook.buck.parser.SpeculativeParsing;
+import com.facebook.buck.parser.ParsingContext;
 import com.facebook.buck.parser.TargetNodeSpec;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
 import com.facebook.buck.parser.exceptions.NoSuchBuildTargetException;
 import com.facebook.buck.step.AdbOptions;
-import com.facebook.buck.step.ExecutionContext;
-import com.facebook.buck.step.TargetDeviceOptions;
 import com.facebook.buck.util.ExitCode;
 import com.facebook.buck.util.MoreExceptions;
 import com.facebook.buck.util.Optionals;
@@ -88,7 +88,9 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Function;
 import javax.annotation.Nullable;
 import org.kohsuke.args4j.Option;
 
@@ -201,8 +203,7 @@ public class InstallCommand extends BuildCommand {
   }
 
   @Override
-  public ExitCode runWithoutHelp(CommandRunnerParams params)
-      throws IOException, InterruptedException {
+  public ExitCode runWithoutHelp(CommandRunnerParams params) throws Exception {
     assertArguments(params);
 
     BuildRunResult buildRunResult;
@@ -221,7 +222,7 @@ public class InstallCommand extends BuildCommand {
       }
 
       // Build the targets
-      buildRunResult = run(params, pool, installHelperTargets);
+      buildRunResult = run(params, pool, Function.identity(), installHelperTargets);
       ExitCode exitCode = buildRunResult.getExitCode();
       if (exitCode != ExitCode.SUCCESS) {
         return exitCode;
@@ -337,6 +338,10 @@ public class InstallCommand extends BuildCommand {
       throws IOException, InterruptedException, BuildFileParseException {
 
     ParserConfig parserConfig = params.getBuckConfig().getView(ParserConfig.class);
+    ParsingContext parsingContext =
+        createParsingContext(params.getCell(), executor)
+            .withApplyDefaultFlavorsMode(parserConfig.getDefaultFlavorsMode())
+            .withExcludeUnsupportedTargets(false);
     ImmutableSet.Builder<String> installHelperTargets = ImmutableSet.builder();
     // TODO(cjhopman): This shouldn't be doing parsing outside of the normal parse stage.
     // The first step to that would be to move the Apple install helpers to be deps available from
@@ -345,8 +350,7 @@ public class InstallCommand extends BuildCommand {
     for (int index = 0; index < getArguments().size(); index++) {
       // TODO(markwang): Cache argument parsing
       TargetNodeSpec spec =
-          parseArgumentsAsTargetNodeSpecs(
-                  params.getCell().getCellPathResolver(), params.getBuckConfig(), getArguments())
+          parseArgumentsAsTargetNodeSpecs(params.getCell(), params.getBuckConfig(), getArguments())
               .get(index);
 
       BuildTarget target =
@@ -354,26 +358,12 @@ public class InstallCommand extends BuildCommand {
                   params
                       .getParser()
                       .resolveTargetSpecs(
-                          params.getBuckEventBus(),
-                          params.getCell(),
-                          getEnableParserProfiling(),
-                          executor,
-                          ImmutableList.of(spec),
-                          SpeculativeParsing.DISABLED,
-                          parserConfig.getDefaultFlavorsMode()))
+                          parsingContext, ImmutableList.of(spec), params.getTargetConfiguration()))
               .transformAndConcat(Functions.identity())
               .first()
               .get();
 
-      TargetNode<?> node =
-          params
-              .getParser()
-              .getTargetNode(
-                  params.getBuckEventBus(),
-                  params.getCell(),
-                  getEnableParserProfiling(),
-                  executor,
-                  target);
+      TargetNode<?> node = params.getParser().getTargetNode(parsingContext, target);
 
       if (node != null
           && node.getRuleType()
@@ -382,7 +372,8 @@ public class InstallCommand extends BuildCommand {
           if (ApplePlatform.needsInstallHelper(flavor.getName())) {
             AppleConfig appleConfig = params.getBuckConfig().getView(AppleConfig.class);
 
-            Optional<BuildTarget> deviceHelperTarget = appleConfig.getAppleDeviceHelperTarget();
+            Optional<BuildTarget> deviceHelperTarget =
+                appleConfig.getAppleDeviceHelperTarget(params.getTargetConfiguration());
             Optionals.addIfPresent(
                 Optionals.bind(
                     deviceHelperTarget,
@@ -500,7 +491,8 @@ public class InstallCommand extends BuildCommand {
     AppleConfig appleConfig = params.getBuckConfig().getView(AppleConfig.class);
 
     Path helperPath;
-    Optional<BuildTarget> helperTarget = appleConfig.getAppleDeviceHelperTarget();
+    Optional<BuildTarget> helperTarget =
+        appleConfig.getAppleDeviceHelperTarget(params.getTargetConfiguration());
     if (helperTarget.isPresent()) {
       ActionGraphBuilder graphBuilder = getBuild().getGraphBuilder();
       BuildRule buildRule = graphBuilder.requireRule(helperTarget.get());
@@ -542,7 +534,7 @@ public class InstallCommand extends BuildCommand {
     AppleDeviceHelper helper = new AppleDeviceHelper(processExecutor, helperPath);
     ImmutableMap<String, String> connectedDevices = helper.getConnectedDevices();
 
-    if (connectedDevices.size() == 0) {
+    if (connectedDevices.isEmpty()) {
       params
           .getConsole()
           .printBuildFailure(
@@ -575,7 +567,7 @@ public class InstallCommand extends BuildCommand {
       }
     } else {
       if (connectedDevices.size() > 1) {
-        LOG.warn(
+        LOG.info(
             "More than one connected device found, and no device ID specified.  A device will be"
                 + " arbitrarily picked.");
       }
@@ -595,7 +587,7 @@ public class InstallCommand extends BuildCommand {
     if (helper.installBundleOnDevice(
         selectedUdid,
         pathResolver.getAbsolutePath(
-            Preconditions.checkNotNull(appleBundle.getSourcePathToOutput())))) {
+            Objects.requireNonNull(appleBundle.getSourcePathToOutput())))) {
       params
           .getConsole()
           .printSuccess(
@@ -747,7 +739,7 @@ public class InstallCommand extends BuildCommand {
         new AppleSimulatorController(processExecutor, simctlPath, iosSimulatorPath);
 
     if (!appleSimulatorController.canStartSimulator(appleSimulator.get().getUdid())) {
-      LOG.warn("Cannot start simulator %s, killing simulators and trying again.");
+      LOG.info("Cannot start simulator %s, killing simulators and trying again.");
       if (!appleCoreSimulatorServiceController.killSimulatorProcesses()) {
         params.getConsole().printBuildFailure("Could not kill running simulator processes.");
         return FAILURE;
@@ -810,7 +802,7 @@ public class InstallCommand extends BuildCommand {
     if (!appleSimulatorController.installBundleInSimulator(
         appleSimulator.get().getUdid(),
         pathResolver.getAbsolutePath(
-            Preconditions.checkNotNull(appleBundle.getSourcePathToOutput())))) {
+            Objects.requireNonNull(appleBundle.getSourcePathToOutput())))) {
       params
           .getConsole()
           .printBuildFailure(

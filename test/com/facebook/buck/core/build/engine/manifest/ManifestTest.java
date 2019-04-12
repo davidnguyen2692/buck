@@ -25,11 +25,12 @@ import com.facebook.buck.core.sourcepath.ArchiveMemberSourcePath;
 import com.facebook.buck.core.sourcepath.FakeSourcePath;
 import com.facebook.buck.core.sourcepath.PathSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.sourcepath.SourcePathFactoryForTests;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.testutil.FakeFileHashCache;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.util.cache.FileHashCache;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -102,7 +103,8 @@ public class ManifestTest {
     FileHashCache fileHashCache =
         new FakeFileHashCache(
             new HashMap<>(),
-            ImmutableMap.of(RESOLVER.getAbsoluteArchiveMemberPath(input), hashCode),
+            ImmutableMap.of(
+                SourcePathFactoryForTests.toAbsoluteArchiveMemberPath(RESOLVER, input), hashCode),
             new HashMap<>());
     manifest.addEntry(fileHashCache, key, RESOLVER, ImmutableSet.of(input), ImmutableSet.of(input));
     assertThat(

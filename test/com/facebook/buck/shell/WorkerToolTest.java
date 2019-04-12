@@ -25,12 +25,12 @@ import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.common.BuildableSupport;
+import com.facebook.buck.core.rules.impl.FakeBuildRule;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.core.sourcepath.FakeSourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.parser.exceptions.NoSuchBuildTargetException;
-import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.macros.LocationMacro;
 import com.facebook.buck.rules.macros.StringWithMacrosUtils;
 import com.google.common.base.Joiner;
@@ -86,7 +86,7 @@ public class WorkerToolTest {
   }
 
   @Test
-  public void testArgsWithLocationMacroAffectDependenciesAndExpands() throws Exception {
+  public void testArgsWithLocationMacroAffectDependenciesAndExpands() {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
     SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
@@ -123,7 +123,7 @@ public class WorkerToolTest {
   }
 
   @Test
-  public void testEnvWithLocationMacroAffectDependenciesAndExpands() throws Exception {
+  public void testEnvWithLocationMacroAffectDependenciesAndExpands() {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
     SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
@@ -163,7 +163,7 @@ public class WorkerToolTest {
   }
 
   @Test
-  public void testUnderlyingToolIncludesDependenciesAsInputs() throws Exception {
+  public void testUnderlyingToolIncludesDependenciesAsInputs() {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
 
     BuildRule shBinaryRule =

@@ -16,12 +16,12 @@
 
 package com.facebook.buck.maven;
 
-import com.facebook.buck.core.model.UnflavoredBuildTarget;
+import com.facebook.buck.core.model.UnflavoredBuildTargetView;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.java.MavenPublishable;
-import com.facebook.buck.log.Logger;
 import com.facebook.buck.maven.aether.AetherUtil;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -40,6 +40,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import org.apache.maven.repository.internal.MavenRepositorySystemUtils;
 import org.eclipse.aether.DefaultRepositorySystemSession;
@@ -95,8 +96,8 @@ public class Publisher {
   public ImmutableSet<DeployResult> publish(
       SourcePathResolver pathResolver, ImmutableSet<MavenPublishable> publishables)
       throws DeploymentException {
-    ImmutableListMultimap<UnflavoredBuildTarget, UnflavoredBuildTarget> duplicateBuiltinBuileRules =
-        checkForDuplicatePackagedDeps(publishables);
+    ImmutableListMultimap<UnflavoredBuildTargetView, UnflavoredBuildTargetView>
+        duplicateBuiltinBuileRules = checkForDuplicatePackagedDeps(publishables);
     if (duplicateBuiltinBuileRules.size() > 0) {
       StringBuilder sb = new StringBuilder();
       sb.append("Duplicate transitive dependencies for publishable libraries found!  This means");
@@ -106,11 +107,12 @@ public class Publisher {
       sb.append("used together.  The can be resolved by adding a maven URL to each target listed");
       sb.append(StandardSystemProperty.LINE_SEPARATOR);
       sb.append("below:");
-      for (UnflavoredBuildTarget unflavoredBuildTarget : duplicateBuiltinBuileRules.keySet()) {
+      for (UnflavoredBuildTargetView unflavoredBuildTargetView :
+          duplicateBuiltinBuileRules.keySet()) {
         sb.append(StandardSystemProperty.LINE_SEPARATOR);
-        sb.append(unflavoredBuildTarget.getFullyQualifiedName());
+        sb.append(unflavoredBuildTargetView.getFullyQualifiedName());
         sb.append(" (referenced by these build targets: ");
-        Joiner.on(", ").appendTo(sb, duplicateBuiltinBuileRules.get(unflavoredBuildTarget));
+        Joiner.on(", ").appendTo(sb, duplicateBuiltinBuileRules.get(unflavoredBuildTargetView));
         sb.append(")");
       }
       throw new DeploymentException(sb.toString());
@@ -155,11 +157,12 @@ public class Publisher {
    * @return A multimap of dependency build targets and the publishable build targets that have them
    *     included in the final package that will be uploaded.
    */
-  private ImmutableListMultimap<UnflavoredBuildTarget, UnflavoredBuildTarget>
+  private ImmutableListMultimap<UnflavoredBuildTargetView, UnflavoredBuildTargetView>
       checkForDuplicatePackagedDeps(ImmutableSet<MavenPublishable> publishables) {
     // First build the multimap of the builtin dependencies and the publishable targets that use
     // them.
-    Multimap<UnflavoredBuildTarget, UnflavoredBuildTarget> builtinDeps = HashMultimap.create();
+    Multimap<UnflavoredBuildTargetView, UnflavoredBuildTargetView> builtinDeps =
+        HashMultimap.create();
     for (MavenPublishable publishable : publishables) {
       for (BuildRule buildRule : publishable.getPackagedDependencies()) {
         builtinDeps.put(
@@ -168,10 +171,11 @@ public class Publisher {
       }
     }
     // Now, check for any duplicate uses, and if found, return them.
-    ImmutableListMultimap.Builder<UnflavoredBuildTarget, UnflavoredBuildTarget> builder =
+    ImmutableListMultimap.Builder<UnflavoredBuildTargetView, UnflavoredBuildTargetView> builder =
         ImmutableListMultimap.builder();
-    for (UnflavoredBuildTarget buildTarget : builtinDeps.keySet()) {
-      Collection<UnflavoredBuildTarget> publishablesUsingBuildTarget = builtinDeps.get(buildTarget);
+    for (UnflavoredBuildTargetView buildTarget : builtinDeps.keySet()) {
+      Collection<UnflavoredBuildTargetView> publishablesUsingBuildTarget =
+          builtinDeps.get(buildTarget);
       if (publishablesUsingBuildTarget.size() > 1) {
         builder.putAll(buildTarget, publishablesUsingBuildTarget);
       }
@@ -219,8 +223,7 @@ public class Publisher {
    * @see Artifact#setFile
    */
   public DeployResult publish(List<Artifact> toPublish) throws DeploymentException {
-    RepositorySystem repoSys =
-        Preconditions.checkNotNull(locator.getService(RepositorySystem.class));
+    RepositorySystem repoSys = Objects.requireNonNull(locator.getService(RepositorySystem.class));
 
     DefaultRepositorySystemSession session = MavenRepositorySystemUtils.newSession();
     session.setLocalRepositoryManager(repoSys.newLocalRepositoryManager(session, localRepo));
@@ -241,7 +244,7 @@ public class Publisher {
     DeployRequest deployRequest = new DeployRequest().setRepository(remoteRepo);
     for (Artifact artifact : toPublish) {
       File file = artifact.getFile();
-      Preconditions.checkNotNull(file);
+      Objects.requireNonNull(file);
       Preconditions.checkArgument(file.exists(), "No such file: %s", file.getAbsolutePath());
 
       deployRequest.addArtifact(artifact);

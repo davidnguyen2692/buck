@@ -35,6 +35,7 @@ import com.facebook.buck.cxx.toolchain.MungingDebugPathSanitizer;
 import com.facebook.buck.cxx.toolchain.linker.GnuLinker;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.SanitizedArg;
 import com.facebook.buck.rules.args.SourcePathArg;
@@ -42,7 +43,6 @@ import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.rules.keys.DefaultRuleKeyFactory;
 import com.facebook.buck.rules.keys.TestDefaultRuleKeyFactory;
 import com.facebook.buck.testutil.FakeFileHashCache;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableBiMap;
 import com.google.common.collect.ImmutableList;
@@ -104,7 +104,8 @@ public class CxxLinkTest {
                     Optional.empty(),
                     Optional.empty(),
                     /* cacheable */ true,
-                    /* thinLto */ false));
+                    /* thinLto */ false,
+                    /* fatLto */ false));
 
     // Verify that changing the archiver causes a rulekey change.
 
@@ -125,7 +126,8 @@ public class CxxLinkTest {
                     Optional.empty(),
                     Optional.empty(),
                     /* cacheable */ true,
-                    /* thinLto */ false));
+                    /* thinLto */ false,
+                    /* fatLto */ false));
     assertNotEquals(defaultRuleKey, linkerChange);
 
     // Verify that changing the output path causes a rulekey change.
@@ -145,7 +147,8 @@ public class CxxLinkTest {
                     Optional.empty(),
                     Optional.empty(),
                     /* cacheable */ true,
-                    /* thinLto */ false));
+                    /* thinLto */ false,
+                    /* fatLto */ false));
     assertNotEquals(defaultRuleKey, outputChange);
 
     // Verify that changing the flags causes a rulekey change.
@@ -165,7 +168,8 @@ public class CxxLinkTest {
                     Optional.empty(),
                     Optional.empty(),
                     /* cacheable */ true,
-                    /* thinLto */ false));
+                    /* thinLto */ false,
+                    /* fatLto */ false));
     assertNotEquals(defaultRuleKey, flagsChange);
   }
 
@@ -221,7 +225,8 @@ public class CxxLinkTest {
                 Optional.empty(),
                 Optional.empty(),
                 /* cacheable */ true,
-                /* thinLto */ false));
+                /* thinLto */ false,
+                /* fatLto */ false));
 
     // Generate another rule with a different path we need to sanitize to the
     // same consistent value as above.
@@ -243,7 +248,8 @@ public class CxxLinkTest {
                 Optional.empty(),
                 Optional.empty(),
                 /* cacheable */ true,
-                /* thinLto */ false));
+                /* thinLto */ false,
+                /* fatLto */ false));
 
     assertEquals(ruleKey1, ruleKey2);
   }

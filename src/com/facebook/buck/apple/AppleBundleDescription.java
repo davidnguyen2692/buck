@@ -21,7 +21,7 @@ import com.facebook.buck.apple.toolchain.AppleCxxPlatformsProvider;
 import com.facebook.buck.apple.toolchain.ApplePlatform;
 import com.facebook.buck.apple.toolchain.CodeSignIdentityStore;
 import com.facebook.buck.apple.toolchain.ProvisioningProfileStore;
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.description.MetadataProvidingDescription;
 import com.facebook.buck.core.description.arg.CommonDescriptionArg;
 import com.facebook.buck.core.description.arg.HasDeclaredDeps;
@@ -34,6 +34,7 @@ import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.FlavorDomain;
 import com.facebook.buck.core.model.Flavored;
 import com.facebook.buck.core.model.InternalFlavor;
+import com.facebook.buck.core.model.TargetConfiguration;
 import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
 import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
@@ -42,14 +43,18 @@ import com.facebook.buck.core.toolchain.ToolchainProvider;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.cxx.CxxDescriptionEnhancer;
 import com.facebook.buck.cxx.FrameworkDependencies;
-import com.facebook.buck.cxx.toolchain.CxxPlatform;
+import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatformsProvider;
 import com.facebook.buck.cxx.toolchain.LinkerMapMode;
+import com.facebook.buck.cxx.toolchain.StaticUnresolvedCxxPlatform;
 import com.facebook.buck.cxx.toolchain.StripStyle;
+import com.facebook.buck.cxx.toolchain.UnresolvedCxxPlatform;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
+import com.facebook.buck.swift.SwiftBuckConfig;
 import com.facebook.buck.versions.Version;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableCollection;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
@@ -66,6 +71,7 @@ public class AppleBundleDescription
       ImmutableSet.of(CxxDescriptionEnhancer.STATIC_FLAVOR, CxxDescriptionEnhancer.SHARED_FLAVOR);
 
   public static final Flavor WATCH_OS_FLAVOR = InternalFlavor.of("watchos-armv7k");
+  public static final Flavor WATCH_OS_64_32_FLAVOR = InternalFlavor.of("watchos-arm64_32");
   public static final Flavor WATCH_SIMULATOR_FLAVOR = InternalFlavor.of("watchsimulator-i386");
 
   private static final Flavor WATCH = InternalFlavor.of("watch");
@@ -75,18 +81,24 @@ public class AppleBundleDescription
   private final AppleBinaryDescription appleBinaryDescription;
   private final AppleLibraryDescription appleLibraryDescription;
   private final AppleConfig appleConfig;
+  private final CxxBuckConfig cxxBuckConfig;
+  private final SwiftBuckConfig swiftBuckConfig;
 
   public AppleBundleDescription(
       ToolchainProvider toolchainProvider,
       XCodeDescriptions xcodeDescriptions,
       AppleBinaryDescription appleBinaryDescription,
       AppleLibraryDescription appleLibraryDescription,
-      AppleConfig appleConfig) {
+      AppleConfig appleConfig,
+      CxxBuckConfig cxxBuckConfig,
+      SwiftBuckConfig swiftBuckConfig) {
     this.toolchainProvider = toolchainProvider;
     this.xcodeDescriptions = xcodeDescriptions;
     this.appleBinaryDescription = appleBinaryDescription;
     this.appleLibraryDescription = appleLibraryDescription;
     this.appleConfig = appleConfig;
+    this.cxxBuckConfig = cxxBuckConfig;
+    this.swiftBuckConfig = swiftBuckConfig;
   }
 
   @Override
@@ -179,7 +191,10 @@ public class AppleBundleDescription
         args.getCodesignFlags(),
         args.getCodesignIdentity(),
         args.getIbtoolModuleFlag(),
-        appleConfig.getCodesignTimeout());
+        args.getIbtoolFlags(),
+        appleConfig.getCodesignTimeout(),
+        swiftBuckConfig.getCopyStdlibToFrameworks(),
+        cxxBuckConfig.shouldCacheStrip());
   }
 
   /**
@@ -194,32 +209,36 @@ public class AppleBundleDescription
       ImmutableCollection.Builder<BuildTarget> extraDepsBuilder,
       ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
     CxxPlatformsProvider cxxPlatformsProvider = getCxxPlatformsProvider();
-    if (!cxxPlatformsProvider.getCxxPlatforms().containsAnyOf(buildTarget.getFlavors())) {
+    if (!cxxPlatformsProvider.getUnresolvedCxxPlatforms().containsAnyOf(buildTarget.getFlavors())) {
       buildTarget =
-          buildTarget.withAppendedFlavors(cxxPlatformsProvider.getDefaultCxxPlatform().getFlavor());
+          buildTarget.withAppendedFlavors(
+              cxxPlatformsProvider.getDefaultUnresolvedCxxPlatform().getFlavor());
     }
 
     FlavorDomain<AppleCxxPlatform> appleCxxPlatformsFlavorDomain =
         getAppleCxxPlatformFlavorDomain();
     Optional<MultiarchFileInfo> fatBinaryInfo =
         MultiarchFileInfos.create(appleCxxPlatformsFlavorDomain, buildTarget);
-    CxxPlatform cxxPlatform;
+    UnresolvedCxxPlatform cxxPlatform;
     if (fatBinaryInfo.isPresent()) {
       AppleCxxPlatform appleCxxPlatform = fatBinaryInfo.get().getRepresentativePlatform();
-      cxxPlatform = appleCxxPlatform.getCxxPlatform();
+      cxxPlatform = new StaticUnresolvedCxxPlatform(appleCxxPlatform.getCxxPlatform());
     } else {
       cxxPlatform = ApplePlatforms.getCxxPlatformForBuildTarget(cxxPlatformsProvider, buildTarget);
     }
 
+    // TODO(cjhopman): Why doesn't this add parse time deps from the cxxPlatform? Does it just
+    // happen to work because something else in the graph probably does that?
+
     String platformName = cxxPlatform.getFlavor().getName();
-    Flavor actualWatchFlavor;
+    Flavor[] actualWatchFlavors;
     if (ApplePlatform.isSimulator(platformName)) {
-      actualWatchFlavor = WATCH_SIMULATOR_FLAVOR;
+      actualWatchFlavors = new Flavor[] {WATCH_SIMULATOR_FLAVOR};
     } else if (platformName.startsWith(ApplePlatform.IPHONEOS.getName())
         || platformName.startsWith(ApplePlatform.WATCHOS.getName())) {
-      actualWatchFlavor = WATCH_OS_FLAVOR;
+      actualWatchFlavors = new Flavor[] {WATCH_OS_FLAVOR, WATCH_OS_64_32_FLAVOR};
     } else {
-      actualWatchFlavor = InternalFlavor.of(platformName);
+      actualWatchFlavors = new Flavor[] {InternalFlavor.of(platformName)};
     }
 
     ImmutableSortedSet<BuildTarget> binaryTargets = constructorArg.getBinaryTargets();
@@ -232,17 +251,18 @@ public class AppleBundleDescription
     {
       FluentIterable<BuildTarget> targetsWithPlatformFlavors =
           depsExcludingBinary.filter(
-              Flavors.containsFlavors(cxxPlatformsProvider.getCxxPlatforms())::test);
+              Flavors.containsFlavors(cxxPlatformsProvider.getUnresolvedCxxPlatforms())::test);
 
       FluentIterable<BuildTarget> targetsWithoutPlatformFlavors =
           depsExcludingBinary.filter(
-              Flavors.containsFlavors(cxxPlatformsProvider.getCxxPlatforms()).negate()::test);
+              Flavors.containsFlavors(cxxPlatformsProvider.getUnresolvedCxxPlatforms()).negate()
+                  ::test);
 
       FluentIterable<BuildTarget> watchTargets =
           targetsWithoutPlatformFlavors
               .filter(Flavors.containsFlavor(WATCH)::test)
               .transform(
-                  input -> input.withoutFlavors(WATCH).withAppendedFlavors(actualWatchFlavor));
+                  input -> input.withoutFlavors(WATCH).withAppendedFlavors(actualWatchFlavors));
 
       targetsWithoutPlatformFlavors =
           targetsWithoutPlatformFlavors.filter(Flavors.containsFlavor(WATCH).negate()::test);
@@ -254,7 +274,7 @@ public class AppleBundleDescription
               .append(
                   Flavors.propagateFlavorDomains(
                       buildTarget,
-                      ImmutableSet.of(cxxPlatformsProvider.getCxxPlatforms()),
+                      ImmutableSet.of(cxxPlatformsProvider.getUnresolvedCxxPlatforms()),
                       targetsWithoutPlatformFlavors));
     }
 
@@ -276,13 +296,16 @@ public class AppleBundleDescription
                   .get()
                   .getRepresentativePlatform()
                   .getCodesignProvider()
-                  .getParseTimeDeps());
+                  .getParseTimeDeps(buildTarget.getTargetConfiguration()));
     } else {
+      TargetConfiguration targetConfiguration = buildTarget.getTargetConfiguration();
       depsExcludingBinary =
           depsExcludingBinary.append(
               appleCxxPlatformsFlavorDomain
                   .getValue(buildTarget)
-                  .map(platform -> platform.getCodesignProvider().getParseTimeDeps())
+                  .map(
+                      platform ->
+                          platform.getCodesignProvider().getParseTimeDeps(targetConfiguration))
                   .orElse(ImmutableSet.of()));
     }
 
@@ -305,6 +328,7 @@ public class AppleBundleDescription
     FlavorDomain<AppleCxxPlatform> appleCxxPlatforms = getAppleCxxPlatformFlavorDomain();
     AppleCxxPlatform appleCxxPlatform =
         ApplePlatforms.getAppleCxxPlatformForBuildTarget(
+            graphBuilder,
             cxxPlatformsProvider,
             appleCxxPlatforms,
             buildTarget,
@@ -365,6 +389,8 @@ public class AppleBundleDescription
     // Module (so far, it seems to only represent swift module) contains the
     // implementation of the declared element in nib file.
     Optional<Boolean> getIbtoolModuleFlag();
+
+    Optional<ImmutableList<String>> getIbtoolFlags();
 
     @Override
     @Hint(isDep = false)

@@ -21,13 +21,15 @@ import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.config.ConfigView;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.TargetConfiguration;
+import com.facebook.buck.core.model.UnconfiguredBuildTargetView;
 import com.facebook.buck.core.toolchain.tool.impl.HashedFileTool;
 import com.facebook.buck.core.toolchain.toolprovider.ToolProvider;
 import com.facebook.buck.core.toolchain.toolprovider.impl.BinaryBuildRuleToolProvider;
 import com.facebook.buck.core.toolchain.toolprovider.impl.ConstantToolProvider;
 import com.facebook.buck.core.util.immutables.BuckStyleTuple;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.io.ExecutableFinder;
-import com.facebook.buck.log.Logger;
 import com.facebook.buck.util.MoreSuppliers;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.ProcessExecutor.Option;
@@ -186,13 +188,14 @@ public class AppleConfig implements ConfigView<BuckConfig> {
     return new ExecutableFinder().getOptionalExecutable(xctool, delegate.getEnvironment());
   }
 
-  public Optional<BuildTarget> getXctoolZipTarget() {
-    return delegate.getBuildTarget(APPLE_SECTION, "xctool_zip_target");
+  public Optional<BuildTarget> getXctoolZipTarget(TargetConfiguration targetConfiguration) {
+    return delegate.getBuildTarget(APPLE_SECTION, "xctool_zip_target", targetConfiguration);
   }
 
   public ToolProvider getCodesignProvider() {
     String codesignField = "codesign";
-    Optional<BuildTarget> target = delegate.getMaybeBuildTarget(APPLE_SECTION, codesignField);
+    Optional<UnconfiguredBuildTargetView> target =
+        delegate.getMaybeUnconfiguredBuildTarget(APPLE_SECTION, codesignField);
     String source = String.format("[%s] %s", APPLE_SECTION, codesignField);
     if (target.isPresent()) {
       return new BinaryBuildRuleToolProvider(target.get(), source);
@@ -250,8 +253,8 @@ public class AppleConfig implements ConfigView<BuckConfig> {
     return getOptionalPath(APPLE_SECTION, "device_helper_path");
   }
 
-  public Optional<BuildTarget> getAppleDeviceHelperTarget() {
-    return delegate.getBuildTarget(APPLE_SECTION, "device_helper_target");
+  public Optional<BuildTarget> getAppleDeviceHelperTarget(TargetConfiguration targetConfiguration) {
+    return delegate.getBuildTarget(APPLE_SECTION, "device_helper_target", targetConfiguration);
   }
 
   public Path getProvisioningProfileSearchPath() {
@@ -263,12 +266,8 @@ public class AppleConfig implements ConfigView<BuckConfig> {
 
   private Optional<Path> getOptionalPath(String sectionName, String propertyName) {
     Optional<String> pathString = delegate.getValue(sectionName, propertyName);
-    if (pathString.isPresent()) {
-      return Optional.of(
-          delegate.resolvePathThatMayBeOutsideTheProjectFilesystem(Paths.get(pathString.get())));
-    } else {
-      return Optional.empty();
-    }
+    return pathString.map(
+        path -> delegate.resolvePathThatMayBeOutsideTheProjectFilesystem(Paths.get(path)));
   }
 
   public boolean shouldUseHeaderMapsInXcodeProject() {
@@ -298,6 +297,10 @@ public class AppleConfig implements ConfigView<BuckConfig> {
 
   public boolean shouldAddLinkedLibrariesAsFlags() {
     return delegate.getBooleanValue(APPLE_SECTION, "link_libraries_as_flags", false);
+  }
+
+  public boolean shouldIncludeSharedLibraryResources() {
+    return delegate.getBooleanValue(APPLE_SECTION, "include_shared_lib_resources", false);
   }
 
   public boolean shouldAddLinkerFlagsForLinkWholeLibraries() {
@@ -411,6 +414,19 @@ public class AppleConfig implements ConfigView<BuckConfig> {
     return delegate
         .getValue(APPLE_SECTION, toolName + "_version_override")
         .orElse(defaultToolVersion);
+  }
+
+  /**
+   * @return whether to extend C/C++ platforms using config settings in <code>cxx#<flavor></code>
+   *     sections instead of the unflavored <code>cxx</code> section.
+   */
+  public boolean useFlavoredCxxSections() {
+    return delegate.getBoolean(APPLE_SECTION, "use_flavored_cxx_sections").orElse(false);
+  }
+
+  /** @return whether to add the cell path to the `-iquote` path for all compilations. */
+  public boolean addCellPathToIquotePath() {
+    return delegate.getBoolean(APPLE_SECTION, "add_cell_path_to_iquote_path").orElse(true);
   }
 
   @Value.Immutable

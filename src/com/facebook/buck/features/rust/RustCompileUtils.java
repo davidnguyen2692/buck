@@ -18,9 +18,12 @@ package com.facebook.buck.features.rust;
 
 import static com.facebook.buck.cxx.CxxDescriptionEnhancer.createSharedLibrarySymlinkTreeTarget;
 
+import com.facebook.buck.apple.toolchain.ApplePlatform;
 import com.facebook.buck.core.description.arg.HasDefaultPlatform;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.Flavor;
+import com.facebook.buck.core.model.TargetConfiguration;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.BuildRuleParams;
@@ -48,7 +51,10 @@ import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.util.RichStream;
+import com.facebook.buck.util.environment.Architecture;
 import com.facebook.buck.util.types.Pair;
+import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedMap;
@@ -59,9 +65,11 @@ import com.google.common.hash.Hashing;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Stream;
+import javax.annotation.Nullable;
 
 /** Utilities to generate various kinds of Rust compilation. */
 public class RustCompileUtils {
@@ -97,15 +105,25 @@ public class RustCompileUtils {
       ImmutableList<String> extraLinkerFlags,
       Iterable<Arg> linkerInputs,
       CrateType crateType,
+      Optional<String> edition,
       LinkableDepType depType,
       boolean rpath,
       ImmutableSortedSet<SourcePath> sources,
       SourcePath rootModule,
       boolean forceRlib,
       boolean preferStatic,
-      Iterable<BuildRule> ruledeps) {
+      Iterable<BuildRule> ruledeps,
+      Optional<String> incremental) {
     CxxPlatform cxxPlatform = rustPlatform.getCxxPlatform();
     ImmutableList.Builder<Arg> linkerArgs = ImmutableList.builder();
+
+    Optional<String> filename = crateType.filenameFor(target, crateName, cxxPlatform);
+
+    if (crateType == CrateType.CDYLIB) {
+      String soname = filename.get();
+      Linker linker = cxxPlatform.getLd().resolve(graphBuilder, target.getTargetConfiguration());
+      linkerArgs.addAll(StringArg.from(linker.soname(soname)));
+    }
 
     Stream.concat(rustPlatform.getLinkerArgs().stream(), extraLinkerFlags.stream())
         .filter(x -> !x.isEmpty())
@@ -147,6 +165,24 @@ public class RustCompileUtils {
         .flatMap(x -> x)
         .map(StringArg::of)
         .forEach(args::add);
+
+    if (edition.isPresent()) {
+      args.add(StringArg.of(String.format("--edition=%s", edition.get())));
+    }
+
+    if (incremental.isPresent()) {
+      Path path =
+          projectFilesystem
+              .getBuckPaths()
+              .getTmpDir()
+              .resolve("rust-incremental")
+              .resolve(incremental.get());
+
+      for (Flavor f : target.getFlavors()) {
+        path = path.resolve(f.getName());
+      }
+      args.add(StringArg.of(String.format("-Cincremental=%s", path)));
+    }
 
     LinkableDepType rustDepType;
     // If we're building a CDYLIB then our Rust dependencies need to be static
@@ -202,6 +238,7 @@ public class RustCompileUtils {
           NativeLinkables.getTransitiveNativeLinkableInput(
                   cxxPlatform,
                   graphBuilder,
+                  target.getTargetConfiguration(),
                   ruledeps,
                   depType,
                   r ->
@@ -225,16 +262,14 @@ public class RustCompileUtils {
       args.add(StringArg.of("-Cprefer-dynamic"));
     }
 
-    Optional<String> filename = crateType.filenameFor(target, crateName, cxxPlatform);
-
     return RustCompileRule.from(
         ruleFinder,
         target,
         projectFilesystem,
         params,
         filename,
-        rustPlatform.getRustCompiler().resolve(graphBuilder),
-        rustPlatform.getLinkerProvider().resolve(graphBuilder),
+        rustPlatform.getRustCompiler().resolve(graphBuilder, target.getTargetConfiguration()),
+        rustPlatform.getLinkerProvider().resolve(graphBuilder, target.getTargetConfiguration()),
         args.build(),
         depArgs.build(),
         linkerArgs.build(),
@@ -256,12 +291,14 @@ public class RustCompileUtils {
       Iterable<Arg> linkerInputs,
       String crateName,
       CrateType crateType,
+      Optional<String> edition,
       LinkableDepType depType,
       ImmutableSortedSet<SourcePath> sources,
       SourcePath rootModule,
       boolean forceRlib,
       boolean preferStatic,
-      Iterable<BuildRule> deps) {
+      Iterable<BuildRule> deps,
+      Optional<String> incremental) {
     return (RustCompileRule)
         graphBuilder.computeIfAbsent(
             getCompileBuildTarget(buildTarget, rustPlatform.getCxxPlatform(), crateType),
@@ -279,13 +316,15 @@ public class RustCompileUtils {
                     extraLinkerFlags,
                     linkerInputs,
                     crateType,
+                    edition,
                     depType,
                     true,
                     sources,
                     rootModule,
                     forceRlib,
                     preferStatic,
-                    deps));
+                    deps,
+                    incremental));
   }
 
   public static Linker.LinkableDepType getLinkStyle(
@@ -322,17 +361,19 @@ public class RustCompileUtils {
                 .orElseGet(rustToolchain::getDefaultRustPlatform));
   }
 
-  static Iterable<BuildTarget> getPlatformParseTimeDeps(RustPlatform rustPlatform) {
+  static Iterable<BuildTarget> getPlatformParseTimeDeps(
+      TargetConfiguration targetConfiguration, RustPlatform rustPlatform) {
     ImmutableSet.Builder<BuildTarget> deps = ImmutableSet.builder();
-    deps.addAll(rustPlatform.getRustCompiler().getParseTimeDeps());
-    rustPlatform.getLinker().ifPresent(l -> deps.addAll(l.getParseTimeDeps()));
-    deps.addAll(CxxPlatforms.getParseTimeDeps(rustPlatform.getCxxPlatform()));
+    deps.addAll(rustPlatform.getRustCompiler().getParseTimeDeps(targetConfiguration));
+    rustPlatform.getLinker().ifPresent(l -> deps.addAll(l.getParseTimeDeps(targetConfiguration)));
+    deps.addAll(CxxPlatforms.getParseTimeDeps(targetConfiguration, rustPlatform.getCxxPlatform()));
     return deps.build();
   }
 
   public static Iterable<BuildTarget> getPlatformParseTimeDeps(
       RustToolchain rustToolchain, BuildTarget buildTarget, HasDefaultPlatform hasDefaultPlatform) {
     return getPlatformParseTimeDeps(
+        buildTarget.getTargetConfiguration(),
         getRustPlatform(rustToolchain, buildTarget, hasDefaultPlatform));
   }
 
@@ -344,6 +385,7 @@ public class RustCompileUtils {
       RustBuckConfig rustBuckConfig,
       RustPlatform rustPlatform,
       Optional<String> crateName,
+      Optional<String> edition,
       ImmutableSortedSet<String> features,
       Iterator<String> rustcFlags,
       Iterator<String> linkerFlags,
@@ -361,6 +403,7 @@ public class RustCompileUtils {
 
     RustCompileUtils.addFeatures(buildTarget, features, rustcArgs);
 
+    RustCompileUtils.addTargetTripleForFlavor(rustPlatform.getFlavor(), rustcArgs);
     rustcArgs.addAll(rustcFlags);
 
     ImmutableList.Builder<String> linkerArgs = ImmutableList.builder();
@@ -429,7 +472,10 @@ public class RustCompileUtils {
               "-rpath",
               String.format(
                   "%s/%s",
-                  cxxPlatform.getLd().resolve(graphBuilder).origin(),
+                  cxxPlatform
+                      .getLd()
+                      .resolve(graphBuilder, buildTarget.getTargetConfiguration())
+                      .origin(),
                   absBinaryDir.relativize(sharedLibraries.getRoot()).toString())));
 
       // Add all the shared libraries and the symlink tree as inputs to the tool that represents
@@ -463,13 +509,15 @@ public class RustCompileUtils {
                         linkerArgs.build(),
                         /* linkerInputs */ ImmutableList.of(),
                         crateType,
+                        edition,
                         linkStyle,
                         rpath,
                         rootModuleAndSources.getSecond(),
                         rootModuleAndSources.getFirst(),
                         forceRlib,
                         preferStatic,
-                        deps));
+                        deps,
+                        rustBuckConfig.getIncremental(rustPlatform.getFlavor().getName())));
 
     // Add the binary as the first argument.
     executableBuilder.addArg(SourcePathArg.of(buildRule.getSourcePathToOutput()));
@@ -616,5 +664,41 @@ public class RustCompileUtils {
     Hasher hasher = Hashing.md5().newHasher();
     HashCode hash = hasher.putString(name, StandardCharsets.UTF_8).hash();
     return hash.toString().substring(0, 16);
+  }
+
+  /** Given a Rust flavor, return a target triple or null if none known. */
+  @VisibleForTesting
+  public static @Nullable String targetTripleForFlavor(Flavor flavor) {
+    List<String> parts = Splitter.on('-').limit(2).splitToList(flavor.getName());
+
+    if (parts.size() != 2) {
+      return null;
+    }
+
+    String platform = parts.get(0);
+    if (!platform.equals(ApplePlatform.IPHONEOS.getName())
+        && !platform.equals(ApplePlatform.IPHONESIMULATOR.getName())) {
+      return null;
+    }
+
+    String rawArch = parts.get(1);
+    String rustArch;
+    if (rawArch.equals("armv7")) {
+      // armv7 is not part of Architecture.
+      rustArch = "armv7";
+    } else {
+      Architecture arch = Architecture.fromName(parts.get(1));
+      rustArch = arch.toString();
+    }
+
+    return rustArch + "-apple-ios";
+  }
+
+  /** Add the appropriate --target option to the given rustc args if the given flavor is known. */
+  public static void addTargetTripleForFlavor(Flavor flavor, ImmutableList.Builder<String> args) {
+    String triple = targetTripleForFlavor(flavor);
+    if (triple != null) {
+      args.add("--target", triple);
+    }
   }
 }

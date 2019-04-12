@@ -16,7 +16,7 @@
 
 package com.facebook.buck.jvm.scala;
 
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.description.attr.ImplicitDepsInferringDescription;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
@@ -28,11 +28,13 @@ import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.toolchain.ToolchainProvider;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.cxx.toolchain.CxxPlatformsProvider;
+import com.facebook.buck.cxx.toolchain.UnresolvedCxxPlatform;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.core.JavaAbis;
 import com.facebook.buck.jvm.core.JavaLibrary;
 import com.facebook.buck.jvm.java.DefaultJavaLibraryRules;
 import com.facebook.buck.jvm.java.JavaBuckConfig;
+import com.facebook.buck.jvm.java.JavaOptions;
 import com.facebook.buck.jvm.java.JavaTest;
 import com.facebook.buck.jvm.java.JavaTestDescription;
 import com.facebook.buck.jvm.java.JavacFactory;
@@ -42,13 +44,15 @@ import com.facebook.buck.jvm.java.TestType;
 import com.facebook.buck.jvm.java.toolchain.JavaOptionsProvider;
 import com.facebook.buck.jvm.java.toolchain.JavacOptionsProvider;
 import com.facebook.buck.rules.macros.StringWithMacrosConverter;
+import com.facebook.buck.test.config.TestBuckConfig;
 import com.facebook.buck.util.Optionals;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import java.util.Optional;
+import java.util.function.Supplier;
 import org.immutables.value.Value;
 
 public class ScalaTestDescription
@@ -58,12 +62,16 @@ public class ScalaTestDescription
   private final ToolchainProvider toolchainProvider;
   private final ScalaBuckConfig config;
   private final JavaBuckConfig javaBuckConfig;
+  private final Supplier<JavaOptions> javaOptionsForTests;
+  private final JavacFactory javacFactory;
 
   public ScalaTestDescription(
       ToolchainProvider toolchainProvider, ScalaBuckConfig config, JavaBuckConfig javaBuckConfig) {
     this.toolchainProvider = toolchainProvider;
     this.config = config;
     this.javaBuckConfig = javaBuckConfig;
+    this.javaOptionsForTests = JavaOptionsProvider.getDefaultJavaOptionsForTests(toolchainProvider);
+    this.javacFactory = JavacFactory.getDefault(toolchainProvider);
   }
 
   @Override
@@ -89,9 +97,7 @@ public class ScalaTestDescription
             args.getCxxLibraryWhitelist(),
             graphBuilder,
             ruleFinder,
-            toolchainProvider
-                .getByName(CxxPlatformsProvider.DEFAULT_NAME, CxxPlatformsProvider.class)
-                .getDefaultCxxPlatform());
+            getCxxPlatform().resolve(graphBuilder));
     BuildRuleParams params = cxxLibraryEnhancement.updatedParams;
     BuildTarget javaLibraryBuildTarget =
         buildTarget.withAppendedFlavors(JavaTest.COMPILED_TESTS_LIBRARY_FLAVOR);
@@ -102,7 +108,6 @@ public class ScalaTestDescription
                 .getByName(JavacOptionsProvider.DEFAULT_NAME, JavacOptionsProvider.class)
                 .getJavacOptions(),
             buildTarget,
-            projectFilesystem,
             graphBuilder,
             args);
 
@@ -118,7 +123,7 @@ public class ScalaTestDescription
                 config,
                 javaBuckConfig,
                 args,
-                JavacFactory.getDefault(toolchainProvider))
+                javacFactory)
             .setJavacOptions(javacOptions)
             .build();
 
@@ -139,19 +144,22 @@ public class ScalaTestDescription
         projectFilesystem,
         params.withDeclaredDeps(ImmutableSortedSet.of(testsLibrary)).withoutExtraDeps(),
         testsLibrary,
-        /* additionalClasspathEntries */ ImmutableSet.of(),
+        Optional.empty(),
         args.getLabels(),
         args.getContacts(),
         args.getTestType().isPresent() ? args.getTestType().get() : TestType.JUNIT,
-        toolchainProvider
-            .getByName(JavaOptionsProvider.DEFAULT_NAME, JavaOptionsProvider.class)
-            .getJavaOptionsForTests()
-            .getJavaRuntimeLauncher(),
-        args.getVmArgs(),
+        javaOptionsForTests
+            .get()
+            .getJavaRuntimeLauncher(graphBuilder, buildTarget.getTargetConfiguration()),
+        Lists.transform(args.getVmArgs(), vmArg -> macrosConverter.convert(vmArg, graphBuilder)),
         cxxLibraryEnhancement.nativeLibsEnvironment,
         args.getTestRuleTimeoutMs()
             .map(Optional::of)
-            .orElse(javaBuckConfig.getDelegate().getDefaultTestRuleTimeoutMs()),
+            .orElse(
+                javaBuckConfig
+                    .getDelegate()
+                    .getView(TestBuckConfig.class)
+                    .getDefaultTestRuleTimeoutMs()),
         args.getTestCaseTimeoutMs(),
         ImmutableMap.copyOf(
             Maps.transformValues(args.getEnv(), x -> macrosConverter.convert(x, graphBuilder))),
@@ -162,6 +170,12 @@ public class ScalaTestDescription
         args.getUnbundledResourcesRoot());
   }
 
+  private UnresolvedCxxPlatform getCxxPlatform() {
+    return toolchainProvider
+        .getByName(CxxPlatformsProvider.DEFAULT_NAME, CxxPlatformsProvider.class)
+        .getDefaultUnresolvedCxxPlatform();
+  }
+
   @Override
   public void findDepsForTargetFromConstructorArgs(
       BuildTarget buildTarget,
@@ -169,8 +183,13 @@ public class ScalaTestDescription
       AbstractScalaTestDescriptionArg constructorArg,
       ImmutableCollection.Builder<BuildTarget> extraDepsBuilder,
       ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
-    extraDepsBuilder.add(config.getScalaLibraryTarget());
-    Optionals.addIfPresent(config.getScalacTarget(), extraDepsBuilder);
+    extraDepsBuilder.add(config.getScalaLibraryTarget(buildTarget.getTargetConfiguration()));
+    Optionals.addIfPresent(
+        config.getScalacTarget(buildTarget.getTargetConfiguration()), extraDepsBuilder);
+    javaOptionsForTests
+        .get()
+        .addParseTimeDeps(targetGraphOnlyDepsBuilder, buildTarget.getTargetConfiguration());
+    javacFactory.addParseTimeDeps(targetGraphOnlyDepsBuilder, constructorArg);
   }
 
   @BuckStyleImmutable

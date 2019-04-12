@@ -28,6 +28,7 @@ import com.facebook.buck.android.toolchain.ndk.AndroidNdk;
 import com.facebook.buck.core.build.buildable.context.FakeBuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
 import com.facebook.buck.core.build.context.FakeBuildContext;
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
@@ -43,9 +44,11 @@ import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.core.toolchain.ToolchainProvider;
 import com.facebook.buck.core.toolchain.impl.ToolchainProviderBuilder;
+import com.facebook.buck.core.toolchain.tool.impl.testutil.SimpleTool;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.jvm.core.JavaLibrary;
 import com.facebook.buck.jvm.java.JavaBinaryRuleBuilder;
 import com.facebook.buck.jvm.java.JavaLibraryBuilder;
@@ -59,14 +62,12 @@ import com.facebook.buck.rules.macros.ExecutableMacro;
 import com.facebook.buck.rules.macros.LocationMacro;
 import com.facebook.buck.rules.macros.StringWithMacrosUtils;
 import com.facebook.buck.rules.macros.WorkerMacro;
-import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.TestExecutionContext;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.RmStep;
 import com.facebook.buck.step.fs.SymlinkTreeStep;
 import com.facebook.buck.testutil.DummyFileHashCache;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.MoreAsserts;
 import com.facebook.buck.util.Ansi;
 import com.facebook.buck.util.Console;
@@ -409,7 +410,7 @@ public class GenruleTest {
   }
 
   @Test
-  public void testGenruleWithWorkerMacroUsesSpecialShellStep() throws Exception {
+  public void testGenruleWithWorkerMacroUsesSpecialShellStep() {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     SourcePathResolver pathResolver =
         DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
@@ -438,7 +439,7 @@ public class GenruleTest {
   }
 
   @Test
-  public void testIsWorkerGenruleReturnsTrue() throws Exception {
+  public void testIsWorkerGenruleReturnsTrue() {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     Genrule genrule = createGenruleBuilderThatUsesWorkerMacro(graphBuilder).build(graphBuilder);
     assertTrue(genrule.isWorkerGenrule());
@@ -457,7 +458,7 @@ public class GenruleTest {
   }
 
   @Test
-  public void testConstructingGenruleWithBadWorkerMacroThrows() throws Exception {
+  public void testConstructingGenruleWithBadWorkerMacroThrows() {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     GenruleBuilder genruleBuilder = createGenruleBuilderThatUsesWorkerMacro(graphBuilder);
     try {
@@ -508,7 +509,7 @@ public class GenruleTest {
   }
 
   @Test
-  public void ensureFilesInSubdirectoriesAreKeptInSubDirectories() throws Exception {
+  public void ensureFilesInSubdirectoriesAreKeptInSubDirectories() {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     SourcePathResolver pathResolver =
         DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
@@ -569,7 +570,7 @@ public class GenruleTest {
   }
 
   @Test
-  public void testShouldIncludeAndroidSpecificEnvInEnvironmentIfPresent() throws Exception {
+  public void testShouldIncludeAndroidSpecificEnvInEnvironmentIfPresent() {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     SourcePathResolver pathResolver =
         DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
@@ -578,8 +579,8 @@ public class GenruleTest {
             "android",
             Paths.get(""),
             Collections.emptyList(),
-            Paths.get(""),
-            Paths.get(""),
+            () -> new SimpleTool("aapt"),
+            () -> new SimpleTool("aapt2"),
             Paths.get(""),
             Paths.get(""),
             Paths.get("zipalign"),
@@ -611,12 +612,14 @@ public class GenruleTest {
 
     assertEquals(Paths.get(".").toString(), env.get("DX"));
     assertEquals(Paths.get("zipalign").toString(), env.get("ZIPALIGN"));
+    assertEquals("aapt", env.get("AAPT"));
+    assertEquals("aapt2", env.get("AAPT2"));
     assertEquals(sdkDir.toString(), env.get("ANDROID_HOME"));
     assertEquals(ndkDir.toString(), env.get("NDK_HOME"));
   }
 
   @Test
-  public void shouldPreventTheParentBuckdBeingUsedIfARecursiveBuckCallIsMade() throws Exception {
+  public void shouldPreventTheParentBuckdBeingUsedIfARecursiveBuckCallIsMade() {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     SourcePathResolver pathResolver =
         DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));

@@ -51,7 +51,7 @@ import org.junit.runners.Parameterized;
 public class CxxSharedLibraryInterfaceIntegrationTest {
 
   @Parameterized.Parameters(name = "type={0},platform={1}")
-  public static Collection<Object[]> data() throws InterruptedException {
+  public static Collection<Object[]> data() {
     List<Flavor> platforms = new ArrayList<>();
 
     // Test the system platform.
@@ -132,15 +132,15 @@ public class CxxSharedLibraryInterfaceIntegrationTest {
             "-c",
             "cxx.platform=" + platform,
             sharedBinaryTarget.getFullyQualifiedName());
-    String[] argv = args.toArray(new String[args.size()]);
+    String[] argv = args.toArray(new String[0]);
     workspace.runBuckBuild(argv).assertSuccess();
     assertTrue(workspace.replaceFileContents("library.cpp", "bar1", "bar2"));
     workspace.runBuckBuild(argv).assertSuccess();
     log = workspace.getBuildLog();
     if (sharedLibraryTarget.isPresent()) {
-      log.assertTargetBuiltLocally(sharedLibraryTarget.get().toString());
+      log.assertTargetBuiltLocally(sharedLibraryTarget.get());
     }
-    log.assertTargetBuiltLocally(sharedBinaryBuiltTarget.toString());
+    log.assertTargetBuiltLocally(sharedBinaryBuiltTarget);
 
     // Now verify that using shared library interfaces does not cause a rebuild after making a
     // non-interface change.
@@ -155,15 +155,15 @@ public class CxxSharedLibraryInterfaceIntegrationTest {
             "-c",
             "cxx.platform=" + platform,
             sharedBinaryTarget.getFullyQualifiedName());
-    String[] iArgv = iArgs.toArray(new String[iArgs.size()]);
+    String[] iArgv = iArgs.toArray(new String[0]);
     workspace.runBuckBuild(iArgv).assertSuccess();
     assertTrue(workspace.replaceFileContents("library.cpp", "bar2", "bar3"));
     workspace.runBuckBuild(iArgv).assertSuccess();
     log = workspace.getBuildLog();
     if (sharedLibraryTarget.isPresent()) {
-      log.assertTargetBuiltLocally(sharedLibraryTarget.get().toString());
+      log.assertTargetBuiltLocally(sharedLibraryTarget.get());
     }
-    log.assertTargetHadMatchingInputRuleKey(sharedBinaryBuiltTarget.toString());
+    log.assertTargetHadMatchingInputRuleKey(sharedBinaryBuiltTarget);
   }
 
   @Test
@@ -181,15 +181,15 @@ public class CxxSharedLibraryInterfaceIntegrationTest {
             "-c",
             "cxx.platform=" + platform,
             sharedBinaryTarget.getFullyQualifiedName());
-    String[] argv = args.toArray(new String[args.size()]);
+    String[] argv = args.toArray(new String[0]);
     workspace.runBuckBuild(argv).assertSuccess();
     assertTrue(workspace.replaceFileContents("library.cpp", "bar1 = 0", "bar1 = 1"));
     workspace.runBuckBuild(argv).assertSuccess();
     log = workspace.getBuildLog();
     if (sharedLibraryTarget.isPresent()) {
-      log.assertTargetBuiltLocally(sharedLibraryTarget.get().toString());
+      log.assertTargetBuiltLocally(sharedLibraryTarget.get());
     }
-    log.assertTargetBuiltLocally(sharedBinaryBuiltTarget.toString());
+    log.assertTargetBuiltLocally(sharedBinaryBuiltTarget);
 
     // Now verify that using shared library interfaces does not cause a rebuild after making a
     // non-interface change.
@@ -204,15 +204,15 @@ public class CxxSharedLibraryInterfaceIntegrationTest {
             "-c",
             "cxx.platform=" + platform,
             sharedBinaryTarget.getFullyQualifiedName());
-    String[] iArgv = iArgs.toArray(new String[iArgs.size()]);
+    String[] iArgv = iArgs.toArray(new String[0]);
     workspace.runBuckBuild(iArgv).assertSuccess();
     assertTrue(workspace.replaceFileContents("library.cpp", "bar1 = 1", "bar1 = 2"));
     workspace.runBuckBuild(iArgv).assertSuccess();
     log = workspace.getBuildLog();
     if (sharedLibraryTarget.isPresent()) {
-      log.assertTargetBuiltLocally(sharedLibraryTarget.get().toString());
+      log.assertTargetBuiltLocally(sharedLibraryTarget.get());
     }
-    log.assertTargetHadMatchingInputRuleKey(sharedBinaryBuiltTarget.toString());
+    log.assertTargetHadMatchingInputRuleKey(sharedBinaryBuiltTarget);
   }
 
   @Test
@@ -230,15 +230,15 @@ public class CxxSharedLibraryInterfaceIntegrationTest {
             "-c",
             "cxx.platform=" + platform,
             sharedBinaryTarget.getFullyQualifiedName());
-    String[] argv = args.toArray(new String[args.size()]);
+    String[] argv = args.toArray(new String[0]);
     workspace.runBuckBuild(argv).assertSuccess();
     assertTrue(workspace.replaceFileContents("library.cpp", "return bar1", "return bar1 += 15"));
     workspace.runBuckBuild(argv).assertSuccess();
     log = workspace.getBuildLog();
     if (sharedLibraryTarget.isPresent()) {
-      log.assertTargetBuiltLocally(sharedLibraryTarget.get().toString());
+      log.assertTargetBuiltLocally(sharedLibraryTarget.get());
     }
-    log.assertTargetBuiltLocally(sharedBinaryBuiltTarget.toString());
+    log.assertTargetBuiltLocally(sharedBinaryBuiltTarget);
 
     // Revert changes.
     assertTrue(workspace.replaceFileContents("library.cpp", "return bar1 += 15", "return bar1"));
@@ -256,15 +256,15 @@ public class CxxSharedLibraryInterfaceIntegrationTest {
             "-c",
             "cxx.platform=" + platform,
             sharedBinaryTarget.getFullyQualifiedName());
-    String[] iArgv = iArgs.toArray(new String[iArgs.size()]);
+    String[] iArgv = iArgs.toArray(new String[0]);
     workspace.runBuckBuild(iArgv).assertSuccess();
     assertTrue(workspace.replaceFileContents("library.cpp", "return bar1", "return bar1 += 15"));
     workspace.runBuckBuild(iArgv).assertSuccess();
     log = workspace.getBuildLog();
     if (sharedLibraryTarget.isPresent()) {
-      log.assertTargetBuiltLocally(sharedLibraryTarget.get().toString());
+      log.assertTargetBuiltLocally(sharedLibraryTarget.get());
     }
-    log.assertTargetHadMatchingInputRuleKey(sharedBinaryBuiltTarget.toString());
+    log.assertTargetHadMatchingInputRuleKey(sharedBinaryBuiltTarget);
   }
 
   @Test
@@ -280,7 +280,7 @@ public class CxxSharedLibraryInterfaceIntegrationTest {
             "-c",
             "cxx.platform=" + platform,
             sharedBinaryTarget.getFullyQualifiedName());
-    String[] argv = args.toArray(new String[args.size()]);
+    String[] argv = args.toArray(new String[0]);
     workspace.runBuckBuild(argv).assertSuccess();
     assertTrue(workspace.replaceFileContents("library.cpp", "foo", "bar"));
     workspace.runBuckBuild(argv).assertFailure();
@@ -302,12 +302,12 @@ public class CxxSharedLibraryInterfaceIntegrationTest {
             "-c",
             "cxx.platform=" + platform,
             staticBinaryTarget.getFullyQualifiedName());
-    String[] iArgv = iArgs.toArray(new String[iArgs.size()]);
+    String[] iArgv = iArgs.toArray(new String[0]);
     workspace.runBuckBuild(iArgv).assertSuccess();
     assertTrue(workspace.replaceFileContents("library.cpp", "bar1", "bar2"));
     workspace.runBuckBuild(iArgv).assertSuccess();
     log = workspace.getBuildLog();
-    log.assertTargetBuiltLocally(staticBinaryBuiltTarget.toString());
+    log.assertTargetBuiltLocally(staticBinaryBuiltTarget);
   }
 
   @Test
@@ -326,15 +326,15 @@ public class CxxSharedLibraryInterfaceIntegrationTest {
             "-c",
             "cxx.platform=" + platform,
             sharedBinaryTarget.getFullyQualifiedName());
-    String[] argv = args.toArray(new String[args.size()]);
+    String[] argv = args.toArray(new String[0]);
     workspace.runBuckBuild(argv).assertSuccess();
     assertTrue(workspace.replaceFileContents("library.cpp", "return bar1", "return bar1 + bar2"));
     workspace.runBuckBuild(argv).assertSuccess();
     log = workspace.getBuildLog();
     if (sharedLibraryTarget.isPresent()) {
-      log.assertTargetBuiltLocally(sharedLibraryTarget.get().toString());
+      log.assertTargetBuiltLocally(sharedLibraryTarget.get());
     }
-    log.assertTargetBuiltLocally(sharedBinaryBuiltTarget.toString());
+    log.assertTargetBuiltLocally(sharedBinaryBuiltTarget);
 
     // Revert changes.
     workspace.writeContentsToPath(originalContents, "library.cpp");
@@ -350,14 +350,14 @@ public class CxxSharedLibraryInterfaceIntegrationTest {
             "-c",
             "cxx.platform=" + platform,
             sharedBinaryTarget.getFullyQualifiedName());
-    String[] iArgv = iArgs.toArray(new String[iArgs.size()]);
+    String[] iArgv = iArgs.toArray(new String[0]);
     workspace.runBuckBuild(iArgv).assertSuccess();
     assertTrue(workspace.replaceFileContents("library.cpp", "return bar1", "return bar1 + bar2"));
     workspace.runBuckBuild(iArgv).assertSuccess();
     log = workspace.getBuildLog();
     if (sharedLibraryTarget.isPresent()) {
-      log.assertTargetBuiltLocally(sharedLibraryTarget.get().toString());
+      log.assertTargetBuiltLocally(sharedLibraryTarget.get());
     }
-    log.assertTargetHadMatchingInputRuleKey(sharedBinaryBuiltTarget.toString());
+    log.assertTargetHadMatchingInputRuleKey(sharedBinaryBuiltTarget);
   }
 }

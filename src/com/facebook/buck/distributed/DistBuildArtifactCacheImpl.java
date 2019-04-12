@@ -23,11 +23,11 @@ import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.core.rulekey.calculator.ParallelRuleKeyCalculator;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.io.file.BorrowablePath;
 import com.facebook.buck.io.file.LazyPath;
 import com.facebook.buck.io.file.MostFiles;
-import com.facebook.buck.log.Logger;
 import com.facebook.buck.util.CloseableHolder;
 import com.facebook.buck.util.NamedTemporaryFile;
 import com.google.common.base.Preconditions;
@@ -44,6 +44,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -131,7 +132,7 @@ public class DistBuildArtifactCacheImpl implements ArtifactCacheByBuildRule {
             cache -> {
               try {
                 RuleKey key = ruleKeyCalculator.calculate(eventBus, rule).get();
-                return Preconditions.checkNotNull(
+                return Objects.requireNonNull(
                         cache.multiContainsAsync(ImmutableSet.of(key)).get().get(key))
                     .getType()
                     .isSuccess();
@@ -214,9 +215,7 @@ public class DistBuildArtifactCacheImpl implements ArtifactCacheByBuildRule {
   @Override
   public void prewarmRemoteContainsForAllKnownRules() {
     prewarmRemoteContains(
-        ruleKeyCalculator
-            .getAllKnownTargets()
-            .stream()
+        ruleKeyCalculator.getAllKnownTargets().stream()
             .map(graphBuilder::requireRule)
             .collect(ImmutableSet.toImmutableSet()));
   }
@@ -226,12 +225,11 @@ public class DistBuildArtifactCacheImpl implements ArtifactCacheByBuildRule {
     @SuppressWarnings("PMD.PrematureDeclaration")
     Stopwatch stopwatch = Stopwatch.createStarted();
     Set<BuildRule> unseenRules =
-        rulesToBeChecked
-            .stream()
+        rulesToBeChecked.stream()
             .filter(rule -> !remoteCacheContainsFutures.containsKey(rule))
             .collect(Collectors.toSet());
 
-    if (unseenRules.size() == 0) {
+    if (unseenRules.isEmpty()) {
       return;
     }
 
@@ -259,7 +257,7 @@ public class DistBuildArtifactCacheImpl implements ArtifactCacheByBuildRule {
                 Futures.transform(
                     keysToCacheResultFuture,
                     keysToCacheResult ->
-                        Preconditions.checkNotNull(
+                        Objects.requireNonNull(
                                 keysToCacheResult.get(Futures.getUnchecked(rulesToKeys.get(rule))))
                             .getType()
                             .isSuccess(),

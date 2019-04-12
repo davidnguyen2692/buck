@@ -16,15 +16,14 @@
 
 package com.facebook.buck.counters;
 
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.event.BuckEventBus;
-import com.facebook.buck.log.Logger;
 import com.facebook.buck.util.Optionals;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.eventbus.Subscribe;
-import java.io.IOException;
 import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -99,7 +98,7 @@ public class CounterRegistryImpl implements CounterRegistry {
   }
 
   @Override
-  public void close() throws IOException {
+  public void close() {
     flushCountersFuture.cancel(false);
     flushCounters();
   }

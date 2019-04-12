@@ -17,8 +17,6 @@
 package com.facebook.buck.skylark.parser.context;
 
 import com.facebook.buck.skylark.packages.PackageContext;
-import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.devtools.build.lib.syntax.Environment;
 import com.google.devtools.build.lib.syntax.EvalException;
@@ -26,6 +24,7 @@ import com.google.devtools.build.lib.syntax.FuncallExpression;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import javax.annotation.Nullable;
@@ -57,7 +56,7 @@ public class ParseContext {
   public void recordRule(ImmutableMap<String, Object> rawRule, FuncallExpression ast)
       throws EvalException {
     String name =
-        Preconditions.checkNotNull((String) rawRule.get("name"), "Every target must have a name.");
+        Objects.requireNonNull((String) rawRule.get("name"), "Every target must have a name.");
     if (rawRules.containsKey(name)) {
       throw new EvalException(
           ast.getLocation(),
@@ -82,8 +81,8 @@ public class ParseContext {
    * @return The list of raw build rules discovered in parsed build file. Raw rule is presented as a
    *     map with attributes as keys and parameters as values.
    */
-  public ImmutableList<ImmutableMap<String, Object>> getRecordedRules() {
-    return ImmutableList.copyOf(rawRules.values());
+  public ImmutableMap<String, ImmutableMap<String, Object>> getRecordedRules() {
+    return ImmutableMap.copyOf(rawRules);
   }
 
   /** @return {@code true} if the rule with provided name exists, {@code false} otherwise. */
@@ -93,9 +92,7 @@ public class ParseContext {
 
   public ImmutableMap<String, ImmutableMap<String, Optional<String>>>
       getAccessedConfigurationOptions() {
-    return readConfigOptions
-        .entrySet()
-        .stream()
+    return readConfigOptions.entrySet().stream()
         .collect(
             ImmutableMap.toImmutableMap(Entry::getKey, e -> ImmutableMap.copyOf(e.getValue())));
   }
@@ -108,7 +105,7 @@ public class ParseContext {
   /** Get the {@link ParseContext} by looking up in the environment. */
   public static ParseContext getParseContext(Environment env, FuncallExpression ast)
       throws EvalException {
-    @Nullable ParseContext value = (ParseContext) env.lookup(PARSE_CONTEXT);
+    @Nullable ParseContext value = (ParseContext) env.dynamicLookup(PARSE_CONTEXT);
     if (value == null) {
       // if PARSE_CONTEXT is missing, we're not called from a build file. This happens if someone
       // uses native.some_func() in the wrong place.

@@ -15,7 +15,7 @@
  */
 package com.facebook.buck.features.haskell;
 
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.description.arg.CommonDescriptionArg;
 import com.facebook.buck.core.description.arg.HasDepsQuery;
 import com.facebook.buck.core.description.attr.ImplicitDepsInferringDescription;
@@ -23,8 +23,6 @@ import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.FlavorDomain;
 import com.facebook.buck.core.model.impl.BuildTargetPaths;
-import com.facebook.buck.core.model.impl.ImmutableBuildTarget;
-import com.facebook.buck.core.model.impl.ImmutableUnflavoredBuildTarget;
 import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
 import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
@@ -36,6 +34,7 @@ import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.toolchain.ToolchainProvider;
 import com.facebook.buck.core.util.graph.AbstractBreadthFirstTraversal;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.cxx.CxxLibrary;
 import com.facebook.buck.cxx.CxxLinkableEnhancer;
 import com.facebook.buck.cxx.PrebuiltCxxLibrary;
@@ -48,7 +47,6 @@ import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableInput;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkables;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.log.Logger;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
 import com.facebook.buck.rules.coercer.SourceSortedSet;
@@ -218,14 +216,14 @@ public class HaskellGhciDescription
 
       // We link C/C++ libraries whole...
       if (nativeLinkable instanceof CxxLibrary) {
-        NativeLinkable.Linkage link = nativeLinkable.getPreferredLinkage(cxxPlatform, graphBuilder);
+        NativeLinkable.Linkage link = nativeLinkable.getPreferredLinkage(cxxPlatform);
         nativeLinkableInputs.add(
             nativeLinkable.getNativeLinkableInput(
                 cxxPlatform,
                 NativeLinkables.getLinkStyle(link, Linker.LinkableDepType.STATIC_PIC),
                 true,
-                ImmutableSet.of(),
-                graphBuilder));
+                graphBuilder,
+                baseTarget.getTargetConfiguration()));
         LOG.verbose(
             "%s: linking C/C++ library %s whole into omnibus",
             baseTarget, nativeLinkable.getBuildTarget());
@@ -236,7 +234,11 @@ public class HaskellGhciDescription
       if (nativeLinkable instanceof PrebuiltCxxLibrary) {
         nativeLinkableInputs.add(
             NativeLinkables.getNativeLinkableInput(
-                cxxPlatform, Linker.LinkableDepType.STATIC_PIC, nativeLinkable, graphBuilder));
+                cxxPlatform,
+                Linker.LinkableDepType.STATIC_PIC,
+                nativeLinkable,
+                graphBuilder,
+                baseTarget.getTargetConfiguration()));
         LOG.verbose(
             "%s: linking prebuilt C/C++ library %s into omnibus",
             baseTarget, nativeLinkable.getBuildTarget());
@@ -255,7 +257,11 @@ public class HaskellGhciDescription
     for (NativeLinkable linkable : depLinkables) {
       nativeLinkableInputs.add(
           NativeLinkables.getNativeLinkableInput(
-              cxxPlatform, LinkableDepType.SHARED, linkable, graphBuilder));
+              cxxPlatform,
+              LinkableDepType.SHARED,
+              linkable,
+              graphBuilder,
+              baseTarget.getTargetConfiguration()));
     }
 
     return NativeLinkableInput.concat(nativeLinkableInputs);
@@ -281,13 +287,7 @@ public class HaskellGhciDescription
       Iterable<NativeLinkable> deps,
       ImmutableList<Arg> extraLdFlags) {
     return graphBuilder.computeIfAbsent(
-        ImmutableBuildTarget.of(
-            ImmutableUnflavoredBuildTarget.of(
-                baseTarget.getCellPath(),
-                Optional.empty(),
-                baseTarget.getBaseName(),
-                baseTarget.getShortName() + ".omnibus-shared-object"),
-            baseTarget.getFlavors()),
+        baseTarget.withShortName(baseTarget.getShortName() + ".omnibus-shared-object"),
         ruleTarget -> {
           ImmutableList.Builder<Arg> linkFlagsBuilder = ImmutableList.builder();
           linkFlagsBuilder.addAll(extraLdFlags);
@@ -354,7 +354,8 @@ public class HaskellGhciDescription
         args.getCompilerFlags(),
         args.getGhciBinDep(),
         args.getGhciInit(),
-        args.getExtraScriptTemplates());
+        args.getExtraScriptTemplates(),
+        args.isEnableProfiling());
   }
 
   @Override
@@ -366,7 +367,9 @@ public class HaskellGhciDescription
       ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
 
     HaskellDescriptionUtils.getParseTimeDeps(
-        ImmutableList.of(getPlatform(buildTarget, constructorArg)), targetGraphOnlyDepsBuilder);
+        buildTarget.getTargetConfiguration(),
+        ImmutableList.of(getPlatform(buildTarget, constructorArg)),
+        targetGraphOnlyDepsBuilder);
 
     constructorArg
         .getDepsQuery()

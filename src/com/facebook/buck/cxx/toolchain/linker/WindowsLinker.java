@@ -21,12 +21,14 @@ import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.toolchain.tool.DelegatingTool;
 import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.io.file.FileScrubber;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.rules.args.Arg;
+import com.facebook.buck.rules.args.HasSourcePath;
 import com.facebook.buck.rules.args.StringArg;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -44,7 +46,12 @@ public class WindowsLinker extends DelegatingTool implements Linker, HasImportLi
         @Override
         public ImmutableMap<String, Path> deriveExtraOutputsFromArgs(
             ImmutableList<String> linkerArgs, Path output) {
-          boolean isPdbGenerated = linkerArgs.stream().anyMatch("/DEBUG"::equals);
+          // A .pdb is generated if any /DEBUG option is specified, which isn't /DEBUG:NONE.
+          // Buck realistically only support /DEBUG, which is the same as /DEBUG:FULL, but lld-link
+          // has other options including /DEBUG:GHASH, so we have to be more careful checking here.
+          boolean isPdbGenerated =
+              linkerArgs.stream()
+                  .anyMatch(arg -> arg.startsWith("/DEBUG") && !arg.equals("/DEBUG:NONE"));
           if (isPdbGenerated) {
             String pdbFilename = MorePaths.getNameWithoutExtension(output) + ".pdb";
             Path pdbOutput = output.getParent().resolve(pdbFilename);
@@ -64,8 +71,14 @@ public class WindowsLinker extends DelegatingTool implements Linker, HasImportLi
   }
 
   @Override
-  public Iterable<Arg> linkWhole(Arg input) {
-    return ImmutableList.of();
+  public Iterable<Arg> linkWhole(Arg input, SourcePathResolver resolver) {
+    if (input instanceof HasSourcePath) {
+      SourcePath path = ((HasSourcePath) input).getPath();
+      String fileName = resolver.getAbsolutePath(path).getFileName().toString();
+      return ImmutableList.of(input, StringArg.of("/WHOLEARCHIVE:" + fileName));
+    }
+    throw new UnsupportedOperationException(
+        "linkWhole requires an arg that implements HasSourcePath");
   }
 
   @Override
@@ -129,15 +142,6 @@ public class WindowsLinker extends DelegatingTool implements Linker, HasImportLi
     return ImmutableList.of("/OUT:" + path);
   }
 
-  /**
-   * https://msdn.microsoft.com/en-us/library/ts7eyw4s.aspx - LNK1104 error if Path for filename
-   * expands to more than 260 characters.
-   */
-  @Override
-  public boolean hasFilePathSizeLimitations() {
-    return true;
-  }
-
   @Override
   public SharedLibraryLoadingType getSharedLibraryLoadingType() {
     return SharedLibraryLoadingType.THE_SAME_DIRECTORY;
@@ -156,5 +160,10 @@ public class WindowsLinker extends DelegatingTool implements Linker, HasImportLi
   @Override
   public Path importLibraryPath(Path output) {
     return Paths.get(output + ".imp.lib");
+  }
+
+  @Override
+  public boolean getUseUnixPathSeparator() {
+    return false;
   }
 }

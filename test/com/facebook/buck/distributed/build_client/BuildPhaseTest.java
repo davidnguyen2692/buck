@@ -56,7 +56,7 @@ import com.facebook.buck.distributed.DistBuildService;
 import com.facebook.buck.distributed.DistBuildStatusEvent;
 import com.facebook.buck.distributed.DistBuildUtil;
 import com.facebook.buck.distributed.DistLocalBuildMode;
-import com.facebook.buck.distributed.testutil.CustomActiongGraphBuilderFactory;
+import com.facebook.buck.distributed.testutil.CustomActionGraphBuilderFactory;
 import com.facebook.buck.distributed.thrift.BuckVersion;
 import com.facebook.buck.distributed.thrift.BuildJob;
 import com.facebook.buck.distributed.thrift.BuildMode;
@@ -77,14 +77,14 @@ import com.facebook.buck.distributed.thrift.StampedeId;
 import com.facebook.buck.distributed.thrift.StreamLogs;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.ConsoleEvent;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystemFactory;
 import com.facebook.buck.rules.keys.DefaultRuleKeyCache;
 import com.facebook.buck.rules.keys.DefaultRuleKeyFactory;
 import com.facebook.buck.rules.keys.RuleKeyFieldLoader;
 import com.facebook.buck.rules.keys.TrackedRuleKeyCache;
 import com.facebook.buck.rules.keys.config.impl.ConfigRuleKeyConfigurationFactory;
 import com.facebook.buck.testutil.FakeFileHashCache;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
-import com.facebook.buck.testutil.FakeProjectFilesystemFactory;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.util.FakeInvocationInfoFactory;
 import com.facebook.buck.util.cache.FileHashCache;
@@ -133,7 +133,7 @@ public class BuildPhaseTest {
   private BuildExecutorArgs executorArgs;
 
   @Before
-  public void setUp() throws IOException, InterruptedException {
+  public void setUp() {
     mockDistBuildService = EasyMock.createMock(DistBuildService.class);
     mockLogStateTracker = EasyMock.createMock(LogStateTracker.class);
     scheduler = Executors.newSingleThreadScheduledExecutor();
@@ -215,10 +215,10 @@ public class BuildPhaseTest {
   public void testCoordinatorIsRunInLocalCoordinatorMode()
       throws IOException, InterruptedException, ExecutionException {
     // Create the full BuildPhase for local coordinator mode.
-    ActionGraphBuilder graphBuilder = CustomActiongGraphBuilderFactory.createSimpleBuilder();
+    ActionGraphBuilder graphBuilder = CustomActionGraphBuilderFactory.createSimpleBuilder();
     ImmutableSet<BuildTarget> targets =
         ImmutableSet.of(
-            BuildTargetFactory.newInstance(CustomActiongGraphBuilderFactory.ROOT_TARGET));
+            BuildTargetFactory.newInstance(CustomActionGraphBuilderFactory.ROOT_TARGET));
 
     ActionAndTargetGraphs graphs =
         ActionAndTargetGraphs.builder()
@@ -319,8 +319,7 @@ public class BuildPhaseTest {
     createBuildPhase();
     BuildJob job = PostBuildPhaseTest.createBuildJobWithSlaves(stampedeId);
     List<BuildSlaveRunId> buildSlaveRunIds =
-        job.getBuildSlaves()
-            .stream()
+        job.getBuildSlaves().stream()
             .map(BuildSlaveInfo::getBuildSlaveRunId)
             .collect(Collectors.toList());
 
@@ -436,8 +435,7 @@ public class BuildPhaseTest {
     createBuildPhase();
     BuildJob job = PostBuildPhaseTest.createBuildJobWithSlaves(stampedeId);
     List<BuildSlaveRunId> buildSlaveRunIds =
-        job.getBuildSlaves()
-            .stream()
+        job.getBuildSlaves().stream()
             .map(BuildSlaveInfo::getBuildSlaveRunId)
             .collect(Collectors.toList());
 

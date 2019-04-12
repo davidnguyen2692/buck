@@ -19,12 +19,12 @@ package com.facebook.buck.parser;
 import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.event.ParsingEvent;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.log.Logger;
-import com.google.common.base.Preconditions;
+import com.facebook.buck.parser.AbstractParserConfig.AllowSymlinks;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -34,6 +34,7 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -95,9 +96,8 @@ class SymlinkCache {
       return;
     }
 
-    ParserConfig.AllowSymlinks allowSymlinks =
-        Preconditions.checkNotNull(
-            cellSymlinkAllowability.get(node.getBuildTarget().getCellPath()));
+    AllowSymlinks allowSymlinks =
+        Objects.requireNonNull(cellSymlinkAllowability.get(node.getBuildTarget().getCellPath()));
     if (allowSymlinks == ParserConfig.AllowSymlinks.FORBID) {
       throw new HumanReadableException(
           "Target %s contains input files under a path which contains a symbolic link "

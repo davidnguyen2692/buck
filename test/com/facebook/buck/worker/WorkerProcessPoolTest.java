@@ -137,8 +137,7 @@ public class WorkerProcessPoolTest {
         pool,
         1,
         () -> {
-          createdWorkers
-              .stream()
+          createdWorkers.stream()
               .findFirst()
               .orElseThrow(IllegalStateException::new)
               // closing a worker process will trigger removal from the pool
@@ -491,16 +490,6 @@ public class WorkerProcessPoolTest {
       for (Thread thread : threads) {
         thread.join();
       }
-    }
-
-    void join(int millis) throws InterruptedException {
-      for (Thread thread : threads) {
-        thread.join(millis);
-      }
-    }
-
-    Set<Thread> threads() {
-      return Collections.unmodifiableSet(threads);
     }
 
     @Override

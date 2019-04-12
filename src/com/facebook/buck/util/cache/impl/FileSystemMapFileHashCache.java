@@ -16,8 +16,8 @@
 
 package com.facebook.buck.util.cache.impl;
 
+import com.facebook.buck.core.io.ArchiveMemberPath;
 import com.facebook.buck.event.AbstractBuckEvent;
-import com.facebook.buck.io.ArchiveMemberPath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.util.cache.FileHashCacheEngine;
 import com.facebook.buck.util.cache.HashCodeAndFileType;
@@ -75,7 +75,7 @@ class FileSystemMapFileHashCache implements FileHashCacheEngine {
   }
 
   @Override
-  public HashCode get(Path path) throws IOException {
+  public HashCode get(Path path) {
     return loadingCache.get(path.normalize()).getHashCode();
   }
 
@@ -94,7 +94,7 @@ class FileSystemMapFileHashCache implements FileHashCacheEngine {
   }
 
   @Override
-  public long getSize(Path relativePath) throws IOException {
+  public long getSize(Path relativePath) {
     return sizeCache.get(relativePath.normalize());
   }
 

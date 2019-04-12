@@ -32,7 +32,8 @@ import com.facebook.buck.event.BuckEventBusForTests;
 import com.facebook.buck.event.FakeBuckEventListener;
 import com.facebook.buck.event.WatchmanStatusEvent;
 import com.facebook.buck.io.file.MorePaths;
-import com.facebook.buck.io.filesystem.PathOrGlobMatcher;
+import com.facebook.buck.io.filesystem.GlobPatternMatcher;
+import com.facebook.buck.io.filesystem.RecursiveFileMatcher;
 import com.facebook.buck.util.RichStream;
 import com.facebook.buck.util.timing.FakeClock;
 import com.google.common.collect.ImmutableList;
@@ -385,8 +386,8 @@ public class WatchmanWatcherTest {
         WatchmanWatcher.createQuery(
             ProjectWatch.of("/path/to/repo", Optional.empty()),
             ImmutableSet.of(
-                new PathOrGlobMatcher(Paths.get("foo")),
-                new PathOrGlobMatcher(Paths.get("bar/baz"))),
+                RecursiveFileMatcher.of(Paths.get("foo")),
+                RecursiveFileMatcher.of(Paths.get("bar/baz"))),
             ImmutableSet.of(Capability.DIRNAME));
     assertEquals(
         WatchmanQuery.of(
@@ -412,8 +413,8 @@ public class WatchmanWatcherTest {
         WatchmanWatcher.createQuery(
             ProjectWatch.of("/path/to/repo", Optional.empty()),
             ImmutableSet.of(
-                new PathOrGlobMatcher(Paths.get("foo")),
-                new PathOrGlobMatcher(Paths.get("bar/baz"))),
+                RecursiveFileMatcher.of(Paths.get("foo")),
+                RecursiveFileMatcher.of(Paths.get("bar/baz"))),
             ImmutableSet.of());
     assertEquals(
         WatchmanQuery.of(
@@ -425,10 +426,10 @@ public class WatchmanWatcherTest {
                         ImmutableList.of(
                             "anyof",
                             ImmutableList.of("type", "d"),
-                            ImmutableList.of("match", "foo" + File.separator + "*", "wholename"),
+                            ImmutableList.of("match", "foo" + File.separator + "**", "wholename"),
                             ImmutableList.of(
                                 "match",
-                                "bar" + File.separator + "baz" + File.separator + "*",
+                                "bar" + File.separator + "baz" + File.separator + "**",
                                 "wholename"))),
                 "empty_on_fresh_instance", true,
                 "fields", ImmutableList.of("name", "exists", "new"))),
@@ -442,8 +443,8 @@ public class WatchmanWatcherTest {
         WatchmanWatcher.createQuery(
             ProjectWatch.of(watchRoot, Optional.empty()),
             ImmutableSet.of(
-                new PathOrGlobMatcher(Paths.get("/path/to/repo/foo").toAbsolutePath()),
-                new PathOrGlobMatcher(Paths.get("/path/to/repo/bar/baz").toAbsolutePath())),
+                RecursiveFileMatcher.of(Paths.get("foo")),
+                RecursiveFileMatcher.of(Paths.get("bar/baz"))),
             ImmutableSet.of(Capability.DIRNAME));
     assertEquals(
         WatchmanQuery.of(
@@ -468,7 +469,7 @@ public class WatchmanWatcherTest {
     WatchmanQuery query =
         WatchmanWatcher.createQuery(
             ProjectWatch.of("/path/to/repo", Optional.empty()),
-            ImmutableSet.of(new PathOrGlobMatcher("*.pbxproj")),
+            ImmutableSet.of(GlobPatternMatcher.of("*.pbxproj")),
             ImmutableSet.of(Capability.DIRNAME));
     assertEquals(
         WatchmanQuery.of(

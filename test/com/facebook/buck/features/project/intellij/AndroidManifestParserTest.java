@@ -17,7 +17,7 @@
 package com.facebook.buck.features.project.intellij;
 
 import com.facebook.buck.features.project.intellij.lang.android.AndroidManifestParser;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import java.io.IOException;
@@ -34,7 +34,7 @@ public class AndroidManifestParserTest {
   private AndroidManifestParser androidManifestParser;
 
   @Before
-  public void setUp() throws Exception {
+  public void setUp() {
     androidManifestParser = new AndroidManifestParser(new FakeProjectFilesystem());
   }
 

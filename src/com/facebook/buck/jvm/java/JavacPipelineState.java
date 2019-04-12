@@ -16,18 +16,17 @@
 
 package com.facebook.buck.jvm.java;
 
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.rules.pipeline.RulePipelineState;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.log.Logger;
-import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.util.CapturingPrintStream;
 import com.facebook.buck.util.Verbosity;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Charsets;
 import com.google.common.base.Joiner;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Lists;
@@ -38,6 +37,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
@@ -112,13 +112,10 @@ public class JavacPipelineState implements RulePipelineState {
               firstOrderContext.getEnvironment(),
               firstOrderContext.getProcessExecutor());
 
-      ImmutableList<JavacPluginJsr199Fields> pluginFields =
+      ImmutableList<JavacPluginJsr199Fields> annotationProcessors =
           ImmutableList.copyOf(
-              javacOptions
-                  .getAnnotationProcessingParams()
-                  .getAnnotationProcessors(filesystem, resolver)
-                  .stream()
-                  .map(ResolvedJavacPluginProperties::getJavacPluginJsr199Fields)
+              javacOptions.getJavaAnnotationProcessorParams().getPluginProperties().stream()
+                  .map(properties -> properties.getJavacPluginJsr199Fields(resolver, filesystem))
                   .collect(Collectors.toList()));
 
       invocation =
@@ -129,7 +126,7 @@ public class JavacPipelineState implements RulePipelineState {
                   invokingRule,
                   getOptions(
                       context, compilerParameters.getClasspathEntries(), filesystem, resolver),
-                  pluginFields,
+                  annotationProcessors,
                   compilerParameters.getSourceFilePaths(),
                   compilerParameters.getOutputPaths().getPathToSourcesList(),
                   compilerParameters.getOutputPaths().getWorkingDirectory(),
@@ -148,11 +145,11 @@ public class JavacPipelineState implements RulePipelineState {
   }
 
   public String getStdoutContents() {
-    return Preconditions.checkNotNull(stdout).getContentsAsString(Charsets.UTF_8);
+    return Objects.requireNonNull(stdout).getContentsAsString(Charsets.UTF_8);
   }
 
   public String getStderrContents() {
-    return Preconditions.checkNotNull(stderr).getContentsAsString(Charsets.UTF_8);
+    return Objects.requireNonNull(stderr).getContentsAsString(Charsets.UTF_8);
   }
 
   @Override
@@ -247,7 +244,7 @@ public class JavacPipelineState implements RulePipelineState {
     // Specify the output directory.
     builder.add("-d").add(filesystem.resolve(outputDirectory).toString());
 
-    if (!javacOptions.getAnnotationProcessingParams().isEmpty()) {
+    if (!javacOptions.getJavaAnnotationProcessorParams().isEmpty()) {
       builder.add("-s").add(filesystem.resolve(generatedCodeDirectory).toString());
     }
 

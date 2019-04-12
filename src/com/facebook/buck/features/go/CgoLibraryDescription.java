@@ -16,7 +16,7 @@
 
 package com.facebook.buck.features.go;
 
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.description.MetadataProvidingDescription;
 import com.facebook.buck.core.description.attr.ImplicitDepsInferringDescription;
 import com.facebook.buck.core.model.BuildTarget;
@@ -39,7 +39,7 @@ import com.facebook.buck.cxx.CxxBinaryDescription;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatforms;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
-import com.facebook.buck.features.go.GoListStep.FileType;
+import com.facebook.buck.features.go.GoListStep.ListType;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.rules.macros.StringWithMacros;
 import com.facebook.buck.util.types.Either;
@@ -52,7 +52,6 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
-import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Arrays;
 import java.util.Optional;
@@ -120,8 +119,7 @@ public class CgoLibraryDescription
       Preconditions.checkState(platform.isPresent());
 
       ImmutableList<BuildTarget> nonCxxDeps =
-          args.getDeps()
-              .stream()
+          args.getDeps().stream()
               .filter(target -> !(graphBuilder.requireRule(target) instanceof NativeLinkable))
               .collect(ImmutableList.toImmutableList());
 
@@ -154,16 +152,8 @@ public class CgoLibraryDescription
       SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
       SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
 
-      Path packageName =
-          args.getPackageName()
-              .map(Paths::get)
-              .orElse(goBuckConfig.getDefaultPackageName(buildTarget));
-
       ImmutableList<BuildTarget> cxxDeps =
-          params
-              .getDeclaredDeps()
-              .get()
-              .stream()
+          params.getDeclaredDeps().get().stream()
               .filter(rule -> rule instanceof NativeLinkable)
               .map(BuildRule::getBuildTarget)
               .collect(ImmutableList.toImmutableList());
@@ -182,14 +172,10 @@ public class CgoLibraryDescription
                   platform.get(),
                   args,
                   cxxDeps,
-                  platform.get().getCGo(),
-                  packageName);
+                  platform.get().getCGo());
 
       ImmutableList<BuildTarget> nonCxxDeps =
-          params
-              .getDeclaredDeps()
-              .get()
-              .stream()
+          params.getDeclaredDeps().get().stream()
               .filter(rule -> !(rule instanceof NativeLinkable))
               .map(BuildRule::getBuildTarget)
               .collect(ImmutableList.toImmutableList());
@@ -200,7 +186,9 @@ public class CgoLibraryDescription
           params,
           context.getActionGraphBuilder(),
           goBuckConfig,
-          packageName,
+          args.getPackageName()
+              .map(Paths::get)
+              .orElse(goBuckConfig.getDefaultPackageName(buildTarget)),
           new ImmutableSet.Builder<SourcePath>()
               .addAll(lib.getGeneratedGoSource())
               .addAll(args.getGoSrcs())
@@ -210,7 +198,7 @@ public class CgoLibraryDescription
           platform.get(),
           Iterables.concat(nonCxxDeps, args.getExportedDeps()),
           ImmutableList.of(cgoLibTarget),
-          Arrays.asList(FileType.GoFiles, FileType.CgoFiles));
+          Arrays.asList(ListType.GoFiles, ListType.CgoFiles));
     }
 
     return new NoopBuildRuleWithDeclaredAndExtraDeps(buildTarget, projectFilesystem, params);
@@ -231,7 +219,8 @@ public class CgoLibraryDescription
         .ifPresent(
             platform ->
                 targetGraphOnlyDepsBuilder.addAll(
-                    CxxPlatforms.getParseTimeDeps(platform.getCxxPlatform())));
+                    CxxPlatforms.getParseTimeDeps(
+                        buildTarget.getTargetConfiguration(), platform.getCxxPlatform())));
   }
 
   @BuckStyleImmutable
@@ -260,8 +249,7 @@ public class CgoLibraryDescription
   }
 
   private static ImmutableList<StringWithMacros> wrapFlags(ImmutableList<String> flags) {
-    return flags
-        .stream()
+    return flags.stream()
         .map(flag -> StringWithMacros.of(ImmutableList.of(Either.ofLeft(flag))))
         .collect(ImmutableList.toImmutableList());
   }

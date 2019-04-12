@@ -15,7 +15,7 @@
  */
 package com.facebook.buck.features.haskell;
 
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.description.arg.CommonDescriptionArg;
 import com.facebook.buck.core.description.arg.HasDepsQuery;
 import com.facebook.buck.core.description.attr.ImplicitDepsInferringDescription;
@@ -31,7 +31,7 @@ import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.toolchain.ToolchainProvider;
 import com.facebook.buck.core.util.graph.AbstractBreadthFirstTraversal;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
-import com.facebook.buck.log.Logger;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.rules.query.QueryUtils;
 import com.facebook.buck.versions.VersionPropagator;
 import com.google.common.collect.ImmutableCollection;
@@ -101,7 +101,7 @@ public class HaskellHaddockDescription
             context.getProjectFilesystem(),
             params,
             ruleFinder,
-            platform.getHaddock().resolve(graphBuilder),
+            platform.getHaddock().resolve(graphBuilder, baseTarget.getTargetConfiguration()),
             args.getHaddockFlags(),
             haddockInputs.build()));
   }
@@ -135,7 +135,9 @@ public class HaskellHaddockDescription
       ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
 
     HaskellDescriptionUtils.getParseTimeDeps(
-        ImmutableList.of(getPlatform(buildTarget, constructorArg)), targetGraphOnlyDepsBuilder);
+        buildTarget.getTargetConfiguration(),
+        ImmutableList.of(getPlatform(buildTarget, constructorArg)),
+        targetGraphOnlyDepsBuilder);
 
     constructorArg
         .getDepsQuery()

@@ -50,6 +50,8 @@ public class AndroidAppModularityDescription
         new APKModuleGraph(
             Optional.of(args.getApplicationModuleConfigs()),
             args.getApplicationModuleDependencies(),
+            args.getApplicationModuleBlacklist(),
+            ImmutableSet.of(),
             context.getTargetGraph(),
             buildTarget);
 
@@ -74,6 +76,9 @@ public class AndroidAppModularityDescription
     Map<String, List<BuildTarget>> getApplicationModuleConfigs();
 
     Optional<Map<String, List<String>>> getApplicationModuleDependencies();
+
+    @Hint(isDep = false)
+    Optional<List<BuildTarget>> getApplicationModuleBlacklist();
 
     @Hint(isDep = false)
     ImmutableSet<BuildTarget> getNoDx();

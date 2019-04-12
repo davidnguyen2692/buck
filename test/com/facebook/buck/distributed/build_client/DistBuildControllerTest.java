@@ -71,11 +71,11 @@ import com.facebook.buck.distributed.thrift.BuildStatus;
 import com.facebook.buck.distributed.thrift.MinionRequirements;
 import com.facebook.buck.distributed.thrift.StampedeId;
 import com.facebook.buck.event.BuckEventBus;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystemFactory;
 import com.facebook.buck.log.InvocationInfo;
 import com.facebook.buck.rules.keys.config.impl.ConfigRuleKeyConfigurationFactory;
 import com.facebook.buck.testutil.FakeFileHashCache;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
-import com.facebook.buck.testutil.FakeProjectFilesystemFactory;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.util.FakeInvocationInfoFactory;
 import com.facebook.buck.util.concurrent.FakeWeightedListeningExecutorService;
@@ -127,7 +127,7 @@ public class DistBuildControllerTest {
   private RemoteBuildRuleSynchronizer remoteBuildRuleSynchronizer;
 
   @Before
-  public void setUp() throws IOException, InterruptedException {
+  public void setUp() {
     mockDistBuildService = EasyMock.createMock(DistBuildService.class);
     mockLogStateTracker = EasyMock.createMock(LogStateTracker.class);
     scheduler = Executors.newScheduledThreadPool(2);
@@ -264,8 +264,7 @@ public class DistBuildControllerTest {
   }
 
   @Test
-  public void testReturnsExecutionResultOnSyncPreparationFailure()
-      throws IOException, InterruptedException {
+  public void testReturnsExecutionResultOnSyncPreparationFailure() throws InterruptedException {
     BuildJobState buildJobState = createMinimalFakeBuildJobState();
 
     DistBuildController controller = createController(Futures.immediateFuture(buildJobState));

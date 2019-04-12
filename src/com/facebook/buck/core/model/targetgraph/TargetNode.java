@@ -16,8 +16,9 @@
 
 package com.facebook.buck.core.model.targetgraph;
 
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.description.BaseDescription;
+import com.facebook.buck.core.graph.transformation.compute.ComputeResult;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.HasBuildTarget;
@@ -29,11 +30,9 @@ import com.facebook.buck.versions.Version;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
-import com.google.common.hash.HashCode;
 import java.nio.file.Path;
 import java.util.Optional;
 import java.util.Set;
-import java.util.stream.Stream;
 
 /**
  * A {@link TargetNode} represents a node in the target graph which is created by the {@link
@@ -41,15 +40,13 @@ import java.util.stream.Stream;
  * responsible for processing the raw (python) inputs of a build rule, and gathering any build
  * targets and paths referenced from those inputs.
  */
-public interface TargetNode<T> extends Comparable<TargetNode<?>>, ObeysVisibility, HasBuildTarget {
+public interface TargetNode<T>
+    extends Comparable<TargetNode<?>>, ObeysVisibility, HasBuildTarget, ComputeResult {
 
   @Override
   BuildTarget getBuildTarget();
 
   NodeCopier getNodeCopier();
-
-  /** @return A hash of the raw input from the build file used to construct the node. */
-  HashCode getRawInputsHashCode();
 
   BaseDescription<T> getDescription();
 
@@ -90,15 +87,6 @@ public interface TargetNode<T> extends Comparable<TargetNode<?>>, ObeysVisibilit
    *     into a BuildRule.
    */
   Set<BuildTarget> getParseDeps();
-
-  /**
-   * Stream-style API for getting dependencies. This may return duplicates if certain dependencies
-   * are in both declared deps and exported deps.
-   *
-   * <p>This method can be faster than {@link #getBuildDeps()} in cases where repeated traversals
-   * and set operations are not necessary, as it avoids creating the intermediate set.
-   */
-  Stream<BuildTarget> getBuildDepsStream();
 
   boolean isVisibleTo(TargetNode<?> viewer);
 

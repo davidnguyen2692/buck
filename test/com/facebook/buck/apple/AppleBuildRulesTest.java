@@ -40,8 +40,8 @@ import com.facebook.buck.core.sourcepath.FakeSourcePath;
 import com.facebook.buck.cxx.CxxDescriptionEnhancer;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.shell.GenruleBuilder;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.util.environment.Platform;
 import com.facebook.buck.util.types.Either;
 import com.google.common.collect.ImmutableList;
@@ -69,7 +69,7 @@ public class AppleBuildRulesTest {
   private XCodeDescriptions xcodeDescriptions;
 
   @Before
-  public void setUp() throws Exception {
+  public void setUp() {
     assumeTrue(Platform.detect() == Platform.MACOS || Platform.detect() == Platform.LINUX);
 
     xcodeDescriptions =

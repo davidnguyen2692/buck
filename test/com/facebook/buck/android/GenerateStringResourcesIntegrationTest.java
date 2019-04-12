@@ -49,7 +49,7 @@ public class GenerateStringResourcesIntegrationTest {
       "//apps/sample:app_with_string_resources_and_aapt2";
 
   @Before
-  public void setUp() throws InterruptedException, IOException {
+  public void setUp() throws IOException {
     workspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, "android_project", tmpFolder);
     workspace.setUp();
@@ -97,9 +97,7 @@ public class GenerateStringResourcesIntegrationTest {
     // verify <output_dir>/<hex_res_dir>/values/strings.xml files
     assertTrue(filesystem.exists(output));
     assertThat(
-        filesystem
-            .getFilesUnderPath(filesystem.relativize(output))
-            .stream()
+        filesystem.getFilesUnderPath(filesystem.relativize(output)).stream()
             .map(path -> MorePaths.relativize(filesystem.relativize(output), path).toString())
             .collect(ImmutableSortedSet.toImmutableSortedSet(Ordering.natural())),
         is(expectedFilePaths));

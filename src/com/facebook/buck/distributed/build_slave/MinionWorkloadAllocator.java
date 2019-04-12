@@ -16,10 +16,10 @@
 
 package com.facebook.buck.distributed.build_slave;
 
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.distributed.thrift.CoordinatorBuildProgress;
 import com.facebook.buck.distributed.thrift.MinionType;
 import com.facebook.buck.distributed.thrift.WorkUnit;
-import com.facebook.buck.log.Logger;
 import com.google.common.base.Preconditions;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -28,6 +28,7 @@ import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Queue;
 import java.util.Set;
@@ -92,8 +93,8 @@ public class MinionWorkloadAllocator {
   }
 
   public synchronized boolean isBuildFinished() {
-    return nodesAssignedToMinions.size() == 0
-        && workUnitsFromFailedMinions.size() == 0
+    return nodesAssignedToMinions.isEmpty()
+        && workUnitsFromFailedMinions.isEmpty()
         && !queue.hasReadyZeroDependencyNodes();
   }
 
@@ -127,10 +128,9 @@ public class MinionWorkloadAllocator {
 
     int maxParallelWorkUnitsLeft = queue.getSafeApproxOfRemainingWorkUnitsCount();
     int capacityAvailableOnOtherMinions =
-        minionsAvailableForAllocation
-            .stream()
+        minionsAvailableForAllocation.stream()
             .filter(minionId -> !minionId.equals(candidateMinionId))
-            .mapToInt(minionId -> Preconditions.checkNotNull(minionFreeCapacities.get(minionId)))
+            .mapToInt(minionId -> Objects.requireNonNull(minionFreeCapacities.get(minionId)))
             .sum();
 
     return maxParallelWorkUnitsLeft <= capacityAvailableOnOtherMinions;
@@ -146,7 +146,7 @@ public class MinionWorkloadAllocator {
     trySetupMinion(minionId, minionType, maxWorkUnitsToFetch);
 
     Set<WorkUnit> workUnitsAllocatedToMinion =
-        Preconditions.checkNotNull(workUnitsAssignedToMinions.get(minionId));
+        Objects.requireNonNull(workUnitsAssignedToMinions.get(minionId));
     deallocateFinishedNodes(workUnitsAllocatedToMinion, finishedNodes);
 
     // First try and re-allocate work units from any minions that have failed recently
@@ -217,8 +217,7 @@ public class MinionWorkloadAllocator {
     Set<WorkUnit> workUnitsAllocatedToMinion = workUnitsAssignedToMinions.get(minionId);
 
     Set<String> allocatedTargets =
-        workUnitsAllocatedToMinion
-            .stream()
+        workUnitsAllocatedToMinion.stream()
             .map(workUnit -> workUnit.getBuildTargets())
             .flatMap(Collection::stream)
             .collect(Collectors.toSet());

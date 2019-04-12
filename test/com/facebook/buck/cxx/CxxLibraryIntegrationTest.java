@@ -30,6 +30,7 @@ import com.facebook.buck.apple.toolchain.ApplePlatform;
 import com.facebook.buck.core.config.FakeBuckConfig;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
+import com.facebook.buck.core.model.EmptyTargetConfiguration;
 import com.facebook.buck.core.model.InternalFlavor;
 import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.rules.BuildRuleResolver;
@@ -183,7 +184,11 @@ public class CxxLibraryIntegrationTest {
     CxxPlatform cxxPlatform =
         CxxPlatformUtils.build(new CxxBuckConfig(FakeBuckConfig.builder().build()));
     BuildRuleResolver ruleResolver = new TestActionGraphBuilder();
-    assumeTrue(cxxPlatform.getAr().resolve(ruleResolver).supportsThinArchives());
+    assumeTrue(
+        cxxPlatform
+            .getAr()
+            .resolve(ruleResolver, EmptyTargetConfiguration.INSTANCE)
+            .supportsThinArchives());
     ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, "cxx_library", tmp);
     workspace.setUp();
@@ -235,7 +240,7 @@ public class CxxLibraryIntegrationTest {
     BuildTarget implicitTarget =
         target.withAppendedFlavors(
             InternalFlavor.of("static-pic"), InternalFlavor.of("android-armv7"));
-    workspace.getBuildLog().assertTargetBuiltLocally(implicitTarget.getFullyQualifiedName());
+    workspace.getBuildLog().assertTargetBuiltLocally(implicitTarget);
   }
 
   @Test
@@ -364,7 +369,7 @@ public class CxxLibraryIntegrationTest {
   }
 
   @Test
-  public void buildWithExplicitHeaderMode() throws InterruptedException, IOException {
+  public void buildWithExplicitHeaderMode() throws IOException {
     ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, "headers_symlinks", tmp);
     workspace.setUp();
@@ -475,5 +480,25 @@ public class CxxLibraryIntegrationTest {
             "targets", "--config", "cxx.should_remap_host_platform=true", "//:foo");
     result.assertSuccess();
     assertThat(result.getStdout(), containsString("//:foo#" + hostFlavor));
+  }
+
+  @Test(timeout = 180000)
+  public void testSymlinksOnAndOff() throws IOException {
+    assumeTrue(Platform.detect() == Platform.MACOS);
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "symlink_on_off", tmp);
+    workspace.setUp();
+
+    // Build with symlinks on.
+    ProcessResult result =
+        workspace.runBuckCommand(
+            "build", "--config", "cxx.exported_headers_symlinks_enabled=true", "//:bar");
+    result.assertSuccess();
+
+    // Build with symlinks off.
+    result =
+        workspace.runBuckCommand(
+            "build", "--config", "cxx.exported_headers_symlinks_enabled=false", "//:bar");
+    result.assertFailure();
   }
 }

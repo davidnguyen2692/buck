@@ -34,10 +34,10 @@ import com.facebook.buck.features.python.toolchain.PythonEnvironment;
 import com.facebook.buck.features.python.toolchain.PythonVersion;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.rules.keys.DefaultRuleKeyFactory;
 import com.facebook.buck.rules.keys.TestDefaultRuleKeyFactory;
 import com.facebook.buck.testutil.FakeFileHashCache;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.google.common.base.Charsets;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
@@ -85,7 +85,10 @@ public class PythonPackagedBinaryTest {
             new HashedFileTool(
                 PathSourcePath.of(projectFilesystem, Paths.get("dummy_path_to_pex_runner"))),
             ".pex",
-            new PythonEnvironment(Paths.get("fake_python"), PythonVersion.of("CPython", "2.7")),
+            new PythonEnvironment(
+                Paths.get("fake_python"),
+                PythonVersion.of("CPython", "2.7"),
+                PythonBuckConfig.SECTION),
             "main",
             PythonPackageComponents.of(
                 ImmutableMap.of(

@@ -20,6 +20,7 @@ import com.facebook.buck.core.build.event.BuildEvent;
 import com.facebook.buck.core.build.event.BuildEvent.DistBuildStarted;
 import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.core.rulekey.calculator.ParallelRuleKeyCalculator;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.distributed.DistBuildService;
 import com.facebook.buck.distributed.DistLocalBuildMode;
 import com.facebook.buck.distributed.DistributedExitCode;
@@ -32,14 +33,13 @@ import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.log.InvocationInfo;
-import com.facebook.buck.log.Logger;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.cache.FileHashCache;
 import com.facebook.buck.util.types.Pair;
-import com.google.common.base.Preconditions;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.ListeningExecutorService;
 import java.io.IOException;
+import java.util.Objects;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.logging.Level;
@@ -116,7 +116,7 @@ public class DistBuildController {
     Pair<StampedeId, ListenableFuture<Void>> stampedeIdAndPendingPrepFuture = null;
     try {
       stampedeIdAndPendingPrepFuture =
-          Preconditions.checkNotNull(
+          Objects.requireNonNull(
               preBuildPhase.runPreDistBuildLocalStepsAsync(
                   executorService,
                   projectFilesystem,
@@ -164,7 +164,7 @@ public class DistBuildController {
       buildResult =
           buildPhase.runDistBuildAndUpdateConsoleStatus(
               executorService,
-              Preconditions.checkNotNull(stampedeIdReference.get()),
+              Objects.requireNonNull(stampedeIdReference.get()),
               buildMode,
               distLocalBuildMode,
               invocationInfo,

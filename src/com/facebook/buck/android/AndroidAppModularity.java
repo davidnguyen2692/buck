@@ -67,22 +67,21 @@ public class AndroidAppModularity extends AbstractBuildRuleWithDeclaredAndExtraD
 
     ImmutableMultimap.Builder<APKModule, Path> additionalDexStoreToJarPathMapBuilder =
         ImmutableMultimap.builder();
-    additionalDexStoreToJarPathMapBuilder.putAll(
-        result
-            .getPackageableCollection()
-            .getModuleMappedClasspathEntriesToDex()
-            .entries()
-            .stream()
-            .map(
-                input ->
-                    new AbstractMap.SimpleEntry<>(
-                        input.getKey(),
-                        getProjectFilesystem()
-                            .relativize(
-                                buildContext
-                                    .getSourcePathResolver()
-                                    .getAbsolutePath(input.getValue()))))
-            .collect(ImmutableSet.toImmutableSet()));
+    if (result != null) {
+      additionalDexStoreToJarPathMapBuilder.putAll(
+          result.getPackageableCollection().getModuleMappedClasspathEntriesToDex().entries()
+              .stream()
+              .map(
+                  input ->
+                      new AbstractMap.SimpleEntry<>(
+                          input.getKey(),
+                          getProjectFilesystem()
+                              .relativize(
+                                  buildContext
+                                      .getSourcePathResolver()
+                                      .getAbsolutePath(input.getValue()))))
+              .collect(ImmutableSet.toImmutableSet()));
+    }
     ImmutableMultimap<APKModule, Path> additionalDexStoreToJarPathMap =
         additionalDexStoreToJarPathMapBuilder.build();
 

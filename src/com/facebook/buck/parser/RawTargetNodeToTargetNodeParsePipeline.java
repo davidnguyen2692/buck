@@ -18,33 +18,33 @@ package com.facebook.buck.parser;
 
 import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.model.impl.ImmutableBuildTarget;
-import com.facebook.buck.core.model.targetgraph.RawTargetNode;
+import com.facebook.buck.core.model.EmptyTargetConfiguration;
+import com.facebook.buck.core.model.TargetConfiguration;
+import com.facebook.buck.core.model.impl.ImmutableUnconfiguredBuildTargetView;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
+import com.facebook.buck.core.model.targetgraph.raw.RawTargetNode;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.PerfEventId;
 import com.facebook.buck.event.SimplePerfEvent;
 import com.facebook.buck.event.SimplePerfEvent.Scope;
-import com.facebook.buck.log.Logger;
 import com.facebook.buck.parser.PipelineNodeCache.Cache;
 import com.facebook.buck.parser.exceptions.BuildTargetException;
-import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.ListeningExecutorService;
 import java.nio.file.Path;
 import java.util.Optional;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Function;
 
 public class RawTargetNodeToTargetNodeParsePipeline
-    extends ConvertingPipelineWithPerfEventScope<RawTargetNode, TargetNode<?>> {
+    extends ConvertingPipeline<RawTargetNode, TargetNode<?>> {
 
   private static final Logger LOG = Logger.get(RawTargetNodeToTargetNodeParsePipeline.class);
 
   private final boolean speculativeDepsTraversal;
   private final RawTargetNodePipeline rawTargetNodePipeline;
   private final ParserTargetNodeFactory<RawTargetNode> rawTargetNodeToTargetNodeFactory;
-  private final SimplePerfEvent.Scope targetNodePipelineLifetimeEventScope;
 
   /** Create new pipeline for parsing Buck files. */
   public RawTargetNodeToTargetNodeParsePipeline(
@@ -52,27 +52,29 @@ public class RawTargetNodeToTargetNodeParsePipeline
       ListeningExecutorService executorService,
       RawTargetNodePipeline rawTargetNodePipeline,
       BuckEventBus eventBus,
+      String pipelineName,
       boolean speculativeDepsTraversal,
       ParserTargetNodeFactory<RawTargetNode> rawTargetNodeToTargetNodeFactory) {
     super(
         executorService,
         cache,
         eventBus,
-        SimplePerfEvent.scope(
-            eventBus, PerfEventId.of("configured_raw_target_node_parse_pipeline")),
+        SimplePerfEvent.scope(eventBus, PerfEventId.of(pipelineName)),
         PerfEventId.of("GetTargetNode"));
     this.rawTargetNodePipeline = rawTargetNodePipeline;
     this.speculativeDepsTraversal = speculativeDepsTraversal;
-    this.targetNodePipelineLifetimeEventScope =
-        SimplePerfEvent.scope(
-            eventBus, PerfEventId.of("configured_raw_target_node_parse_pipeline"));
     this.rawTargetNodeToTargetNodeFactory = rawTargetNodeToTargetNodeFactory;
   }
 
   @Override
   protected BuildTarget getBuildTarget(
-      Path root, Optional<String> cellName, Path buildFile, RawTargetNode from) {
-    return from.getBuildTarget();
+      Path root,
+      Optional<String> cellName,
+      Path buildFile,
+      TargetConfiguration targetConfiguration,
+      RawTargetNode from) {
+    return ImmutableUnconfiguredBuildTargetView.of(root, from.getBuildTarget())
+        .configure(targetConfiguration);
   }
 
   @Override
@@ -81,13 +83,13 @@ public class RawTargetNodeToTargetNodeParsePipeline
       Cell cell,
       BuildTarget buildTarget,
       RawTargetNode rawNode,
-      AtomicLong processedBytes,
       Function<PerfEventId, Scope> perfEventScopeFunction)
       throws BuildTargetException {
     TargetNode<?> targetNode =
         rawTargetNodeToTargetNodeFactory.createTargetNode(
             cell,
-            cell.getAbsolutePathToBuildFile(buildTarget),
+            cell.getBuckConfigView(ParserConfig.class)
+                .getAbsolutePathToBuildFile(cell, buildTarget.getUnconfiguredBuildTargetView()),
             buildTarget,
             rawNode,
             perfEventScopeFunction);
@@ -99,12 +101,9 @@ public class RawTargetNodeToTargetNodeParsePipeline
               Cell depCell = cell.getCellIgnoringVisibilityCheck(depTarget.getCellPath());
               try {
                 if (depTarget.isFlavored()) {
-                  getNodeJob(
-                      depCell,
-                      ImmutableBuildTarget.of(depTarget.getUnflavoredBuildTarget()),
-                      processedBytes);
+                  getNodeJob(depCell, depTarget.withoutFlavors());
                 }
-                getNodeJob(depCell, depTarget, processedBytes);
+                getNodeJob(depCell, depTarget);
               } catch (BuildTargetException e) {
                 // No biggie, we'll hit the error again in the non-speculative path.
                 LOG.info(e, "Could not schedule speculative parsing for %s", depTarget);
@@ -116,20 +115,14 @@ public class RawTargetNodeToTargetNodeParsePipeline
   }
 
   @Override
-  protected ListenableFuture<ImmutableSet<RawTargetNode>> getItemsToConvert(
-      Cell cell, Path buildFile, AtomicLong processedBytes) throws BuildTargetException {
-    return rawTargetNodePipeline.getAllNodesJob(cell, buildFile, processedBytes);
+  protected ListenableFuture<ImmutableList<RawTargetNode>> getItemsToConvert(
+      Cell cell, Path buildFile) throws BuildTargetException {
+    return rawTargetNodePipeline.getAllNodesJob(cell, buildFile, EmptyTargetConfiguration.INSTANCE);
   }
 
   @Override
-  protected ListenableFuture<RawTargetNode> getItemToConvert(
-      Cell cell, BuildTarget buildTarget, AtomicLong processedBytes) throws BuildTargetException {
-    return rawTargetNodePipeline.getNodeJob(cell, buildTarget, processedBytes);
-  }
-
-  @Override
-  public void close() {
-    targetNodePipelineLifetimeEventScope.close();
-    super.close();
+  protected ListenableFuture<RawTargetNode> getItemToConvert(Cell cell, BuildTarget buildTarget)
+      throws BuildTargetException {
+    return rawTargetNodePipeline.getNodeJob(cell, buildTarget);
   }
 }

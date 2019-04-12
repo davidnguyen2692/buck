@@ -16,7 +16,7 @@
 
 package com.facebook.buck.util.randomizedtrial;
 
-import com.facebook.buck.log.Logger;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.util.MoreSuppliers;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
@@ -75,6 +75,19 @@ public class RandomizedTrial {
   public static <T extends Enum<T>> T getGroupStable(
       String name, Map<T, Double> enumValuesWithProbabilities) {
     return selectGroup(name, enumValuesWithProbabilities, getPoint(name));
+  }
+
+  /**
+   * Returns a group for trial with given name.
+   *
+   * <p>This choice is stable for a particular buildId/test/user/hostname.
+   *
+   * @param name name of trial.
+   * @param enumValuesWithProbabilities Map of enum values to probabilities.
+   */
+  public static <T extends Enum<T>> T getGroup(
+      String name, String buildId, Map<T, Double> enumValuesWithProbabilities) {
+    return selectGroup(name, enumValuesWithProbabilities, getPoint(name, buildId));
   }
 
   /**

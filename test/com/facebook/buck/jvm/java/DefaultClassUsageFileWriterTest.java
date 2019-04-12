@@ -19,11 +19,11 @@ package com.facebook.buck.jvm.java;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
 
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.cell.TestCellPathResolver;
 import com.facebook.buck.core.cell.impl.DefaultCellPathResolver;
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.testutil.JsonMatcher;
 import com.facebook.buck.util.Escaper;
 import com.facebook.buck.util.environment.Platform;
@@ -75,6 +75,7 @@ public class DefaultClassUsageFileWriterTest {
         javaFileObject.openInputStream();
       }
     }
+    filesystem.createParentDirs(outputOne);
     writerOne.writeFile(trackerOne, outputOne, filesystem, cellPathResolver);
 
     DefaultClassUsageFileWriter writerTwo = new DefaultClassUsageFileWriter();
@@ -87,6 +88,7 @@ public class DefaultClassUsageFileWriterTest {
         javaFileObject.openInputStream();
       }
     }
+    filesystem.createParentDirs(outputTwo);
     writerTwo.writeFile(trackerTwo, outputTwo, filesystem, cellPathResolver);
 
     assertEquals(
@@ -122,6 +124,7 @@ public class DefaultClassUsageFileWriterTest {
         javaFileObject.openInputStream();
       }
     }
+    homeFs.createParentDirs(outputOne);
     writer.writeFile(trackerOne, outputOne, homeFs, cellPathResolver);
 
     // The xcell file should appear relative to the "home" filesystem, and the external class

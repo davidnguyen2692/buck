@@ -16,12 +16,12 @@
 
 package com.facebook.buck.cxx;
 
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
-import com.facebook.buck.core.description.arg.HasDefaultPlatform;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.FlavorDomain;
+import com.facebook.buck.core.model.TargetConfiguration;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.BuildRuleParams;
@@ -33,7 +33,6 @@ import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver
 import com.facebook.buck.core.toolchain.ToolchainProvider;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
-import com.facebook.buck.cxx.toolchain.CxxPlatforms;
 import com.facebook.buck.cxx.toolchain.CxxPlatformsProvider;
 import com.facebook.buck.cxx.toolchain.HeaderMode;
 import com.facebook.buck.cxx.toolchain.HeaderSymlinkTree;
@@ -64,23 +63,13 @@ import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Multimaps;
-import com.google.common.collect.Sets;
 import java.nio.file.Path;
 import java.util.Map;
 import java.util.Optional;
-import java.util.SortedSet;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
 
 public class CxxLibraryFactory {
-
-  private static final ImmutableSet<Flavor> FLAVORS_WITH_DEFAULT_PLATFORM =
-      ImmutableSet.<Flavor>builder()
-          .add(CxxCompilationDatabase.COMPILATION_DATABASE)
-          .add(CxxCompilationDatabase.UBER_COMPILATION_DATABASE)
-          .addAll(CxxInferEnhancer.INFER_FLAVOR_DOMAIN.getFlavors())
-          .build();
-
   private final ToolchainProvider toolchainProvider;
   private final CxxBuckConfig cxxBuckConfig;
   private final InferBuckConfig inferBuckConfig;
@@ -110,8 +99,9 @@ public class CxxLibraryFactory {
       Optional<CxxLibraryDescriptionDelegate> delegate) {
 
     CxxPlatformsProvider cxxPlatformsProvider = getCxxPlatformsProvider();
-    FlavorDomain<CxxPlatform> cxxPlatforms = cxxPlatformsProvider.getCxxPlatforms();
-    Flavor defaultCxxFlavor = cxxPlatformsProvider.getDefaultCxxPlatform().getFlavor();
+    FlavorDomain<CxxPlatform> cxxPlatforms =
+        cxxPlatformsProvider.getResolvedCxxPlatforms(graphBuilder);
+    Flavor defaultCxxFlavor = cxxPlatformsProvider.getDefaultUnresolvedCxxPlatform().getFlavor();
 
     // See if we're building a particular "type" and "platform" of this library, and if so, extract
     // them from the flavors attached to the build target.
@@ -141,7 +131,7 @@ public class CxxLibraryFactory {
               cellRoots,
               cxxBuckConfig,
               cxxPlatformOrDefault,
-              PicType.PIC,
+              cxxPlatformOrDefault.getPicTypeForSharedLinking(),
               args,
               cxxDeps.get(graphBuilder, cxxPlatformOrDefault),
               transitiveCxxPreprocessorInputFunction,
@@ -278,7 +268,6 @@ public class CxxLibraryFactory {
         buildTarget,
         projectFilesystem,
         metadataRuleParams,
-        graphBuilder.getParallelizer(),
         args.getPrivateCxxDeps(),
         args.getExportedCxxDeps(),
         hasObjects.negate(),
@@ -323,35 +312,34 @@ public class CxxLibraryFactory {
               .concat(RichStream.from(delegatePostExportedLinkerFlags))
               .toImmutableList();
         },
-        (cxxPlatform, ruleResolverInner, pathResolverInner, ruleFinderInner) -> {
-          return getSharedLibraryNativeLinkTargetInput(
-              buildTarget,
-              projectFilesystem,
-              ruleResolverInner,
-              pathResolverInner,
-              ruleFinderInner,
-              cellRoots,
-              cxxBuckConfig,
-              cxxPlatform,
-              args,
-              cxxDeps.get(ruleResolverInner, cxxPlatform),
-              CxxFlags.getFlagsWithMacrosWithPlatformMacroExpansion(
-                  args.getLinkerFlags(), args.getPlatformLinkerFlags(), cxxPlatform),
-              CxxFlags.getFlagsWithMacrosWithPlatformMacroExpansion(
-                  args.getExportedLinkerFlags(),
-                  args.getExportedPlatformLinkerFlags(),
-                  cxxPlatform),
-              CxxFlags.getFlagsWithMacrosWithPlatformMacroExpansion(
-                  args.getPostLinkerFlags(), args.getPostPlatformLinkerFlags(), cxxPlatform),
-              CxxFlags.getFlagsWithMacrosWithPlatformMacroExpansion(
-                  args.getExportedPostLinkerFlags(),
-                  args.getExportedPostPlatformLinkerFlags(),
-                  cxxPlatform),
-              args.getFrameworks(),
-              args.getLibraries(),
-              transitiveCxxPreprocessorInputFunction,
-              delegate);
-        },
+        (cxxPlatform, ruleResolverInner, pathResolverInner, ruleFinderInner) ->
+            getSharedLibraryNativeLinkTargetInput(
+                buildTarget,
+                projectFilesystem,
+                ruleResolverInner,
+                pathResolverInner,
+                ruleFinderInner,
+                cellRoots,
+                cxxBuckConfig,
+                cxxPlatform,
+                args,
+                cxxDeps.get(ruleResolverInner, cxxPlatform),
+                CxxFlags.getFlagsWithMacrosWithPlatformMacroExpansion(
+                    args.getLinkerFlags(), args.getPlatformLinkerFlags(), cxxPlatform),
+                CxxFlags.getFlagsWithMacrosWithPlatformMacroExpansion(
+                    args.getExportedLinkerFlags(),
+                    args.getExportedPlatformLinkerFlags(),
+                    cxxPlatform),
+                CxxFlags.getFlagsWithMacrosWithPlatformMacroExpansion(
+                    args.getPostLinkerFlags(), args.getPostPlatformLinkerFlags(), cxxPlatform),
+                CxxFlags.getFlagsWithMacrosWithPlatformMacroExpansion(
+                    args.getExportedPostLinkerFlags(),
+                    args.getExportedPostPlatformLinkerFlags(),
+                    cxxPlatform),
+                args.getFrameworks(),
+                args.getLibraries(),
+                transitiveCxxPreprocessorInputFunction,
+                delegate),
         args.getSupportedPlatformsRegex(),
         args.getFrameworks(),
         args.getLibraries(),
@@ -367,54 +355,20 @@ public class CxxLibraryFactory {
             .contains(CxxDescriptionEnhancer.EXPORTED_HEADER_SYMLINK_TREE_FLAVOR),
         args.isReexportAllHeaderDependencies()
             .orElse(cxxBuckConfig.getDefaultReexportAllHeaderDependencies()),
+        args.getSupportsMergedLinking().orElse(true),
         delegate);
-  }
-
-  /**
-   * Calculates a platform flavor for a given target. If a target has no flavor, then calculate it
-   * using other flavors.
-   *
-   * <p>Note that this logic should be kept in sync with {@link #createBuildRule}.
-   */
-  private Flavor getPlatformFlavor(BuildTarget buildTarget, HasDefaultPlatform args) {
-    CxxPlatformsProvider cxxPlatformsProvider = getCxxPlatformsProvider();
-    FlavorDomain<CxxPlatform> cxxPlatforms = cxxPlatformsProvider.getCxxPlatforms();
-    Flavor defaultCxxFlavor = cxxPlatformsProvider.getDefaultCxxPlatform().getFlavor();
-    Optional<CxxPlatform> platform = cxxPlatforms.getValue(buildTarget);
-    if (buildTarget.getFlavors().contains(CxxCompilationDatabase.COMPILATION_DATABASE)
-        || CxxInferEnhancer.INFER_FLAVOR_DOMAIN.containsAnyOf(buildTarget.getFlavors())) {
-      CxxPlatform cxxPlatformOrDefault =
-          platform.orElse(
-              cxxPlatforms.getValue(args.getDefaultPlatform().orElse(defaultCxxFlavor)));
-      return cxxPlatformOrDefault.getFlavor();
-    } else if (buildTarget
-        .getFlavors()
-        .contains(CxxCompilationDatabase.UBER_COMPILATION_DATABASE)) {
-      return platform.isPresent()
-          ? platform.get().getFlavor()
-          : args.getDefaultPlatform().orElse(defaultCxxFlavor);
-    } else {
-      throw new IllegalArgumentException(
-          String.format(
-              "Target %s contains unrecognized flavors: %s",
-              buildTarget.getFullyQualifiedName(), buildTarget.getFlavors()));
-    }
   }
 
   /**
    * @return an {@link Iterable} with platform dependencies that need to be resolved at parse time.
    */
-  public Iterable<BuildTarget> getPlatformParseTimeDeps(
-      BuildTarget buildTarget, HasDefaultPlatform args) {
-    if (Sets.intersection(buildTarget.getFlavors(), FLAVORS_WITH_DEFAULT_PLATFORM).isEmpty()) {
-      return CxxPlatforms.getParseTimeDeps(
-          getCxxPlatformsProvider().getCxxPlatforms().getValues(buildTarget));
-    } else {
-      return CxxPlatforms.getParseTimeDeps(
-          getCxxPlatformsProvider()
-              .getCxxPlatforms()
-              .getValue(getPlatformFlavor(buildTarget, args)));
-    }
+  public Iterable<BuildTarget> getPlatformParseTimeDeps(TargetConfiguration targetConfiguration) {
+    // Since we don't have context on the top-level rules using this C/C++ library (e.g. it may be
+    // a `python_binary`), we eagerly add the deps for all possible platforms to guarantee that the
+    // correct ones are included.
+    return getCxxPlatformsProvider().getUnresolvedCxxPlatforms().getValues().stream()
+        .flatMap(p -> RichStream.from(p.getParseTimeDeps(targetConfiguration)))
+        .collect(ImmutableList.toImmutableList());
   }
 
   private static ImmutableList<SourcePath> requireObjects(
@@ -454,7 +408,7 @@ public class CxxLibraryFactory {
 
     Optional<ImmutableList<SourcePath>> pluginObjectPaths =
         delegate.flatMap(p -> p.getObjectFilePaths(buildTarget, graphBuilder, cxxPlatform));
-    pluginObjectPaths.ifPresent(paths -> builder.addAll(paths));
+    pluginObjectPaths.ifPresent(builder::addAll);
 
     return builder.build();
   }
@@ -500,7 +454,7 @@ public class CxxLibraryFactory {
     delegate.ifPresent(
         d ->
             d.getPrivateHeaderSymlinkTree(buildTarget, graphBuilder, cxxPlatform)
-                .ifPresent(h -> privateHeaderSymlinkTrees.add(h)));
+                .ifPresent(privateHeaderSymlinkTrees::add));
 
     // Create rule to build the object files.
     ImmutableMultimap<CxxSource.Type, Arg> compilerFlags =
@@ -532,7 +486,8 @@ public class CxxLibraryFactory {
                 cxxPlatform,
                 deps,
                 transitivePreprocessorInputs,
-                privateHeaderSymlinkTrees.build()),
+                privateHeaderSymlinkTrees.build(),
+                projectFilesystem),
             compilerFlags,
             args.getPrefixHeader(),
             args.getPrecompiledHeader(),
@@ -686,7 +641,8 @@ public class CxxLibraryFactory {
 
     CxxLinkOptions linkOptions =
         CxxLinkOptions.of(
-            args.getThinLto()
+            args.getThinLto(),
+            args.getFatLto()
             );
     return CxxLinkableEnhancer.createCxxLinkableBuildRule(
         cxxBuckConfig,
@@ -840,20 +796,12 @@ public class CxxLibraryFactory {
             buildTarget, cxxPlatform.getFlavor(), pic);
 
     if (objects.isEmpty()) {
-      return new NoopBuildRule(staticTarget, projectFilesystem) {
-        @Override
-        public SortedSet<BuildRule> getBuildDeps() {
-          return ImmutableSortedSet.of();
-        }
-      };
+      return new NoopBuildRule(staticTarget, projectFilesystem);
     }
 
-    Path staticLibraryPath =
-        CxxDescriptionEnhancer.getStaticLibraryPath(
-            projectFilesystem,
+    String staticLibraryName =
+        CxxDescriptionEnhancer.getStaticLibraryName(
             buildTarget,
-            cxxPlatform.getFlavor(),
-            pic,
             args.getStaticLibraryBasename(),
             cxxPlatform.getStaticLibraryExtension(),
             cxxBuckConfig.isUniqueLibraryNameEnabled());
@@ -863,8 +811,7 @@ public class CxxLibraryFactory {
         graphBuilder,
         ruleFinder,
         cxxPlatform,
-        cxxBuckConfig.getArchiveContents(),
-        staticLibraryPath,
+        staticLibraryName,
         ImmutableList.copyOf(objects),
         /* cacheable */ true);
   }
@@ -984,7 +931,7 @@ public class CxxLibraryFactory {
     NativeLinkTargetMode linkTargetMode = linkTarget.getNativeLinkTargetMode(cxxPlatform);
     Preconditions.checkArgument(linkTargetMode.getType().equals(LinkType.SHARED));
 
-    Linker linker = cxxPlatform.getLd().resolve(graphBuilder);
+    Linker linker = cxxPlatform.getLd().resolve(graphBuilder, baseTarget.getTargetConfiguration());
 
     // Build up the arguments to pass to the linker.
     ImmutableList.Builder<Arg> argsBuilder = ImmutableList.builder();

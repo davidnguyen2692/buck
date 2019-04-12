@@ -16,31 +16,28 @@
 
 package com.facebook.buck.cli;
 
-import static com.facebook.buck.util.string.MoreStrings.withoutSuffix;
+import static com.facebook.buck.testutil.MoreAsserts.assertJsonMatches;
+import static com.facebook.buck.testutil.MoreAsserts.assertJsonNotMatches;
 import static org.hamcrest.Matchers.containsString;
-import static org.junit.Assert.assertEquals;
+import static org.hamcrest.Matchers.not;
 import static org.junit.Assert.assertThat;
-import static org.junit.Assert.fail;
 
-import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.support.cli.args.GlobalCliOptions;
 import com.facebook.buck.testutil.ProcessResult;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.util.ExitCode;
-import com.google.common.base.Splitter;
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSet;
 import java.io.IOException;
-import java.nio.file.Files;
-import java.util.List;
-import org.hamcrest.Matchers;
 import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.ExpectedException;
 
 public class MainIntegrationTest {
 
   @Rule public TemporaryPaths tmp = new TemporaryPaths();
+  @Rule public ExpectedException thrown = ExpectedException.none();
+  @Rule public TestWithBuckd testWithBuckd = new TestWithBuckd(tmp);
 
   @Test
   public void testBuckNoArgs() throws IOException {
@@ -72,138 +69,6 @@ public class MainIntegrationTest {
         containsString(getUsageString()));
   }
 
-  @Test
-  public void testConfigOverride() throws IOException {
-    ProjectWorkspace workspace =
-        TestDataHelper.createProjectWorkspaceForScenario(this, "includes_override", tmp);
-    workspace.setUp();
-    workspace
-        .runBuckCommand("targets", "--config", "buildfile.includes=//includes.py", "//...")
-        .assertSuccess();
-    workspace
-        .runBuckCommand("targets", "--config", "//buildfile.includes=//includes.py", "//...")
-        .assertSuccess();
-    workspace
-        .runBuckCommand("targets", "--config", "repo//buildfile.includes=//includes.py", "//...")
-        .assertSuccess();
-  }
-
-  @Test
-  public void testNoRepositoriesConfigOverride() throws IOException {
-    ProjectWorkspace workspace =
-        TestDataHelper.createProjectWorkspaceForScenario(this, "includes_override", tmp);
-    workspace.setUp();
-    try {
-      workspace.runBuckCommand("targets", "--config", "repositories.secondary=../secondary");
-      fail("Did not expect to allow repositories override");
-    } catch (HumanReadableException expected) {
-      assertEquals(
-          "Overriding repository locations from the command line "
-              + "is not supported. Please place a .buckconfig.local in the appropriate location and "
-              + "use that instead.",
-          expected.getMessage());
-    }
-  }
-
-  @Test
-  public void testConfigRemoval() throws IOException {
-    ProjectWorkspace workspace =
-        TestDataHelper.createProjectWorkspaceForScenario(this, "includes_removals", tmp);
-    workspace.setUp();
-    // BUCK file defines `ide` as idea, now lets switch to undefined one!
-    // It should produce exception as we want explicit ide setting.
-    try {
-      workspace.runBuckCommand("project", "--config", "project.ide=");
-    } catch (HumanReadableException e) {
-      assertThat(
-          e.getHumanReadableErrorMessage(),
-          Matchers.stringContainsInOrder(
-              "Please specify ide using --ide option " + "or set ide in .buckconfig"));
-    } catch (Exception e) {
-      // other exceptions are not expected
-      throw e;
-    }
-  }
-
-  @Test
-  public void testConfigFileOverride() throws IOException {
-    ProjectWorkspace workspace =
-        TestDataHelper.createProjectWorkspaceForScenario(this, "includes_override", tmp);
-    workspace.setUp();
-
-    Files.write(
-        tmp.newFile("buckconfig"), ImmutableList.of("[buildfile]", "  includes = //includes.py"));
-
-    workspace.runBuckCommand("targets", "--config-file", "buckconfig", "//...").assertSuccess();
-    workspace.runBuckCommand("targets", "--config-file", "//buckconfig", "//...").assertSuccess();
-    workspace
-        .runBuckCommand("targets", "--config-file", "repo//buckconfig", "//...")
-        .assertSuccess();
-  }
-
-  @Test
-  public void testConfigFileOverrideWithMultipleFiles() throws IOException {
-    ProjectWorkspace workspace =
-        TestDataHelper.createProjectWorkspaceForScenario(this, "alias", tmp);
-    workspace.setUp();
-    String myServer = "//:my_server";
-    String myClient = "//:my_client";
-
-    Files.write(tmp.newFile("buckconfig1"), ImmutableList.of("[alias]", "  server = " + myServer));
-    Files.write(tmp.newFile("buckconfig2"), ImmutableList.of("[alias]", "  client = " + myClient));
-
-    ProcessResult result =
-        workspace.runBuckCommand(
-            "audit",
-            "alias",
-            "--list-map",
-            "--config-file",
-            "buckconfig1",
-            "--config-file",
-            "buckconfig2");
-    result.assertSuccess();
-
-    // Remove trailing newline from stdout before passing to Splitter.
-    String stdout = result.getStdout();
-    stdout = withoutSuffix(stdout, System.lineSeparator());
-
-    List<String> aliases = Splitter.on(System.lineSeparator()).splitToList(stdout);
-    assertEquals(
-        ImmutableSet.of(
-            "foo = //:foo_example",
-            "bar = //:bar_example",
-            "server = " + myServer,
-            "client = " + myClient),
-        ImmutableSet.copyOf(aliases));
-  }
-
-  @Test
-  public void testConfigOverridesOrderShouldMatter() throws IOException {
-    ProjectWorkspace workspace =
-        TestDataHelper.createProjectWorkspaceForScenario(this, "includes_override", tmp);
-    workspace.setUp();
-
-    Files.write(
-        tmp.newFile("buckconfig1"),
-        ImmutableList.of("[buildfile]", "  includes = //invalid_includes.py"));
-    Files.write(
-        tmp.newFile("buckconfig2"), ImmutableList.of("[buildfile]", "  includes = //includes.py"));
-
-    workspace
-        .runBuckCommand(
-            "targets",
-            "--config",
-            "buildfile.includes=//invalid_includes.py",
-            "--config-file",
-            "buckconfig1",
-            "--config",
-            "buildfile.includes=//invalid_includes.py",
-            "--config-file",
-            "buckconfig2",
-            "//...")
-        .assertSuccess();
-  }
-
   private String getUsageString() {
     return String.join(
         System.lineSeparator(),
@@ -230,7 +95,9 @@ public class MainIntegrationTest {
         "  install        builds and installs an application",
         "  kill           kill buckd for the current project",
         "  killall        kill all buckd processes",
-        "  parser-cache   Load and save state of the parser cache",
+        "  perf           various utilities for testing performance of Buck against real codebases "
+            + "and configurations. NOTE: This command's interface is unstable and will change "
+            + "without warning.",
         "  project        generates project configuration files for an IDE",
         "  publish        builds and publishes a library to a central repository",
         "  query          "
@@ -239,7 +106,6 @@ public class MainIntegrationTest {
         "  root           prints the absolute path to the root of the current buck project",
         "  run            runs a target as a command",
         "  server         query and control the http server",
-        "  suggest        suggests a refactoring for the specified build target",
         "  targets        prints the list of buildable targets",
         "  test           builds and runs the tests for the specified target",
         "  uninstall      uninstalls an APK",
@@ -251,5 +117,79 @@ public class MainIntegrationTest {
         " --version (-V)  : Show version number.",
         "",
         "");
+  }
+
+  @Test
+  public void handleReusingCurrentConfigProperty() throws IOException {
+    String warningMessage =
+        String.format(
+            "`%s` parameter provided. Reusing previously defined config.",
+            GlobalCliOptions.REUSE_CURRENT_CONFIG_ARG);
+
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenarioWithoutDefaultCell(
+            this, "output_path", tmp);
+    workspace.setUp();
+
+    // the first execution with specific configuration params for ui.json_attribute_format
+    ProcessResult result =
+        workspace.runBuckdCommand(
+            "targets",
+            "--json",
+            "-c",
+            "ui.json_attribute_format=snake_case",
+            "-c",
+            "client.id=123",
+            "-c",
+            "ui.warn_on_config_file_overrides=true",
+            "-c",
+            "foo.bar3=1",
+            "-c",
+            "foo.bar4=1",
+            "--show-output",
+            "...");
+    result.assertSuccess();
+    String expectedJson = workspace.getFileContents("output_path_json_all_snake_case.js");
+    assertJsonMatches(expectedJson, result.getStdout());
+    assertThat(
+        GlobalCliOptions.REUSE_CURRENT_CONFIG_ARG + " not provided",
+        result.getStderr(),
+        not(containsString(warningMessage)));
+
+    // the second execution without specific configuration params for ui.json_attribute_format but
+    // with --reuse-current-config" param
+    result =
+        workspace.runBuckdCommand(
+            "targets", "--json", GlobalCliOptions.REUSE_CURRENT_CONFIG_ARG, "--show-output", "...");
+    result.assertSuccess();
+    assertJsonMatches(expectedJson, result.getStdout());
+    String stderr = result.getStderr();
+    assertThat(
+        GlobalCliOptions.REUSE_CURRENT_CONFIG_ARG + " provided",
+        stderr,
+        containsString(warningMessage));
+    assertThat(
+        stderr,
+        containsString(
+            "Running with reused config, some configuration changes would not be applied:"));
+    assertThat(
+        "show config key in the diff", stderr, containsString("\t-\tui.json_attribute_format"));
+    assertThat(
+        "show whitelisted config settings in the diff",
+        stderr,
+        containsString("\t-\tui.warn_on_config_file_overrides"));
+    assertThat(
+        "show whitelisted config settings in the diff", stderr, containsString("\t-\tclient.id"));
+    assertThat(stderr, containsString("\t-\t... and 2 more."));
+
+    // the third execution without specific configuration params for ui.json_attribute_format and
+    // without --reuse-current-config param
+    result = workspace.runBuckdCommand("targets", "--json", "--show-output", "...");
+    result.assertSuccess();
+    assertJsonNotMatches(expectedJson, result.getStdout());
+    assertThat(
+        GlobalCliOptions.REUSE_CURRENT_CONFIG_ARG + " not provided",
+        result.getStderr(),
+        not(containsString(warningMessage)));
   }
 }

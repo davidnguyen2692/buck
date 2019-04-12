@@ -17,15 +17,19 @@
 package com.facebook.buck.core.rules.configsetting;
 
 import com.facebook.buck.core.config.BuckConfig;
-import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.UnconfiguredBuildTargetView;
+import com.facebook.buck.core.model.platform.ConstraintResolver;
+import com.facebook.buck.core.model.platform.ConstraintValue;
+import com.facebook.buck.core.model.platform.Platform;
 import com.facebook.buck.core.select.Selectable;
+import com.facebook.buck.core.select.SelectableConfigurationContext;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import java.util.Collection;
 import java.util.Map;
-import java.util.Map.Entry;
 import java.util.Optional;
-import java.util.Set;
 
 /**
  * {@code Selectable} created by {@link ConfigSettingRule} for integration with {@link
@@ -33,56 +37,87 @@ import java.util.Set;
  */
 public class ConfigSettingSelectable implements Selectable {
 
-  private final BuildTarget buildTarget;
+  private final UnconfiguredBuildTargetView buildTarget;
   private final ImmutableMap<String, String> values;
-  private final boolean matches;
+  private final ImmutableSet<UnconfiguredBuildTargetView> constraintValues;
 
   public ConfigSettingSelectable(
-      BuckConfig buckConfig, BuildTarget buildTarget, ImmutableMap<String, String> values) {
+      UnconfiguredBuildTargetView buildTarget,
+      ImmutableMap<String, String> values,
+      ImmutableSet<UnconfiguredBuildTargetView> constraintValues) {
     this.buildTarget = buildTarget;
     this.values = values;
-    matches = calculateMatches(buckConfig, values);
+    this.constraintValues = constraintValues;
   }
 
   @Override
-  public boolean matches() {
-    return matches;
+  public boolean matches(SelectableConfigurationContext configurationContext) {
+    ConfigSettingSelectableConfigurationContext context =
+        (ConfigSettingSelectableConfigurationContext) configurationContext;
+    return calculateMatches(
+        context.getBuckConfig(),
+        context.getConstraintResolver(),
+        context.getPlatformProvider().getTargetPlatform(context.getTargetConfiguration()),
+        constraintValues,
+        values);
   }
 
+  /**
+   * A {@link ConfigSettingSelectable} refines another {@link ConfigSettingSelectable} when {@link
+   * #values} or {@link #constraintValues} or both are strict supersets of corresponding sets of the
+   * other selectable.
+   *
+   * @return {@code true} for given {@code this} selectable and {@code other} selectable when one of
+   *     this conditions is true:
+   *     <ul>
+   *       <li>{@code this.values} is a strict superset of {@code other.values} and {@code
+   *           this.constraintValues} is a strict superset of {@code other.constraintValues}
+   *       <li>{@code this.values} is equal to {@code other.values} and {@code
+   *           this.constraintValues} is a strict superset of {@code other.constraintValues}
+   *       <li>{@code this.values} is a strict superset of {@code other.values} and {@code
+   *           this.constraintValues} is equal to {@code other.constraintValues}
+   *     </ul>
+   */
   @Override
   public boolean refines(Selectable other) {
     Preconditions.checkState(other instanceof ConfigSettingSelectable);
-    Set<Entry<String, String>> settings = ImmutableSet.copyOf(values.entrySet());
-    Set<Entry<String, String>> otherSettings =
-        ImmutableSet.copyOf(((ConfigSettingSelectable) other).values.entrySet());
+    ConfigSettingSelectable otherSelectable = (ConfigSettingSelectable) other;
 
-    if (!settings.containsAll(otherSettings)) {
-      return false;
+    if (values.equals(otherSelectable.values)) {
+      return refines(constraintValues, otherSelectable.constraintValues);
+    } else if (constraintValues.equals(otherSelectable.constraintValues)) {
+      return refines(values.entrySet(), otherSelectable.values.entrySet());
+    } else {
+      return refines(values.entrySet(), otherSelectable.values.entrySet())
+          && refines(constraintValues, otherSelectable.constraintValues);
     }
+  }
 
-    if (!(settings.size() > otherSettings.size())) {
-      return false;
-    }
-
-    return true;
+  private <T> boolean refines(ImmutableSet<T> values, ImmutableSet<T> otherValues) {
+    return (values.size() > otherValues.size() && values.containsAll(otherValues));
   }
 
   @Override
-  public BuildTarget getBuildTarget() {
+  public UnconfiguredBuildTargetView getBuildTarget() {
     return buildTarget;
   }
 
   private static boolean calculateMatches(
-      BuckConfig buckConfig, ImmutableMap<String, String> values) {
-    if (values.isEmpty()) {
-      return false;
-    }
+      BuckConfig buckConfig,
+      ConstraintResolver constraintResolver,
+      Platform targetPlatform,
+      Collection<UnconfiguredBuildTargetView> constraintValuesTargets,
+      ImmutableMap<String, String> values) {
     for (Map.Entry<String, String> entry : values.entrySet()) {
       if (!matches(buckConfig, entry.getKey(), entry.getValue())) {
         return false;
       }
     }
-    return true;
+    ImmutableList<ConstraintValue> constraintValues =
+        constraintValuesTargets.stream()
+            .map(constraintResolver::getConstraintValue)
+            .collect(ImmutableList.toImmutableList());
+    return targetPlatform.matchesAll(constraintValues);
   }
 
   private static boolean matches(BuckConfig buckConfig, String key, String value) {
@@ -92,9 +127,11 @@ public class ConfigSettingSelectable implements Selectable {
         String.format("Config option should be in format 'section.option', but given: %s", key));
 
     Optional<String> currentValue = buckConfig.getValue(keyParts[0], keyParts[1]);
-    if (!currentValue.isPresent()) {
-      return false;
-    }
-    return currentValue.get().equals(value);
+    return currentValue.map(curValue -> curValue.equals(value)).orElse(false);
+  }
+
+  @Override
+  public String toString() {
+    return buildTarget.toString();
   }
 }

@@ -20,6 +20,7 @@ import com.facebook.buck.features.project.intellij.aggregation.AggregationMode;
 import com.facebook.buck.features.project.intellij.model.IjProjectConfig;
 import com.facebook.buck.jvm.java.JavaBuckConfig;
 import com.google.common.base.Splitter;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
 import java.nio.file.Path;
 import java.util.Collections;
@@ -45,7 +46,10 @@ public class IjProjectBuckConfig {
       boolean removeUnusedLibraries,
       boolean excludeArtifacts,
       boolean includeTransitiveDependencies,
-      boolean skipBuild) {
+      boolean skipBuild,
+      boolean keepModuleFilesInModuleDirsEnabled,
+      ImmutableSet<String> includeTestPatterns,
+      ImmutableSet<String> excludeTestPatterns) {
     Optional<String> excludedResourcePathsOption =
         buckConfig.getValue(INTELLIJ_BUCK_CONFIG_SECTION, "excluded_resource_paths");
 
@@ -67,6 +71,36 @@ public class IjProjectBuckConfig {
     Optional<Path> androidManifest =
         buckConfig.getPath(INTELLIJ_BUCK_CONFIG_SECTION, "default_android_manifest_path", false);
 
+    keepModuleFilesInModuleDirsEnabled =
+        buckConfig.getBooleanValue(
+                INTELLIJ_BUCK_CONFIG_SECTION, "keep_module_files_in_module_dirs", false)
+            || keepModuleFilesInModuleDirsEnabled;
+
+    return createBuilder(buckConfig)
+        .setExcludedResourcePaths(excludedResourcePaths)
+        .setLabelToGeneratedSourcesMap(labelToGeneratedSourcesMap)
+        .setAndroidManifest(androidManifest)
+        .setCleanerEnabled(isCleanerEnabled)
+        .setKeepModuleFilesInModuleDirsEnabled(keepModuleFilesInModuleDirsEnabled)
+        .setRemovingUnusedLibrariesEnabled(
+            isRemovingUnusedLibrariesEnabled(removeUnusedLibraries, buckConfig))
+        .setExcludeArtifactsEnabled(isExcludingArtifactsEnabled(excludeArtifacts, buckConfig))
+        .setSkipBuildEnabled(
+            skipBuild
+                || buckConfig.getBooleanValue(PROJECT_BUCK_CONFIG_SECTION, "skip_build", false))
+        .setAggregationMode(getAggregationMode(aggregationMode, buckConfig))
+        .setGeneratedFilesListFilename(Optional.ofNullable(generatedFilesListFilename))
+        .setProjectRoot(projectRoot)
+        .setProjectPaths(new IjProjectPaths(projectRoot, keepModuleFilesInModuleDirsEnabled))
+        .setIncludeTransitiveDependency(
+            isIncludingTransitiveDependencyEnabled(includeTransitiveDependencies, buckConfig))
+        .setModuleGroupName(getModuleGroupName(moduleGroupName, buckConfig))
+        .setIncludeTestPatterns(includeTestPatterns)
+        .setExcludeTestPatterns(excludeTestPatterns)
+        .build();
+  }
+
+  public static IjProjectConfig.Builder createBuilder(BuckConfig buckConfig) {
     return IjProjectConfig.builder()
         .setAutogenerateAndroidFacetSourcesEnabled(
             !buckConfig.getBooleanValue(
@@ -88,25 +122,12 @@ public class IjProjectBuckConfig {
             buckConfig.getValue(INTELLIJ_BUCK_CONFIG_SECTION, "java_module_sdk_name"))
         .setJavaModuleSdkType(
             buckConfig.getValue(INTELLIJ_BUCK_CONFIG_SECTION, "java_module_sdk_type"))
+        .setPythonModuleSdkName(
+            buckConfig.getValue(INTELLIJ_BUCK_CONFIG_SECTION, "python_module_sdk_name"))
+        .setPythonModuleSdkType(
+            buckConfig.getValue(INTELLIJ_BUCK_CONFIG_SECTION, "python_module_sdk_type"))
         .setProjectLanguageLevel(
             buckConfig.getValue(INTELLIJ_BUCK_CONFIG_SECTION, "language_level"))
-        .setExcludedResourcePaths(excludedResourcePaths)
-        .setLabelToGeneratedSourcesMap(labelToGeneratedSourcesMap)
-        .setAndroidManifest(androidManifest)
-        .setCleanerEnabled(isCleanerEnabled)
-        .setRemovingUnusedLibrariesEnabled(
-            isRemovingUnusedLibrariesEnabled(removeUnusedLibraries, buckConfig))
-        .setExcludeArtifactsEnabled(isExcludingArtifactsEnabled(excludeArtifacts, buckConfig))
-        .setSkipBuildEnabled(
-            skipBuild
-                || buckConfig.getBooleanValue(PROJECT_BUCK_CONFIG_SECTION, "skip_build", false))
-        .setAggregationMode(getAggregationMode(aggregationMode, buckConfig))
-        .setGeneratedFilesListFilename(Optional.ofNullable(generatedFilesListFilename))
-        .setProjectRoot(projectRoot)
-        .setProjectPaths(new IjProjectPaths(projectRoot))
-        .setIncludeTransitiveDependency(
-            isIncludingTransitiveDependencyEnabled(includeTransitiveDependencies, buckConfig))
-        .setModuleGroupName(getModuleGroupName(moduleGroupName, buckConfig))
         .setIgnoredTargetLabels(
             buckConfig.getListWithoutComments(
                 INTELLIJ_BUCK_CONFIG_SECTION, "ignored_target_labels"))
@@ -121,6 +142,9 @@ public class IjProjectBuckConfig {
         .setGeneratingAndroidManifestEnabled(
             buckConfig.getBooleanValue(
                 INTELLIJ_BUCK_CONFIG_SECTION, "generate_android_manifest", false))
+        .setGeneratingTargetInfoMapEnabled(
+            buckConfig.getBooleanValue(
+                INTELLIJ_BUCK_CONFIG_SECTION, "generate_target_info_map", false))
         .setOutputUrl(
             buckConfig.getValue(INTELLIJ_BUCK_CONFIG_SECTION, "project_compiler_output_url"))
         .setExtraCompilerOutputModulesPath(
@@ -128,7 +152,9 @@ public class IjProjectBuckConfig {
                 INTELLIJ_BUCK_CONFIG_SECTION, "extra_compiler_output_modules_path", false))
         .setMinAndroidSdkVersion(
             buckConfig.getValue(INTELLIJ_BUCK_CONFIG_SECTION, "default_min_android_sdk_version"))
-        .build();
+        .setMultiCellModuleSupportEnabled(
+            buckConfig.getBooleanValue(
+                INTELLIJ_BUCK_CONFIG_SECTION, "multi_cell_module_support", false));
   }
 
   private static String getModuleGroupName(String moduleGroupName, BuckConfig buckConfig) {

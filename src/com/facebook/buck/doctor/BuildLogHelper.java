@@ -66,9 +66,7 @@ public class BuildLogHelper {
         logEntries.add(newBuildLogEntry(logFile));
       }
     }
-    return logEntries
-        .build()
-        .stream()
+    return logEntries.build().stream()
         .sorted(Comparator.comparing(BuildLogEntry::getLastModifiedTime).reversed())
         .collect(ImmutableList.toImmutableList());
   }
@@ -105,8 +103,7 @@ public class BuildLogHelper {
       Optional<Long> finishTimestampMs =
           readObjectFieldFromLog(machineReadableLogFile, PREFIX_BUILD_FINISHED, "timestamp");
 
-      builder.setExitCode(
-          exitCode.isPresent() ? OptionalInt.of(exitCode.get()) : OptionalInt.empty());
+      builder.setExitCode(exitCode.map(OptionalInt::of).orElseGet(OptionalInt::empty));
       if (finishTimestampMs.isPresent() && startTimestampMs.isPresent()) {
         builder.setBuildTimeMs(
             OptionalInt.of((int) (finishTimestampMs.get() - startTimestampMs.get())));
@@ -131,9 +128,7 @@ public class BuildLogHelper {
     }
 
     Optional<Path> traceFile =
-        projectFilesystem
-            .getFilesUnderPath(logFile.getParent())
-            .stream()
+        projectFilesystem.getFilesUnderPath(logFile.getParent()).stream()
             .filter(input -> input.toString().endsWith(".trace"))
             .findFirst();
 

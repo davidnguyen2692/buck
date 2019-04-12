@@ -16,7 +16,7 @@
 
 package com.facebook.buck.worker;
 
-import com.facebook.buck.log.Logger;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.util.concurrent.LinkedBlockingStack;
 import com.facebook.buck.util.function.ThrowingSupplier;
 import com.google.common.annotations.VisibleForTesting;
@@ -27,6 +27,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.TimeUnit;
@@ -188,7 +189,7 @@ public class WorkerProcessPool implements Closeable {
     @Nullable private WorkerLifecycle lifecycle;
 
     private BorrowedWorkerProcess(WorkerLifecycle lifecycle) {
-      this.lifecycle = Preconditions.checkNotNull(lifecycle);
+      this.lifecycle = Objects.requireNonNull(lifecycle);
     }
 
     /** Returns ownership of the borrowed worker process back to the pool it was retrieved from. */

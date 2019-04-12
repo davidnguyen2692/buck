@@ -23,6 +23,7 @@ import static org.junit.Assert.assertThat;
 import com.facebook.buck.core.config.FakeBuckConfig;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
+import com.facebook.buck.core.model.EmptyTargetConfiguration;
 import com.facebook.buck.core.model.FlavorDomain;
 import com.facebook.buck.core.model.InternalFlavor;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
@@ -55,10 +56,10 @@ import com.facebook.buck.features.python.toolchain.PythonEnvironment;
 import com.facebook.buck.features.python.toolchain.PythonPlatform;
 import com.facebook.buck.features.python.toolchain.PythonVersion;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
 import com.facebook.buck.rules.macros.StringWithMacrosUtils;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -73,6 +74,8 @@ import org.junit.Test;
 
 public class CxxPythonExtensionDescriptionTest {
 
+  private static final PythonPlatform PY_DEFAULT = createPyDefaultPlatform();
+
   private static final BuildTarget PYTHON2_DEP_TARGET =
       BuildTargetFactory.newInstance("//:python2_dep");
   private static final PythonPlatform PY2 = createPy2Platform(Optional.empty());
@@ -81,17 +84,27 @@ public class CxxPythonExtensionDescriptionTest {
       BuildTargetFactory.newInstance("//:python3_dep");
   private static final PythonPlatform PY3 = createPy3Platform(Optional.empty());
 
+  private static PythonPlatform createPyDefaultPlatform() {
+    return new TestPythonPlatform(
+        InternalFlavor.of("py-default"),
+        new PythonEnvironment(
+            Paths.get("python2"), PythonVersion.of("CPython", "2.6"), PythonBuckConfig.SECTION),
+        Optional.empty());
+  }
+
   private static PythonPlatform createPy2Platform(Optional<BuildTarget> cxxLibrary) {
     return new TestPythonPlatform(
         InternalFlavor.of("py2"),
-        new PythonEnvironment(Paths.get("python2"), PythonVersion.of("CPython", "2.6")),
+        new PythonEnvironment(
+            Paths.get("python2"), PythonVersion.of("CPython", "2.6"), PythonBuckConfig.SECTION),
         cxxLibrary);
   }
 
   private static PythonPlatform createPy3Platform(Optional<BuildTarget> cxxLibrary) {
     return new TestPythonPlatform(
         InternalFlavor.of("py3"),
-        new PythonEnvironment(Paths.get("python3"), PythonVersion.of("CPython", "3.5")),
+        new PythonEnvironment(
+            Paths.get("python3"), PythonVersion.of("CPython", "3.5"), PythonBuckConfig.SECTION),
         cxxLibrary);
   }
 
@@ -173,14 +186,17 @@ public class CxxPythonExtensionDescriptionTest {
 
     NativeLinkableInput depInput =
         dep.getNativeLinkableInput(
-            CxxPlatformUtils.DEFAULT_PLATFORM, Linker.LinkableDepType.SHARED, graphBuilder);
+            CxxPlatformUtils.DEFAULT_PLATFORM,
+            Linker.LinkableDepType.SHARED,
+            graphBuilder,
+            EmptyTargetConfiguration.INSTANCE);
 
     // Verify that the shared library dep propagated to the link rule.
     extension.getPythonPackageComponents(PY2, CxxPlatformUtils.DEFAULT_PLATFORM, graphBuilder);
     BuildRule rule =
         graphBuilder.getRule(
             CxxPythonExtensionDescription.getExtensionTarget(
-                target, PY2.getFlavor(), CxxPlatformUtils.DEFAULT_PLATFORM.getFlavor()));
+                target, PY2.getFlavor(), CxxPlatformUtils.DEFAULT_PLATFORM_FLAVOR));
     assertThat(
         rule.getBuildDeps(),
         Matchers.hasItems(
@@ -212,7 +228,7 @@ public class CxxPythonExtensionDescriptionTest {
     BuildRule rule =
         graphBuilder.getRule(
             CxxPythonExtensionDescription.getExtensionTarget(
-                target, PY2.getFlavor(), CxxPlatformUtils.DEFAULT_PLATFORM.getFlavor()));
+                target, PY2.getFlavor(), CxxPlatformUtils.DEFAULT_PLATFORM_FLAVOR));
     PythonPackageComponents expectedComponents =
         PythonPackageComponents.of(
             ImmutableMap.of(
@@ -262,11 +278,11 @@ public class CxxPythonExtensionDescriptionTest {
     PrebuiltCxxLibraryBuilder python2Builder =
         new PrebuiltCxxLibraryBuilder(PYTHON2_DEP_TARGET)
             .setHeaderOnly(true)
-            .setExportedLinkerFlags(ImmutableList.of("-lpython2"));
+            .setExportedLinkerFlags("-lpython2");
     PrebuiltCxxLibraryBuilder python3Builder =
         new PrebuiltCxxLibraryBuilder(PYTHON3_DEP_TARGET)
             .setHeaderOnly(true)
-            .setExportedLinkerFlags(ImmutableList.of("-lpython3"));
+            .setExportedLinkerFlags("-lpython3");
 
     PythonPlatform py2 = createPy2Platform(Optional.of(PYTHON2_DEP_TARGET));
     PythonPlatform py3 = createPy3Platform(Optional.of(PYTHON3_DEP_TARGET));
@@ -306,7 +322,7 @@ public class CxxPythonExtensionDescriptionTest {
   }
 
   @Test
-  public void nativeLinkTargetMode() throws Exception {
+  public void nativeLinkTargetMode() {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     CxxPythonExtensionBuilder builder =
         new CxxPythonExtensionBuilder(
@@ -322,7 +338,7 @@ public class CxxPythonExtensionDescriptionTest {
   }
 
   @Test
-  public void nativeLinkTargetDeps() throws Exception {
+  public void nativeLinkTargetDeps() {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     CxxLibrary dep =
         (CxxLibrary)
@@ -389,7 +405,7 @@ public class CxxPythonExtensionDescriptionTest {
   }
 
   @Test
-  public void platformDeps() throws Exception {
+  public void platformDeps() {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     CxxLibrary dep =
         (CxxLibrary)
@@ -497,7 +513,7 @@ public class CxxPythonExtensionDescriptionTest {
   }
 
   @Test
-  public void moduleName() throws Exception {
+  public void moduleName() {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     CxxPythonExtension cxxPythonExtension =
         new CxxPythonExtensionBuilder(
@@ -528,9 +544,27 @@ public class CxxPythonExtensionDescriptionTest {
             builder
                 .getTarget()
                 .withAppendedFlavors(
-                    CxxPlatformUtils.DEFAULT_PLATFORM.getFlavor(),
+                    CxxPlatformUtils.DEFAULT_PLATFORM_FLAVOR,
                     PY2.getFlavor(),
                     Type.COMPILATION_DATABASE.getFlavor()));
+    assertThat(rule, Matchers.instanceOf(CxxCompilationDatabase.class));
+  }
+
+  @Test
+  public void compilationDatabaseDefaults() {
+    CxxPythonExtensionBuilder builder =
+        new CxxPythonExtensionBuilder(
+            BuildTargetFactory.newInstance("//:ext"),
+            FlavorDomain.of("Python Platform", PY_DEFAULT, PY2, PY3),
+            new CxxBuckConfig(FakeBuckConfig.builder().build()),
+            CxxTestUtils.createDefaultPlatforms());
+
+    builder.setSrcs(ImmutableSortedSet.of(SourceWithFlags.of(FakeSourcePath.of("test.cpp"))));
+    ActionGraphBuilder graphBuilder =
+        new TestActionGraphBuilder(TargetGraphFactory.newInstance(builder.build()));
+    BuildRule rule =
+        graphBuilder.requireRule(
+            builder.getTarget().withAppendedFlavors(Type.COMPILATION_DATABASE.getFlavor()));
     assertThat(rule, Matchers.instanceOf(CxxCompilationDatabase.class));
   }
 }

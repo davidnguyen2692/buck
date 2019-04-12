@@ -20,6 +20,7 @@ import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.cell.TestCellBuilder;
 import com.facebook.buck.event.BuckEventBusForTests;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.io.filesystem.skylark.SkylarkFilesystem;
 import com.facebook.buck.parser.ParserConfig;
 import com.facebook.buck.parser.options.ProjectBuildFileParserOptions;
@@ -28,7 +29,6 @@ import com.facebook.buck.skylark.io.impl.NativeGlobber;
 import com.facebook.buck.skylark.parser.BuckGlobals;
 import com.facebook.buck.skylark.parser.RuleFunctionFactory;
 import com.facebook.buck.skylark.parser.SkylarkProjectBuildFileParser;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.util.environment.Architecture;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.base.Charsets;
@@ -39,34 +39,22 @@ import com.google.devtools.build.lib.events.Event;
 import com.google.devtools.build.lib.events.EventCollector;
 import com.google.devtools.build.lib.events.EventHandler;
 import com.google.devtools.build.lib.events.EventKind;
-import com.google.devtools.build.lib.packages.Info;
+import com.google.devtools.build.lib.packages.SkylarkInfo;
 import com.google.devtools.build.lib.syntax.EvalException;
-import com.google.devtools.build.lib.vfs.Path;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.util.EnumSet;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 import org.junit.Assert;
-import org.junit.Before;
 import org.junit.Test;
 
 public class HostInfoTest {
 
-  private Path root;
-
-  @Before
-  public void setUp() {
-    ProjectFilesystem projectFilesystem = FakeProjectFilesystem.createRealTempFilesystem();
-    SkylarkFilesystem fileSystem = SkylarkFilesystem.using(projectFilesystem);
-    root = fileSystem.getPath(projectFilesystem.getRootPath().toString());
-  }
-
-  private void validateSkylarkStruct(Info struct, String topLevel, String trueKey)
+  private void validateSkylarkStruct(SkylarkInfo struct, String topLevel, String trueKey)
       throws EvalException {
     // Assert that all keys are false except the one specified by {@code trueKey}
 
-    Info topLevelStruct = struct.getValue(topLevel, Info.class);
+    SkylarkInfo topLevelStruct = struct.getValue(topLevel, SkylarkInfo.class);
     for (String key : topLevelStruct.getFieldNames()) {
       if (key.equals(trueKey)) {
         continue;
@@ -160,7 +148,8 @@ public class HostInfoTest {
   public void isUseableInBuildFile() throws EvalException, InterruptedException, IOException {
     String expectedOutput = "";
     String macroFile = "";
-    Info realHostInfo = HostInfo.createHostInfoStruct(Platform::detect, Architecture::detect);
+    SkylarkInfo realHostInfo =
+        HostInfo.createHostInfoStruct(Platform::detect, Architecture::detect);
 
     macroFile =
         "def printer():\n"
@@ -201,12 +190,10 @@ public class HostInfoTest {
             + "arch.is_unknown: False\n"
             + "arch.is_x86_64: False\n";
     // Make sure we set the current system's os/arch to True
-    Info realHostOs = realHostInfo.getValue("os", Info.class);
-    Info realHostArch = realHostInfo.getValue("arch", Info.class);
+    SkylarkInfo realHostOs = realHostInfo.getValue("os", SkylarkInfo.class);
+    SkylarkInfo realHostArch = realHostInfo.getValue("arch", SkylarkInfo.class);
     String trueOsKey =
-        realHostOs
-            .getFieldNames()
-            .stream()
+        realHostOs.getFieldNames().stream()
             .filter(
                 k -> {
                   try {
@@ -219,9 +206,7 @@ public class HostInfoTest {
             .get();
 
     String trueArchKey =
-        realHostArch
-            .getFieldNames()
-            .stream()
+        realHostArch.getFieldNames().stream()
             .filter(
                 k -> {
                   try {
@@ -258,7 +243,7 @@ public class HostInfoTest {
     Files.write(fs.resolve("file.bzl"), macroFile.getBytes(Charsets.UTF_8));
 
     SkylarkProjectBuildFileParser parser = createParser(cell.getFilesystem(), eventHandler);
-    parser.getBuildFileManifest(fs.resolve("BUCK"), new AtomicLong());
+    parser.getBuildFileManifest(fs.resolve("BUCK"));
   }
 
   private SkylarkProjectBuildFileParser createParser(

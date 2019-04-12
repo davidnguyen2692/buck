@@ -16,7 +16,7 @@
 
 package com.facebook.buck.features.ocaml;
 
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.description.arg.CommonDescriptionArg;
 import com.facebook.buck.core.description.arg.HasDeclaredDeps;
 import com.facebook.buck.core.description.attr.ImplicitDepsInferringDescription;
@@ -151,7 +151,8 @@ public class OcamlBinaryDescription
       ImmutableCollection.Builder<BuildTarget> extraDepsBuilder,
       ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
     targetGraphOnlyDepsBuilder.addAll(
-        OcamlUtil.getParseTimeDeps(getPlatform(constructorArg.getPlatform())));
+        OcamlUtil.getParseTimeDeps(
+            buildTarget.getTargetConfiguration(), getPlatform(constructorArg.getPlatform())));
   }
 
   @BuckStyleImmutable

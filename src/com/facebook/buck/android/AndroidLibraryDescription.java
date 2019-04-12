@@ -16,7 +16,7 @@
 
 package com.facebook.buck.android;
 
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.description.arg.HasDepsQuery;
 import com.facebook.buck.core.description.arg.HasProvidedDepsQuery;
 import com.facebook.buck.core.description.attr.ImplicitDepsInferringDescription;
@@ -62,8 +62,8 @@ public class AndroidLibraryDescription
   }
 
   private final JavaBuckConfig javaBuckConfig;
-  private final ToolchainProvider toolchainProvider;
   private final AndroidLibraryCompilerFactory compilerFactory;
+  private final JavacFactory javacFactory;
 
   public AndroidLibraryDescription(
       JavaBuckConfig javaBuckConfig,
@@ -71,7 +71,7 @@ public class AndroidLibraryDescription
       ToolchainProvider toolchainProvider) {
     this.javaBuckConfig = javaBuckConfig;
     this.compilerFactory = compilerFactory;
-    this.toolchainProvider = toolchainProvider;
+    this.javacFactory = JavacFactory.getDefault(toolchainProvider);
   }
 
   @Override
@@ -105,10 +105,8 @@ public class AndroidLibraryDescription
                 .getByName(JavacOptionsProvider.DEFAULT_NAME, JavacOptionsProvider.class)
                 .getJavacOptions(),
             buildTarget,
-            projectFilesystem,
             context.getActionGraphBuilder(),
             args);
-    JavacFactory javacFactory = JavacFactory.getDefault(toolchainProvider);
     AndroidLibrary.Builder androidLibraryBuilder =
         AndroidLibrary.builder(
             buildTarget,
@@ -150,10 +148,10 @@ public class AndroidLibraryDescription
       ImmutableCollection.Builder<BuildTarget> extraDepsBuilder,
       ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
     compilerFactory
-        .getCompiler(
-            constructorArg.getLanguage().orElse(JvmLanguage.JAVA),
-            JavacFactory.getDefault(toolchainProvider))
-        .addTargetDeps(extraDepsBuilder, targetGraphOnlyDepsBuilder);
+        .getCompiler(constructorArg.getLanguage().orElse(JvmLanguage.JAVA), javacFactory)
+        .addTargetDeps(
+            buildTarget.getTargetConfiguration(), extraDepsBuilder, targetGraphOnlyDepsBuilder);
+    javacFactory.addParseTimeDeps(targetGraphOnlyDepsBuilder, constructorArg);
   }
 
   public interface CoreArg

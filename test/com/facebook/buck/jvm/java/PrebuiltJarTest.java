@@ -27,7 +27,7 @@ import com.facebook.buck.core.rules.TestBuildRuleParams;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.core.sourcepath.FakeSourcePath;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.testutil.TemporaryPaths;
 import java.io.IOException;
 import java.util.Optional;
@@ -71,6 +71,7 @@ public class PrebuiltJarTest {
 
   @Test
   public void testGetAnnotationProcessingDataIsEmpty() {
-    assertFalse(junitJarRule.getGeneratedSourcePath().isPresent());
+    assertFalse(junitJarRule.getGeneratedAnnotationSourcePath().isPresent());
+    assertFalse(junitJarRule.hasAnnotationProcessing());
   }
 }

@@ -16,12 +16,18 @@
 
 package com.facebook.buck.rules.modern.impl;
 
+import com.facebook.buck.core.model.EmptyTargetConfiguration;
+import com.facebook.buck.core.model.TargetConfiguration;
+import com.facebook.buck.core.model.impl.DefaultTargetConfiguration;
 import com.facebook.buck.core.rulekey.AddsToRuleKey;
 import com.facebook.buck.core.rules.modern.annotations.CustomFieldBehavior;
 import com.facebook.buck.rules.modern.ClassInfo;
 import com.facebook.buck.rules.modern.ValueTypeInfo;
 import com.facebook.buck.rules.modern.ValueVisitor;
+import com.facebook.buck.util.exceptions.BuckUncheckedExecutionException;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
 import java.lang.reflect.Field;
@@ -42,20 +48,31 @@ public abstract class AbstractValueVisitor<E extends Exception> implements Value
   }
 
   @Override
-  public <T> void visitSet(ImmutableSortedSet<T> value, ValueTypeInfo<T> innerType) throws E {
+  public <T> void visitSet(ImmutableSet<T> value, ValueTypeInfo<T> innerType) throws E {
     for (T e : value) {
       innerType.visit(e, this);
     }
   }
 
   @Override
+  public <T> void visitSortedSet(ImmutableSortedSet<T> value, ValueTypeInfo<T> innerType) throws E {
+    visitSet(value, innerType);
+  }
+
+  @Override
   public <K, V> void visitMap(
-      ImmutableSortedMap<K, V> value, ValueTypeInfo<K> keyType, ValueTypeInfo<V> valueType)
-      throws E {
+      ImmutableMap<K, V> value, ValueTypeInfo<K> keyType, ValueTypeInfo<V> valueType) throws E {
     for (Entry<K, V> entry : value.entrySet()) {
       keyType.visit(entry.getKey(), this);
       valueType.visit(entry.getValue(), this);
     }
+  }
+
+  @Override
+  public <K, V> void visitSortedMap(
+      ImmutableSortedMap<K, V> value, ValueTypeInfo<K> keyType, ValueTypeInfo<V> valueType)
+      throws E {
+    visitMap(value, keyType, valueType);
   }
 
   @Override
@@ -79,7 +96,12 @@ public abstract class AbstractValueVisitor<E extends Exception> implements Value
       ValueTypeInfo<T> valueTypeInfo,
       Optional<CustomFieldBehavior> customBehavior)
       throws E {
-    valueTypeInfo.visit(value, this);
+    try {
+      valueTypeInfo.visit(value, this);
+    } catch (RuntimeException e) {
+      throw new BuckUncheckedExecutionException(
+          e, "When visiting %s.%s.", field.getDeclaringClass().getName(), field.getName());
+    }
   }
 
   @Override
@@ -132,5 +154,17 @@ public abstract class AbstractValueVisitor<E extends Exception> implements Value
   @Override
   public void visitDouble(Double value) throws E {
     visitSimple(value);
+  }
+
+  @Override
+  public void visitTargetConfiguration(TargetConfiguration value) throws E {
+    if (value instanceof EmptyTargetConfiguration) {
+      visitSimple(Boolean.TRUE);
+    } else if (value instanceof DefaultTargetConfiguration) {
+      visitSimple(Boolean.FALSE);
+      visitSimple(((DefaultTargetConfiguration) value).getTargetPlatform().getFullyQualifiedName());
+    } else {
+      throw new IllegalArgumentException("Cannot visit target configuration: " + value);
+    }
   }
 }

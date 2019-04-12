@@ -18,6 +18,7 @@ package com.facebook.buck.android;
 
 import com.facebook.buck.android.resources.ResourcesZipBuilder;
 import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
@@ -29,10 +30,10 @@ import com.facebook.buck.rules.modern.ModernBuildRule;
 import com.facebook.buck.rules.modern.OutputPath;
 import com.facebook.buck.rules.modern.OutputPathResolver;
 import com.facebook.buck.step.AbstractExecutionStep;
-import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.step.StepExecutionResults;
+import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
@@ -56,7 +57,7 @@ public class MergeThirdPartyJarResources extends ModernBuildRule<MergeThirdParty
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
       SourcePathRuleFinder ruleFinder,
-      ImmutableSet<SourcePath> pathsToThirdPartyJars) {
+      ImmutableCollection<SourcePath> pathsToThirdPartyJars) {
     super(buildTarget, projectFilesystem, ruleFinder, MergeThirdPartyJarResources.class);
     this.pathsToThirdPartyJars = ImmutableSortedSet.copyOf(pathsToThirdPartyJars);
     this.mergedPath = new OutputPath("java.resources");

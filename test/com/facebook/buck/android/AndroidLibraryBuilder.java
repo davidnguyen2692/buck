@@ -26,13 +26,13 @@ import com.facebook.buck.core.sourcepath.PathSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.toolchain.ToolchainProvider;
 import com.facebook.buck.core.toolchain.impl.ToolchainProviderBuilder;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.jvm.java.JavaBuckConfig;
 import com.facebook.buck.jvm.java.JavaCompilationConstants;
 import com.facebook.buck.jvm.java.JavaConfiguredCompilerFactory;
 import com.facebook.buck.jvm.java.toolchain.JavaToolchain;
 import com.facebook.buck.jvm.java.toolchain.JavacOptionsProvider;
 import com.facebook.buck.rules.query.Query;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
 import java.nio.file.Path;
 import java.util.Optional;
 
@@ -54,8 +54,7 @@ public class AndroidLibraryBuilder
             javaBuckConfig, JAVA_ONLY_COMPILER_FACTORY, createToolchainProviderForAndroidLibrary()),
         target,
         new FakeProjectFilesystem(),
-        createToolchainProviderForAndroidLibrary(),
-        null);
+        createToolchainProviderForAndroidLibrary());
   }
 
   public static AndroidLibraryBuilder createBuilder(BuildTarget target) {
@@ -77,13 +76,8 @@ public class AndroidLibraryBuilder
         .build();
   }
 
-  public AndroidLibraryBuilder addProcessor(String processor) {
-    getArgForPopulating().addAnnotationProcessors(processor);
-    return this;
-  }
-
-  public AndroidLibraryBuilder addProcessorBuildTarget(BuildTarget processorRule) {
-    getArgForPopulating().addAnnotationProcessorDeps(processorRule);
+  public AndroidLibraryBuilder addPluginTarget(BuildTarget pluginRule) {
+    getArgForPopulating().addPlugins(pluginRule);
     return this;
   }
 

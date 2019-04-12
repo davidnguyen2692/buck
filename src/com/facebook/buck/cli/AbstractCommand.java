@@ -16,37 +16,40 @@
 
 package com.facebook.buck.cli;
 
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
+import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.cell.CellConfig;
-import com.facebook.buck.core.cell.name.RelativeCellName;
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.cell.CellName;
 import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.targetgraph.TargetGraphAndBuildTargets;
+import com.facebook.buck.core.parser.buildtargetparser.UnconfiguredBuildTargetFactory;
 import com.facebook.buck.core.resources.ResourcesConfig;
 import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.core.rulekey.config.RuleKeyConfig;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.event.BuckEventListener;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.log.LogConfigSetup;
-import com.facebook.buck.log.Logger;
-import com.facebook.buck.parser.BuildTargetParser;
-import com.facebook.buck.parser.BuildTargetPatternParser;
 import com.facebook.buck.parser.BuildTargetPatternTargetNodeParser;
+import com.facebook.buck.parser.ParserConfig;
+import com.facebook.buck.parser.ParsingContext;
 import com.facebook.buck.parser.TargetNodeSpec;
 import com.facebook.buck.rules.keys.DefaultRuleKeyCache;
 import com.facebook.buck.rules.keys.EventPostingRuleKeyCacheScope;
 import com.facebook.buck.rules.keys.RuleKeyCacheRecycler;
 import com.facebook.buck.rules.keys.RuleKeyCacheScope;
 import com.facebook.buck.rules.keys.TrackedRuleKeyCache;
-import com.facebook.buck.step.ExecutionContext;
-import com.facebook.buck.step.ExecutorPool;
+import com.facebook.buck.support.cli.args.BuckCellArg;
 import com.facebook.buck.support.cli.args.GlobalCliOptions;
-import com.facebook.buck.util.BuckCellArg;
+import com.facebook.buck.support.cli.config.CliConfig;
+import com.facebook.buck.test.config.TestBuckConfig;
 import com.facebook.buck.util.DefaultProcessExecutor;
 import com.facebook.buck.util.ExitCode;
 import com.facebook.buck.util.cache.InstrumentingCacheStatsTracker;
 import com.facebook.buck.util.concurrent.ConcurrencyLimit;
+import com.facebook.buck.util.concurrent.ExecutorPool;
 import com.facebook.buck.util.config.Configs;
 import com.facebook.buck.util.types.Pair;
 import com.facebook.buck.versions.VersionException;
@@ -59,7 +62,7 @@ import com.google.devtools.build.lib.clock.Clock;
 import com.google.devtools.build.lib.clock.JavaClock;
 import com.google.devtools.build.lib.profiler.Profiler;
 import com.google.devtools.build.lib.profiler.Profiler.Format;
-import com.google.devtools.build.lib.profiler.Profiler.ProfiledTaskKinds;
+import com.google.devtools.build.lib.profiler.ProfilerTask;
 import java.io.BufferedOutputStream;
 import java.io.Closeable;
 import java.io.IOException;
@@ -130,6 +133,9 @@ public abstract class AbstractCommand extends CommandWithPluginManager {
   @Nullable
   private String skylarkProfile;
 
+  @Option(name = GlobalCliOptions.TARGET_PLATFORMS_LONG_ARG, usage = "Target platforms.")
+  private List<String> targetPlatforms = new ArrayList<>();
+
   @Override
   public LogConfigSetup getLogConfig() {
     return LogConfigSetup.DEFAULT_SETUP;
@@ -156,12 +162,28 @@ public abstract class AbstractCommand extends CommandWithPluginManager {
               + "log and trace.")
   private boolean enableParserProfiling = false;
 
+  @Option(
+      name = GlobalCliOptions.EXCLUDE_INCOMPATIBLE_TARGETS_LONG_ARG,
+      usage =
+          "Exclude targets that are not compatible with the given target platform. (experimental)")
+  private boolean excludeIncompatibleTargets = false;
+
   @Option(name = GlobalCliOptions.HELP_LONG_ARG, usage = "Prints the available options and exits.")
   private boolean help = false;
+
+  @Option(
+      name = GlobalCliOptions.REUSE_CURRENT_CONFIG_ARG,
+      usage = "Whether to re-use configuration of the currently running Buck daemon process.",
+      forbids = {GlobalCliOptions.CONFIG_LONG_ARG, GlobalCliOptions.CONFIG_FILE_LONG_ARG})
+  private boolean reuseCurrentConfig = false;
 
   /** @return {code true} if the {@code [cache]} in {@code .buckconfig} should be ignored. */
   public boolean isNoCache() {
     return noCache;
+  }
+
+  public boolean isReuseCurrentConfig() {
+    return reuseCurrentConfig;
   }
 
   public Optional<Path> getEventsOutputPath() {
@@ -216,22 +238,48 @@ public abstract class AbstractCommand extends CommandWithPluginManager {
   }
 
   @Override
-  public final ExitCode run(CommandRunnerParams params) throws IOException, InterruptedException {
+  public final ExitCode run(CommandRunnerParams params) throws Exception {
     if (help) {
       printUsage(params.getConsole().getStdOut());
       return ExitCode.SUCCESS;
     }
     if (params.getConsole().getAnsi().isAnsiTerminal()) {
-      ImmutableList<String> motd = params.getBuckConfig().getMessageOfTheDay();
+      ImmutableList<String> motd =
+          params.getBuckConfig().getView(CliConfig.class).getMessageOfTheDay();
       if (!motd.isEmpty()) {
         for (String line : motd) {
           params.getBuckEventBus().post(ConsoleEvent.info(line));
         }
       }
     }
-    try (Closeable closeable = prepareExecutionContext(params)) {
+    try (Closeable closeable = prepareExecutionContext(params);
+        Closeable bazelProfiler = prepareBazelProfiler()) {
       return runWithoutHelp(params);
     }
+  }
+
+  private Closeable prepareBazelProfiler() {
+    if (skylarkProfile != null) {
+      Clock clock = new JavaClock();
+      try {
+        OutputStream outputStream =
+            new BufferedOutputStream(Files.newOutputStream(Paths.get(skylarkProfile)));
+        Profiler.instance()
+            .start(
+                ImmutableSet.copyOf(ProfilerTask.values()),
+                outputStream,
+                Format.JSON_TRACE_FILE_FORMAT,
+                "Buck profile for " + skylarkProfile + " at " + LocalDate.now(),
+                false,
+                clock,
+                clock.nanoTime(),
+                false);
+      } catch (IOException e) {
+        throw new HumanReadableException(
+            "Cannot initialize Skylark profiler for " + skylarkProfile, e);
+      }
+    }
+    return () -> Profiler.instance().stop();
   }
 
   protected Closeable prepareExecutionContext(CommandRunnerParams params) {
@@ -243,8 +291,7 @@ public abstract class AbstractCommand extends CommandWithPluginManager {
     };
   }
 
-  public abstract ExitCode runWithoutHelp(CommandRunnerParams params)
-      throws IOException, InterruptedException;
+  public abstract ExitCode runWithoutHelp(CommandRunnerParams params) throws Exception;
 
   protected CommandLineBuildTargetNormalizer getCommandLineBuildTargetNormalizer(
       BuckConfig buckConfig) {
@@ -255,34 +302,15 @@ public abstract class AbstractCommand extends CommandWithPluginManager {
     return enableParserProfiling;
   }
 
-  public ImmutableList<TargetNodeSpec> parseArgumentsAsTargetNodeSpecs(
-      CellPathResolver cellPathResolver, BuckConfig config, Iterable<String> targetsAsArgs) {
+  ImmutableList<TargetNodeSpec> parseArgumentsAsTargetNodeSpecs(
+      Cell owningCell, BuckConfig config, Iterable<String> targetsAsArgs) {
     ImmutableList.Builder<TargetNodeSpec> specs = ImmutableList.builder();
     CommandLineTargetNodeSpecParser parser =
         new CommandLineTargetNodeSpecParser(config, new BuildTargetPatternTargetNodeParser());
     for (String arg : targetsAsArgs) {
-      specs.addAll(parser.parse(cellPathResolver, arg));
+      specs.addAll(parser.parse(owningCell, arg));
     }
     return specs.build();
-  }
-
-  /**
-   * @param cellNames
-   * @param buildTargetNames The build targets to parse, represented as strings.
-   * @return A set of {@link BuildTarget}s for the input buildTargetNames.
-   */
-  protected ImmutableSet<BuildTarget> getBuildTargets(
-      CellPathResolver cellNames, Iterable<String> buildTargetNames) {
-    ImmutableSet.Builder<BuildTarget> buildTargets = ImmutableSet.builder();
-
-    // Parse all of the build targets specified by the user.
-    for (String buildTargetName : buildTargetNames) {
-      buildTargets.add(
-          BuildTargetParser.INSTANCE.parse(
-              buildTargetName, BuildTargetPatternParser.fullyQualified(), cellNames));
-    }
-
-    return buildTargets.build();
   }
 
   protected ExecutionContext getExecutionContext() {
@@ -294,6 +322,7 @@ public abstract class AbstractCommand extends CommandWithPluginManager {
   }
 
   protected ExecutionContext.Builder getExecutionContextBuilder(CommandRunnerParams params) {
+    TestBuckConfig testBuckConfig = params.getBuckConfig().getView(TestBuckConfig.class);
     ExecutionContext.Builder builder =
         ExecutionContext.builder()
             .setConsole(params.getConsole())
@@ -305,34 +334,13 @@ public abstract class AbstractCommand extends CommandWithPluginManager {
             .setCellPathResolver(params.getCell().getCellPathResolver())
             .setBuildCellRootPath(params.getCell().getRoot())
             .setProcessExecutor(new DefaultProcessExecutor(params.getConsole()))
-            .setDefaultTestTimeoutMillis(params.getBuckConfig().getDefaultTestTimeoutMillis())
-            .setInclNoLocationClassesEnabled(
-                params.getBuckConfig().getBooleanValue("test", "incl_no_location_classes", false))
+            .setDefaultTestTimeoutMillis(testBuckConfig.getDefaultTestTimeoutMillis())
+            .setInclNoLocationClassesEnabled(testBuckConfig.isInclNoLocationClassesEnabled())
             .setRuleKeyDiagnosticsMode(
                 params.getBuckConfig().getView(RuleKeyConfig.class).getRuleKeyDiagnosticsMode())
             .setConcurrencyLimit(getConcurrencyLimit(params.getBuckConfig()))
             .setPersistentWorkerPools(params.getPersistentWorkerPools())
             .setProjectFilesystemFactory(params.getProjectFilesystemFactory());
-    if (skylarkProfile != null) {
-      Clock clock = new JavaClock();
-      try {
-        OutputStream outputStream =
-            new BufferedOutputStream(Files.newOutputStream(Paths.get(skylarkProfile)));
-        Profiler.instance()
-            .start(
-                ProfiledTaskKinds.ALL,
-                outputStream,
-                Format.JSON_TRACE_FILE_FORMAT,
-                "Buck profile for " + skylarkProfile + " at " + LocalDate.now(),
-                false,
-                clock,
-                clock.nanoTime());
-      } catch (IOException e) {
-        throw new HumanReadableException(
-            "Cannot initialize Skylark profiler for " + skylarkProfile, e);
-      }
-      builder.setProfiler(Optional.of(Profiler.instance()));
-    }
     return builder;
   }
 
@@ -354,7 +362,9 @@ public abstract class AbstractCommand extends CommandWithPluginManager {
             params.getBuckEventBus(),
             params.getBuckConfig(),
             params.getTypeCoercerFactory(),
-            targetGraphAndBuildTargets);
+            params.getUnconfiguredBuildTargetFactory(),
+            targetGraphAndBuildTargets,
+            params.getTargetConfiguration());
   }
 
   @Override
@@ -384,36 +394,47 @@ public abstract class AbstractCommand extends CommandWithPluginManager {
     return false;
   }
 
+  @Override
+  public ImmutableList<String> getTargetPlatforms() {
+    return ImmutableList.copyOf(targetPlatforms);
+  }
+
+  public boolean getExcludeIncompatibleTargets() {
+    return excludeIncompatibleTargets;
+  }
+
   /**
    * Converts target arguments to fully qualified form (including resolving aliases, resolving the
    * implicit package target, etc).
    */
   protected ImmutableSet<BuildTarget> convertArgumentsToBuildTargets(
       CommandRunnerParams params, List<String> arguments) {
-    return getCommandLineBuildTargetNormalizer(params.getBuckConfig())
-        .normalizeAll(arguments)
+    UnconfiguredBuildTargetFactory unconfiguredBuildTargetFactory =
+        params.getUnconfiguredBuildTargetFactory();
+    return getCommandLineBuildTargetNormalizer(params.getBuckConfig()).normalizeAll(arguments)
         .stream()
         .map(
             input ->
-                BuildTargetParser.INSTANCE.parse(
-                    input,
-                    BuildTargetPatternParser.fullyQualified(),
-                    params.getCell().getCellPathResolver()))
+                unconfiguredBuildTargetFactory.create(
+                    params.getCell().getCellPathResolver(), input))
+        .map(
+            unconfiguredBuildTarget ->
+                unconfiguredBuildTarget.configure(params.getTargetConfiguration()))
         .collect(ImmutableSet.toImmutableSet());
   }
 
   private void parseConfigOption(CellConfig.Builder builder, Pair<String, String> config) {
     // Parse command-line config overrides.
     List<String> key = Splitter.on("//").limit(2).splitToList(config.getFirst());
-    RelativeCellName cellName = RelativeCellName.ALL_CELLS_SPECIAL_NAME;
+    CellName cellName = CellName.ALL_CELLS_SPECIAL_NAME;
     String configKey = key.get(0);
     if (key.size() == 2) {
       // Here we explicitly take the whole string as the cell name. We don't support transitive
       // path overrides for cells.
       if (key.get(0).length() == 0) {
-        cellName = RelativeCellName.ROOT_CELL_NAME;
+        cellName = CellName.ROOT_CELL_NAME;
       } else {
-        cellName = RelativeCellName.of(ImmutableSet.of(key.get(0)));
+        cellName = CellName.of(key.get(0));
       }
       configKey = key.get(1);
     }
@@ -442,30 +463,37 @@ public abstract class AbstractCommand extends CommandWithPluginManager {
   }
 
   private void parseConfigFileOption(
-      ImmutableMap<RelativeCellName, Path> cellMapping,
-      CellConfig.Builder builder,
-      String filename) {
-    if (filename == null) {
-      return;
+      ImmutableMap<CellName, Path> cellMapping, CellConfig.Builder builder, String filename) {
+    // See if the filename argument specifies the cell.
+    String[] matches = filename.split("=", 2);
+
+    // By default, this config file applies to all cells.
+    CellName configCellName = CellName.ALL_CELLS_SPECIAL_NAME;
+
+    if (matches.length == 2) {
+      // Filename argument specified the cell to which this config applies.
+      filename = matches[1];
+      if (matches[0].equals("//")) {
+        // Config applies only to the current cell .
+        configCellName = CellName.ROOT_CELL_NAME;
+      } else if (!matches[0].equals("*")) { // '*' is the default.
+        CellName cellName = CellName.of(matches[0]);
+        if (!cellMapping.containsKey(cellName)) {
+          throw new HumanReadableException("Unknown cell: %s", matches[0]);
+        }
+        configCellName = cellName;
+      }
     }
+
+    // Filename may also contain the cell name, so resolve the path to the file.
     BuckCellArg filenameArg = BuckCellArg.of(filename);
-    RelativeCellName cellName;
-    if (!filenameArg.getCellName().isPresent() && filename.startsWith("//")) {
-      cellName = RelativeCellName.ROOT_CELL_NAME;
-    } else {
-      cellName =
-          filenameArg.getCellName().isPresent()
-              ? RelativeCellName.of(ImmutableSet.of(filenameArg.getCellName().get()))
-              : RelativeCellName.ALL_CELLS_SPECIAL_NAME;
-    }
-
-    filename = filenameArg.getArg();
-
+    filename = BuckCellArg.of(filename).getArg();
     Path projectRoot =
         cellMapping.get(
-            cellName.equals(RelativeCellName.ALL_CELLS_SPECIAL_NAME)
-                ? RelativeCellName.ROOT_CELL_NAME
-                : cellName);
+            filenameArg.getCellName().isPresent()
+                ? CellName.of(filenameArg.getCellName().get())
+                : CellName.ROOT_CELL_NAME);
+
     Path path = projectRoot.resolve(filename);
     ImmutableMap<String, ImmutableMap<String, String>> sectionsToEntries;
 
@@ -480,7 +508,7 @@ public abstract class AbstractCommand extends CommandWithPluginManager {
       for (Map.Entry<String, String> sectionEntry : entry.getValue().entrySet()) {
         String field = sectionEntry.getKey();
         String value = sectionEntry.getValue();
-        builder.put(cellName, section, field, value);
+        builder.put(configCellName, section, field, value);
       }
     }
     LOG.debug("Loaded a configuration file %s, %s", filename, sectionsToEntries.toString());
@@ -511,7 +539,7 @@ public abstract class AbstractCommand extends CommandWithPluginManager {
 
   @Override
   @SuppressWarnings("unchecked")
-  public CellConfig getConfigOverrides(ImmutableMap<RelativeCellName, Path> cellMapping) {
+  public CellConfig getConfigOverrides(ImmutableMap<CellName, Path> cellMapping) {
     CellConfig.Builder builder = CellConfig.builder();
 
     for (Object option : configOverrides) {
@@ -522,13 +550,22 @@ public abstract class AbstractCommand extends CommandWithPluginManager {
       }
     }
     if (numThreads != null) {
-      builder.put(
-          RelativeCellName.ALL_CELLS_SPECIAL_NAME, "build", "threads", String.valueOf(numThreads));
+      builder.put(CellName.ALL_CELLS_SPECIAL_NAME, "build", "threads", String.valueOf(numThreads));
     }
     if (noCache) {
-      builder.put(RelativeCellName.ALL_CELLS_SPECIAL_NAME, "cache", "mode", "");
+      builder.put(CellName.ALL_CELLS_SPECIAL_NAME, "cache", "mode", "");
     }
 
     return builder.build();
+  }
+
+  @Override
+  public ParsingContext createParsingContext(Cell cell, ListeningExecutorService executor) {
+    return ParsingContext.builder(cell, executor)
+        .setProfilingEnabled(getEnableParserProfiling())
+        .setExcludeUnsupportedTargets(getExcludeIncompatibleTargets())
+        .setEnableTargetCompatibilityChecks(
+            cell.getBuckConfig().getView(ParserConfig.class).getEnableTargetCompatibilityChecks())
+        .build();
   }
 }

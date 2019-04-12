@@ -16,6 +16,9 @@
 
 package com.facebook.buck.cxx;
 
+import com.facebook.buck.core.rulekey.AddsToRuleKey;
+import com.facebook.buck.core.rules.modern.annotations.CustomFieldBehavior;
+import com.facebook.buck.core.rules.modern.annotations.DefaultFieldSerialization;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.util.immutables.BuckStylePackageVisibleTuple;
 import com.facebook.buck.cxx.toolchain.PathShortener;
@@ -37,12 +40,14 @@ import org.immutables.value.Value;
 
 @Value.Immutable
 @BuckStylePackageVisibleTuple
-abstract class AbstractCxxIncludePaths {
+abstract class AbstractCxxIncludePaths implements AddsToRuleKey {
 
   /** Paths added with {@code -I} */
+  @CustomFieldBehavior(DefaultFieldSerialization.class)
   public abstract ImmutableSet<CxxHeaders> getIPaths();
 
   /** Framework paths added with {@code -F} */
+  @CustomFieldBehavior(DefaultFieldSerialization.class)
   public abstract ImmutableSet<FrameworkPath> getFPaths();
 
   /**
@@ -89,8 +94,7 @@ abstract class AbstractCxxIncludePaths {
     builder.addAll(
         MoreIterables.zipAndConcat(
             Iterables.cycle("-F"),
-            getFPaths()
-                .stream()
+            getFPaths().stream()
                 .filter(x -> !x.isSDKROOTFrameworkPath())
                 .map(frameworkPathTransformer)
                 .map(Object::toString)

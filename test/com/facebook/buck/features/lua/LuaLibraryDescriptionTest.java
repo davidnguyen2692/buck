@@ -32,8 +32,8 @@ import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.util.RichStream;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
@@ -110,8 +110,7 @@ public class LuaLibraryDescriptionTest {
                 PatternMatchedCollection.<ImmutableSortedSet<BuildTarget>>builder()
                     .add(
                         Pattern.compile(
-                            CxxPlatformUtils.DEFAULT_PLATFORM.getFlavor().toString(),
-                            Pattern.LITERAL),
+                            CxxPlatformUtils.DEFAULT_PLATFORM_FLAVOR.toString(), Pattern.LITERAL),
                         ImmutableSortedSet.of(libraryABuilder.getTarget()))
                     .add(
                         Pattern.compile("matches nothing", Pattern.LITERAL),

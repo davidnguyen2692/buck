@@ -20,6 +20,7 @@ import static org.junit.Assert.assertNotNull;
 
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
+import com.facebook.buck.core.model.EmptyTargetConfiguration;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
 import com.facebook.buck.core.rulekey.RuleKey;
@@ -34,10 +35,10 @@ import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.rules.keys.DefaultRuleKeyFactory;
 import com.facebook.buck.rules.keys.TestDefaultRuleKeyFactory;
 import com.facebook.buck.shell.GenruleBuilder;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.util.cache.FileHashCache;
 import com.facebook.buck.util.cache.FileHashCacheMode;
 import com.facebook.buck.util.cache.impl.DefaultFileHashCache;
@@ -73,7 +74,8 @@ public class PrebuiltCxxLibraryTest {
 
     PrebuiltCxxLibrary lib =
         (PrebuiltCxxLibrary) builder.build(graphBuilder, filesystem, targetGraph);
-    lib.getNativeLinkableInput(platform, Linker.LinkableDepType.STATIC, graphBuilder);
+    lib.getNativeLinkableInput(
+        platform, Linker.LinkableDepType.STATIC, graphBuilder, EmptyTargetConfiguration.INSTANCE);
 
     FileHashCache originalHashCache =
         new StackedFileHashCache(

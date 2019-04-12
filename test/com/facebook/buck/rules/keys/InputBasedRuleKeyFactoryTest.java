@@ -29,6 +29,7 @@ import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.BuildRuleResolver;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.TestBuildRuleParams;
+import com.facebook.buck.core.rules.impl.FakeBuildRule;
 import com.facebook.buck.core.rules.impl.NoopBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.core.sourcepath.FakeSourcePath;
@@ -39,13 +40,12 @@ import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.file.RemoteFile;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.parser.exceptions.NoSuchBuildTargetException;
-import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.keys.config.TestRuleKeyConfigurationFactory;
 import com.facebook.buck.shell.ExportFileBuilder;
 import com.facebook.buck.shell.GenruleBuilder;
 import com.facebook.buck.testutil.FakeFileHashCache;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.util.cache.FileHashCache;
 import com.facebook.buck.util.cache.FileHashCacheMode;
 import com.facebook.buck.util.cache.impl.DefaultFileHashCache;
@@ -63,6 +63,7 @@ import java.nio.file.Paths;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Objects;
 import org.hamcrest.Matchers;
 import org.junit.Rule;
 import org.junit.Test;
@@ -105,7 +106,7 @@ public class InputBasedRuleKeyFactoryTest {
   }
 
   @Test
-  public void ruleKeyChangesIfInputContentsFromPathSourceChanges() throws Exception {
+  public void ruleKeyChangesIfInputContentsFromPathSourceChanges() {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
     SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
@@ -136,7 +137,7 @@ public class InputBasedRuleKeyFactoryTest {
   }
 
   @Test
-  public void ruleKeyChangesIfInputContentsFromBuildTargetSourcePathChanges() throws Exception {
+  public void ruleKeyChangesIfInputContentsFromBuildTargetSourcePathChanges() {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
     SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
@@ -157,8 +158,7 @@ public class InputBasedRuleKeyFactoryTest {
     FakeFileHashCache hashCache =
         new FakeFileHashCache(
             ImmutableMap.of(
-                pathResolver.getAbsolutePath(
-                    Preconditions.checkNotNull(dep.getSourcePathToOutput())),
+                pathResolver.getAbsolutePath(Objects.requireNonNull(dep.getSourcePathToOutput())),
                 HashCode.fromInt(0)));
 
     RuleKey inputKey1 =
@@ -168,8 +168,7 @@ public class InputBasedRuleKeyFactoryTest {
     hashCache =
         new FakeFileHashCache(
             ImmutableMap.of(
-                pathResolver.getAbsolutePath(
-                    (Preconditions.checkNotNull(dep.getSourcePathToOutput()))),
+                pathResolver.getAbsolutePath(Objects.requireNonNull(dep.getSourcePathToOutput())),
                 HashCode.fromInt(1)));
 
     RuleKey inputKey2 =
@@ -213,8 +212,7 @@ public class InputBasedRuleKeyFactoryTest {
   }
 
   @Test
-  public void ruleKeyChangesIfInputContentsFromBuildTargetSourcePathInRuleKeyAppendableChanges()
-      throws Exception {
+  public void ruleKeyChangesIfInputContentsFromBuildTargetSourcePathInRuleKeyAppendableChanges() {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
     SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
@@ -319,7 +317,7 @@ public class InputBasedRuleKeyFactoryTest {
   }
 
   @Test
-  public void nestedSizeLimitExceptionHandled() throws Exception {
+  public void nestedSizeLimitExceptionHandled() {
     BuildRuleResolver resolver = new TestActionGraphBuilder();
     RuleKeyFieldLoader fieldLoader =
         new RuleKeyFieldLoader(TestRuleKeyConfigurationFactory.create());
@@ -351,7 +349,7 @@ public class InputBasedRuleKeyFactoryTest {
   }
 
   @Test
-  public void ruleKeyNotCalculatedIfSizeLimitHit() throws Exception {
+  public void ruleKeyNotCalculatedIfSizeLimitHit() {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     RuleKeyFieldLoader fieldLoader =
         new RuleKeyFieldLoader(TestRuleKeyConfigurationFactory.create());
@@ -382,7 +380,7 @@ public class InputBasedRuleKeyFactoryTest {
   }
 
   @Test
-  public void ruleKeyNotCalculatedIfSizeLimitHitWithMultipleInputs() throws Exception {
+  public void ruleKeyNotCalculatedIfSizeLimitHitWithMultipleInputs() {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     RuleKeyFieldLoader fieldLoader =
         new RuleKeyFieldLoader(TestRuleKeyConfigurationFactory.create());
@@ -417,7 +415,7 @@ public class InputBasedRuleKeyFactoryTest {
   }
 
   @Test
-  public void ruleKeyNotCalculatedIfSizeLimitHitWithDirectory() throws Exception {
+  public void ruleKeyNotCalculatedIfSizeLimitHitWithDirectory() {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     RuleKeyFieldLoader fieldLoader =
         new RuleKeyFieldLoader(TestRuleKeyConfigurationFactory.create());
@@ -450,7 +448,7 @@ public class InputBasedRuleKeyFactoryTest {
   }
 
   @Test
-  public void ruleKeysForOversizedRules() throws Exception {
+  public void ruleKeysForOversizedRules() {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     RuleKeyFieldLoader fieldLoader =
         new RuleKeyFieldLoader(TestRuleKeyConfigurationFactory.create());
@@ -482,7 +480,7 @@ public class InputBasedRuleKeyFactoryTest {
   }
 
   @Test
-  public void ruleKeysForUndersizedRules() throws Exception {
+  public void ruleKeysForUndersizedRules() {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     RuleKeyFieldLoader fieldLoader =
         new RuleKeyFieldLoader(TestRuleKeyConfigurationFactory.create());

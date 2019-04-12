@@ -16,7 +16,7 @@
 
 package com.facebook.buck.features.python;
 
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
@@ -46,9 +46,9 @@ import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
 import com.facebook.buck.rules.coercer.SourceSortedSet;
 import com.facebook.buck.rules.coercer.VersionMatchedCollection;
-import com.facebook.buck.rules.macros.AbstractMacroExpander;
 import com.facebook.buck.rules.macros.LocationMacroExpander;
 import com.facebook.buck.rules.macros.Macro;
+import com.facebook.buck.rules.macros.MacroExpander;
 import com.facebook.buck.util.RichStream;
 import com.facebook.buck.versions.Version;
 import com.google.common.base.CaseFormat;
@@ -71,7 +71,7 @@ import java.util.Optional;
 
 public class PythonUtil {
 
-  static final ImmutableList<AbstractMacroExpander<? extends Macro, ?>> MACRO_EXPANDERS =
+  static final ImmutableList<MacroExpander<? extends Macro, ?>> MACRO_EXPANDERS =
       ImmutableList.of(new LocationMacroExpander());
 
   private PythonUtil() {}
@@ -84,14 +84,10 @@ public class PythonUtil {
     return RichStream.<BuildTarget>empty()
         .concat(deps.stream())
         .concat(
-            platformDeps
-                .getMatchingValues(pythonPlatform.getFlavor().toString())
-                .stream()
+            platformDeps.getMatchingValues(pythonPlatform.getFlavor().toString()).stream()
                 .flatMap(Collection::stream))
         .concat(
-            platformDeps
-                .getMatchingValues(cxxPlatform.getFlavor().toString())
-                .stream()
+            platformDeps.getMatchingValues(cxxPlatform.getFlavor().toString()).stream()
                 .flatMap(Collection::stream))
         .toImmutableList();
   }
@@ -320,8 +316,7 @@ public class PythonUtil {
               graphBuilder,
               Iterables.concat(nativeLinkableRoots.values(), extensionNativeDeps.values()));
       for (NativeLinkable nativeLinkable : nativeLinkables.values()) {
-        NativeLinkable.Linkage linkage =
-            nativeLinkable.getPreferredLinkage(cxxPlatform, graphBuilder);
+        NativeLinkable.Linkage linkage = nativeLinkable.getPreferredLinkage(cxxPlatform);
         if (nativeLinkableRoots.containsKey(nativeLinkable.getBuildTarget())
             || linkage != NativeLinkable.Linkage.STATIC) {
           ImmutableMap<String, SourcePath> libs =

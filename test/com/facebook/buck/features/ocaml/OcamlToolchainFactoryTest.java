@@ -20,6 +20,7 @@ import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.config.FakeBuckConfig;
+import com.facebook.buck.core.model.EmptyTargetConfiguration;
 import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.FlavorDomain;
 import com.facebook.buck.core.model.InternalFlavor;
@@ -31,16 +32,17 @@ import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver
 import com.facebook.buck.core.toolchain.ToolchainCreationContext;
 import com.facebook.buck.core.toolchain.ToolchainProvider;
 import com.facebook.buck.core.toolchain.impl.ToolchainProviderBuilder;
-import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
 import com.facebook.buck.cxx.toolchain.CxxPlatformsProvider;
+import com.facebook.buck.cxx.toolchain.StaticUnresolvedCxxPlatform;
+import com.facebook.buck.cxx.toolchain.UnresolvedCxxPlatform;
 import com.facebook.buck.io.AlwaysFoundExecutableFinder;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.FakeExecutableFinder;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.impl.AllExistingProjectFilesystem;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.rules.keys.config.TestRuleKeyConfigurationFactory;
-import com.facebook.buck.testutil.AllExistingProjectFilesystem;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.util.FakeProcessExecutor;
 import com.facebook.buck.util.ProcessExecutor;
 import com.google.common.collect.ImmutableList;
@@ -54,11 +56,12 @@ public class OcamlToolchainFactoryTest {
 
   @Test
   public void getCFlags() {
-    CxxPlatform cxxPlatform =
-        CxxPlatformUtils.DEFAULT_PLATFORM
-            .withAsflags("-asflag")
-            .withCppflags("-cppflag")
-            .withCflags("-cflag");
+    UnresolvedCxxPlatform cxxPlatform =
+        new StaticUnresolvedCxxPlatform(
+            CxxPlatformUtils.DEFAULT_PLATFORM
+                .withAsflags("-asflag")
+                .withCppflags("-cppflag")
+                .withCflags("-cflag"));
     ToolchainProvider toolchainProvider =
         new ToolchainProviderBuilder()
             .withToolchain(
@@ -76,7 +79,8 @@ public class OcamlToolchainFactoryTest {
             new FakeProjectFilesystem(),
             processExecutor,
             executableFinder,
-            TestRuleKeyConfigurationFactory.create());
+            TestRuleKeyConfigurationFactory.create(),
+            () -> EmptyTargetConfiguration.INSTANCE);
 
     OcamlToolchainFactory factory = new OcamlToolchainFactory();
     Optional<OcamlToolchain> toolchain =
@@ -93,7 +97,8 @@ public class OcamlToolchainFactoryTest {
         DefaultSourcePathResolver.from(new SourcePathRuleFinder(resolver));
 
     Flavor custom = InternalFlavor.of("custom");
-    CxxPlatform cxxPlatform = CxxPlatformUtils.DEFAULT_PLATFORM.withFlavor(custom);
+    UnresolvedCxxPlatform cxxPlatform =
+        CxxPlatformUtils.DEFAULT_UNRESOLVED_PLATFORM.withFlavor(custom);
     ToolchainProvider toolchainProvider =
         new ToolchainProviderBuilder()
             .withToolchain(
@@ -119,7 +124,8 @@ public class OcamlToolchainFactoryTest {
             filesystem,
             processExecutor,
             executableFinder,
-            TestRuleKeyConfigurationFactory.create());
+            TestRuleKeyConfigurationFactory.create(),
+            () -> EmptyTargetConfiguration.INSTANCE);
 
     OcamlToolchainFactory factory = new OcamlToolchainFactory();
     Optional<OcamlToolchain> toolchain =
@@ -130,7 +136,7 @@ public class OcamlToolchainFactoryTest {
             .getOcamlPlatforms()
             .getValue(custom)
             .getOcamlCompiler()
-            .resolve(resolver)
+            .resolve(resolver, EmptyTargetConfiguration.INSTANCE)
             .getCommandPrefix(pathResolver),
         Matchers.equalTo(ImmutableList.of(filesystem.resolve(compiler).toString())));
   }

@@ -27,9 +27,9 @@ import static org.junit.Assert.assertTrue;
 import com.facebook.buck.io.file.MorePosixFilePermissions;
 import com.facebook.buck.io.file.MostFiles;
 import com.facebook.buck.io.filesystem.CopySourceMode;
-import com.facebook.buck.io.filesystem.PathOrGlobMatcher;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.ProjectFilesystemFactory;
+import com.facebook.buck.io.filesystem.RecursiveFileMatcher;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.integration.ZipInspector;
@@ -93,11 +93,24 @@ public class DefaultProjectFilesystemTest {
 
   @Rule public ExpectedException expected = ExpectedException.none();
 
-  private ProjectFilesystem filesystem;
+  private DefaultProjectFilesystem filesystem;
 
   @Before
-  public void setUp() throws InterruptedException {
+  public void setUp() {
     filesystem = TestProjectFilesystems.createProjectFilesystem(tmp.getRoot());
+  }
+
+  @Test
+  public void asViewCreatesEmptyViewAtRoot() {
+    DefaultProjectFilesystemView view = filesystem.asView();
+
+    // view should be relative to root
+    assertEquals(Paths.get(""), view.projectRoot);
+    assertEquals(filesystem.getRootPath(), view.getRootPath());
+    assertEquals(Paths.get(""), view.relativize(tmp.getRoot()));
+
+    // view should have no ignores
+    assertTrue(view.ignoredPaths.isEmpty());
   }
 
   @Test
@@ -579,15 +592,15 @@ public class DefaultProjectFilesystemTest {
   }
 
   @Test
-  public void testExtractIgnorePaths() throws InterruptedException {
+  public void testExtractIgnorePaths() {
     Config config =
         ConfigBuilder.createFromText("[project]", "ignore = .git, foo, bar/, baz//, a/b/c");
     Path rootPath = tmp.getRoot();
     ProjectFilesystem filesystem = TestProjectFilesystems.createProjectFilesystem(rootPath, config);
     ImmutableSet<Path> ignorePaths =
         FluentIterable.from(filesystem.getIgnorePaths())
-            .filter(input -> input.getType() == PathOrGlobMatcher.Type.PATH)
-            .transform(PathOrGlobMatcher::getPath)
+            .filter(RecursiveFileMatcher.class)
+            .transform(RecursiveFileMatcher::getPath)
             .toSet();
     assertThat(
         ImmutableSortedSet.copyOf(Ordering.natural(), ignorePaths),
@@ -608,14 +621,14 @@ public class DefaultProjectFilesystemTest {
   }
 
   @Test
-  public void testExtractIgnorePathsWithCacheDir() throws InterruptedException {
+  public void testExtractIgnorePathsWithCacheDir() {
     Config config = ConfigBuilder.createFromText("[cache]", "dir = cache_dir");
     Path rootPath = tmp.getRoot();
     ImmutableSet<Path> ignorePaths =
         FluentIterable.from(
                 TestProjectFilesystems.createProjectFilesystem(rootPath, config).getIgnorePaths())
-            .filter(input -> input.getType() == PathOrGlobMatcher.Type.PATH)
-            .transform(PathOrGlobMatcher::getPath)
+            .filter(RecursiveFileMatcher.class)
+            .transform(RecursiveFileMatcher::getPath)
             .toSet();
     assertThat(
         "Cache directory should be in set of ignored paths",
@@ -624,8 +637,7 @@ public class DefaultProjectFilesystemTest {
   }
 
   @Test
-  public void ignoredPathsShouldBeIgnoredWhenWalkingTheFilesystem()
-      throws InterruptedException, IOException {
+  public void ignoredPathsShouldBeIgnoredWhenWalkingTheFilesystem() throws IOException {
     Config config = ConfigBuilder.createFromText("[project]", "ignore = **/*.orig");
 
     ProjectFilesystem filesystem =
@@ -663,7 +675,7 @@ public class DefaultProjectFilesystemTest {
   }
 
   @Test
-  public void getPathReturnsPathWithCorrectFilesystem() throws InterruptedException, IOException {
+  public void getPathReturnsPathWithCorrectFilesystem() throws IOException {
     FileSystem vfs = Jimfs.newFileSystem(Configuration.unix());
     Path root = vfs.getPath("/root");
     Files.createDirectories(root);
@@ -744,5 +756,14 @@ public class DefaultProjectFilesystemTest {
 
     assertFalse(Files.exists(srcDir.resolve("subdir1")));
     assertFalse(Files.exists(srcDir.resolve("file1")));
+  }
+
+  @Test
+  public void testComputeShaExceptionMsg() throws IOException {
+    expected.expectMessage("Error computing Sha1");
+    expected.expectMessage("afakefile.txt");
+    expected.expect(IOException.class);
+
+    filesystem.computeSha1(Paths.get("afakefile.txt"));
   }
 }

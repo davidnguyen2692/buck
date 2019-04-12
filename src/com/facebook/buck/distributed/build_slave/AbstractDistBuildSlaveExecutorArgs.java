@@ -20,9 +20,9 @@ import com.facebook.buck.artifact_cache.ArtifactCacheFactory;
 import com.facebook.buck.command.BuildExecutorArgs;
 import com.facebook.buck.core.build.engine.cache.manager.BuildInfoStoreManager;
 import com.facebook.buck.core.cell.Cell;
-import com.facebook.buck.core.model.actiongraph.computation.ActionGraphCache;
-import com.facebook.buck.core.model.actiongraph.computation.ActionGraphConfig;
-import com.facebook.buck.core.model.actiongraph.computation.ActionGraphParallelizationMode;
+import com.facebook.buck.core.model.TargetConfigurationSerializer;
+import com.facebook.buck.core.model.actiongraph.computation.ActionGraphProvider;
+import com.facebook.buck.core.parser.buildtargetparser.UnconfiguredBuildTargetFactory;
 import com.facebook.buck.core.resources.ResourcesConfig;
 import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.core.rules.knowntypes.KnownRuleTypesProvider;
@@ -38,10 +38,11 @@ import com.facebook.buck.distributed.thrift.StampedeId;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.io.filesystem.ProjectFilesystemFactory;
 import com.facebook.buck.parser.Parser;
+import com.facebook.buck.remoteexecution.interfaces.MetadataProvider;
 import com.facebook.buck.rules.keys.RuleKeyCacheScope;
 import com.facebook.buck.rules.keys.config.RuleKeyConfiguration;
-import com.facebook.buck.step.ExecutorPool;
 import com.facebook.buck.util.Console;
+import com.facebook.buck.util.concurrent.ExecutorPool;
 import com.facebook.buck.util.concurrent.WeightedListeningExecutorService;
 import com.facebook.buck.util.environment.Platform;
 import com.facebook.buck.util.timing.Clock;
@@ -66,7 +67,7 @@ abstract class AbstractDistBuildSlaveExecutorArgs {
 
   public abstract WeightedListeningExecutorService getExecutorService();
 
-  public abstract ActionGraphCache getActionGraphCache();
+  public abstract ActionGraphProvider getActionGraphProvider();
 
   public abstract RuleKeyConfiguration getRuleKeyConfiguration();
 
@@ -118,11 +119,13 @@ abstract class AbstractDistBuildSlaveExecutorArgs {
 
   public abstract HealthCheckStatsTracker getHealthCheckStatsTracker();
 
-  public abstract int getMaxActionGraphParallelism();
-
-  public abstract ActionGraphParallelizationMode getActionGraphParallelizationMode();
-
   public abstract RemoteCommand getRemoteCommand();
+
+  public abstract MetadataProvider getMetadataProvider();
+
+  public abstract UnconfiguredBuildTargetFactory getUnconfiguredBuildTargetFactory();
+
+  public abstract TargetConfigurationSerializer getTargetConfigurationSerializer();
 
   public int getBuildThreadCount() {
     return getState()
@@ -158,7 +161,7 @@ abstract class AbstractDistBuildSlaveExecutorArgs {
         .setState(this.getState())
         .setTimingStatsTracker(this.getTimingStatsTracker())
         .setVersionedTargetGraphCache(this.getVersionedTargetGraphCache())
-        .setActionGraphCache(this.getActionGraphCache())
+        .setActionGraphProvider(this.getActionGraphProvider())
         .setParser(this.getParser())
         .setBuckEventBus(this.getBuckEventBus())
         .setRuleKeyConfiguration(this.getRuleKeyConfiguration())
@@ -167,25 +170,7 @@ abstract class AbstractDistBuildSlaveExecutorArgs {
         .setExecutors(this.getExecutors())
         .setProvider(this.getProvider())
         .setKnownRuleTypesProvider(getKnownRuleTypesProvider())
-        .setShouldInstrumentActionGraph(
-            this.getDistBuildConfig()
-                .getBuckConfig()
-                .getView(ActionGraphConfig.class)
-                .getShouldInstrumentActionGraph())
-        .setIncrementalActionGraphMode(
-            this.getDistBuildConfig()
-                .getBuckConfig()
-                .getView(ActionGraphConfig.class)
-                .getIncrementalActionGraphMode())
-        .setIncrementalActionGraphExperimentGroups(
-            this.getDistBuildConfig()
-                .getBuckConfig()
-                .getView(ActionGraphConfig.class)
-                .getIncrementalActionGraphExperimentGroups())
         .setDistBuildConfig(this.getDistBuildConfig())
-        .setMaxActionGraphParallelism(this.getMaxActionGraphParallelism())
-        .setActionGraphParallelizationMode(this.getActionGraphParallelizationMode())
-        .setCellProvider(this.getRootCell().getCellProvider())
         .build();
   }
 

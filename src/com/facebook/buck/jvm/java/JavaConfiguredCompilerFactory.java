@@ -16,6 +16,7 @@
 
 package com.facebook.buck.jvm.java;
 
+import com.facebook.buck.core.model.TargetConfiguration;
 import com.facebook.buck.core.rules.BuildRuleResolver;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.toolchain.ToolchainProvider;
@@ -46,6 +47,11 @@ public class JavaConfiguredCompilerFactory extends ConfiguredCompilerFactory {
   }
 
   @Override
+  public boolean shouldDesugarInterfaceMethods() {
+    return javaBuckConfig.shouldDesugarInterfaceMethods();
+  }
+
+  @Override
   public boolean shouldCompileAgainstAbis() {
     return javaBuckConfig.shouldCompileAgainstAbis();
   }
@@ -66,10 +72,11 @@ public class JavaConfiguredCompilerFactory extends ConfiguredCompilerFactory {
   }
 
   @Override
-  public ConfiguredCompiler configure(
+  public CompileToJarStepFactory configure(
       @Nullable JvmLibraryArg arg,
       JavacOptions javacOptions,
       BuildRuleResolver buildRuleResolver,
+      TargetConfiguration targetConfiguration,
       ToolchainProvider toolchainProvider) {
 
     return new JavacToJarStepFactory(

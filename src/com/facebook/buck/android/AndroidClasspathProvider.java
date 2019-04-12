@@ -21,22 +21,20 @@ import com.facebook.buck.core.rulekey.AddToRuleKey;
 import com.facebook.buck.core.toolchain.ToolchainProvider;
 import com.facebook.buck.jvm.java.ExtraClasspathProvider;
 import java.nio.file.Path;
+import java.util.Objects;
+import javax.annotation.Nullable;
 
 public class AndroidClasspathProvider implements ExtraClasspathProvider {
-
-  private final ToolchainProvider toolchainProvider;
-
-  @AddToRuleKey private final String classpath = "android";
+  @AddToRuleKey @Nullable private final AndroidPlatformTarget androidPlatformTarget;
 
   public AndroidClasspathProvider(ToolchainProvider toolchainProvider) {
-    this.toolchainProvider = toolchainProvider;
+    this.androidPlatformTarget =
+        toolchainProvider.getByName(
+            AndroidPlatformTarget.DEFAULT_NAME, AndroidPlatformTarget.class);
   }
 
   @Override
   public Iterable<Path> getExtraClasspath() {
-    AndroidPlatformTarget androidPlatformTarget =
-        toolchainProvider.getByName(
-            AndroidPlatformTarget.DEFAULT_NAME, AndroidPlatformTarget.class);
-    return androidPlatformTarget.getBootclasspathEntries();
+    return Objects.requireNonNull(androidPlatformTarget).getBootclasspathEntries();
   }
 }

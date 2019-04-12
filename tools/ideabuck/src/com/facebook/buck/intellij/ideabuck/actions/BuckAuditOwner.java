@@ -21,9 +21,9 @@ import com.facebook.buck.intellij.ideabuck.build.BuckCommand;
 import com.facebook.buck.intellij.ideabuck.build.BuckCommandHandler;
 import com.facebook.buck.intellij.ideabuck.build.ResultCallbackBuckHandler;
 import com.facebook.buck.intellij.ideabuck.config.BuckModule;
-import com.google.common.util.concurrent.FutureCallback;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.project.Project;
+import java.util.function.Consumer;
 
 public class BuckAuditOwner {
   public static final String ACTION_TITLE = "Run buck audit owner";
@@ -31,10 +31,11 @@ public class BuckAuditOwner {
   private BuckAuditOwner() {}
 
   public static void execute(
-      final Project project, final FutureCallback<String> futureCallback, final String... targets) {
+      final Project project, final Consumer<String> futureCallback, final String... targets) {
     ApplicationManager.getApplication()
         .executeOnPooledThread(
             new Runnable() {
+              @Override
               public void run() {
                 BuckBuildManager buildManager = BuckBuildManager.getInstance(project);
                 BuckModule buckModule = project.getComponent(BuckModule.class);
@@ -47,8 +48,7 @@ public class BuckAuditOwner {
                 buckModule.attach(targetsString.toString());
 
                 BuckCommandHandler handler =
-                    new ResultCallbackBuckHandler(
-                        project, project.getBaseDir(), BuckCommand.AUDIT_OWNER, futureCallback);
+                    new ResultCallbackBuckHandler(project, BuckCommand.AUDIT_OWNER, futureCallback);
                 for (String target : targets) {
                   handler.command().addParameter(target);
                 }

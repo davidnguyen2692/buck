@@ -31,6 +31,7 @@ import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.impl.FakeBuildRule;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.core.sourcepath.DefaultBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.FakeSourcePath;
@@ -42,12 +43,11 @@ import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventBusForTests;
 import com.facebook.buck.event.BuckEventBusForTests.CapturingConsoleEventListener;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.rules.FakeBuildRule;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.rules.keys.DefaultRuleKeyFactory;
 import com.facebook.buck.rules.keys.TestDefaultRuleKeyFactory;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.TestExecutionContext;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.MoreAsserts;
 import com.facebook.buck.util.cache.FileHashCache;
 import com.facebook.buck.util.cache.FileHashCacheMode;
@@ -80,7 +80,7 @@ public class ExportFileTest {
   }
 
   @Test
-  public void shouldSetSrcAndOutToNameParameterIfNeitherAreSet() throws Exception {
+  public void shouldSetSrcAndOutToNameParameterIfNeitherAreSet() {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     SourcePathResolver pathResolver =
         DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
@@ -109,7 +109,7 @@ public class ExportFileTest {
   }
 
   @Test
-  public void shouldSetOutToNameParamValueIfSrcIsSet() throws Exception {
+  public void shouldSetOutToNameParamValueIfSrcIsSet() {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     SourcePathResolver pathResolver =
         DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
@@ -139,7 +139,7 @@ public class ExportFileTest {
   }
 
   @Test
-  public void shouldSetOutAndSrcAndNameParametersSeparately() throws Exception {
+  public void shouldSetOutAndSrcAndNameParametersSeparately() {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     SourcePathResolver pathResolver =
         DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
@@ -184,7 +184,7 @@ public class ExportFileTest {
 
     assertIterablesEquals(
         singleton(Paths.get("chips")),
-        pathResolver.filterInputsToCompareToOutput(exportFile.getSource()));
+        pathResolver.filterInputsToCompareToOutput(singleton(exportFile.getSource())));
 
     graphBuilder = new TestActionGraphBuilder();
     pathResolver = DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
@@ -195,7 +195,8 @@ public class ExportFileTest {
     builder.setSrc(DefaultBuildTargetSourcePath.of(rule.getBuildTarget()));
     exportFile = builder.build(graphBuilder, projectFilesystem);
     assertThat(
-        pathResolver.filterInputsToCompareToOutput(exportFile.getSource()), Matchers.empty());
+        pathResolver.filterInputsToCompareToOutput(singleton(exportFile.getSource())),
+        Matchers.empty());
 
     graphBuilder = new TestActionGraphBuilder();
     pathResolver = DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
@@ -204,7 +205,7 @@ public class ExportFileTest {
     exportFile = builder.build(graphBuilder, projectFilesystem);
     assertIterablesEquals(
         singleton(projectFilesystem.getPath("example.html")),
-        pathResolver.filterInputsToCompareToOutput(exportFile.getSource()));
+        pathResolver.filterInputsToCompareToOutput(singleton(exportFile.getSource())));
   }
 
   @Test
@@ -263,7 +264,7 @@ public class ExportFileTest {
   }
 
   @Test
-  public void referenceModeUsesUnderlyingSourcePath() throws Exception {
+  public void referenceModeUsesUnderlyingSourcePath() {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     SourcePathResolver pathResolver =
         DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
@@ -279,7 +280,7 @@ public class ExportFileTest {
   }
 
   @Test
-  public void referenceModeRequiresSameFilesystem() throws Exception {
+  public void referenceModeRequiresSameFilesystem() {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     ProjectFilesystem differentFilesystem = new FakeProjectFilesystem();
     SourcePath src = FakeSourcePath.of(differentFilesystem, "source");
@@ -292,7 +293,7 @@ public class ExportFileTest {
   }
 
   @Test
-  public void referenceModeDoesNotAcceptOutParameter() throws Exception {
+  public void referenceModeDoesNotAcceptOutParameter() {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     expectedException.expect(HumanReadableException.class);
     expectedException.expectMessage(Matchers.containsString("must not set `out`"));

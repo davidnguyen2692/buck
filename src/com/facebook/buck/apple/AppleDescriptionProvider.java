@@ -17,9 +17,9 @@
 package com.facebook.buck.apple;
 
 import com.facebook.buck.core.config.BuckConfig;
+import com.facebook.buck.core.description.Description;
 import com.facebook.buck.core.description.DescriptionCreationContext;
 import com.facebook.buck.core.model.targetgraph.DescriptionProvider;
-import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.core.toolchain.ToolchainProvider;
 import com.facebook.buck.cxx.CxxBinaryFactory;
 import com.facebook.buck.cxx.CxxBinaryFlavored;
@@ -40,8 +40,7 @@ import org.pf4j.Extension;
 @Extension
 public class AppleDescriptionProvider implements DescriptionProvider {
   @Override
-  public Collection<DescriptionWithTargetGraph<?>> getDescriptions(
-      DescriptionCreationContext context) {
+  public Collection<Description<?>> getDescriptions(DescriptionCreationContext context) {
     ToolchainProvider toolchainProvider = context.getToolchainProvider();
     BuckConfig config = context.getBuckConfig();
     SwiftBuckConfig swiftBuckConfig = new SwiftBuckConfig(config);
@@ -64,7 +63,7 @@ public class AppleDescriptionProvider implements DescriptionProvider {
     CxxLibraryFactory cxxLibraryFactory =
         new CxxLibraryFactory(toolchainProvider, cxxBuckConfig, inferBuckConfig);
     CxxLibraryMetadataFactory cxxLibraryMetadataFactory =
-        new CxxLibraryMetadataFactory(toolchainProvider);
+        new CxxLibraryMetadataFactory(toolchainProvider, config.getFilesystem());
 
     SwiftLibraryDescription swiftLibraryDescription =
         new SwiftLibraryDescription(toolchainProvider, cxxBuckConfig, swiftBuckConfig);
@@ -78,6 +77,7 @@ public class AppleDescriptionProvider implements DescriptionProvider {
             xcodeDescriptions,
             swiftLibraryDescription,
             appleConfig,
+            cxxBuckConfig,
             swiftBuckConfig,
             cxxLibraryImplicitFlavors,
             cxxLibraryFlavored,
@@ -90,6 +90,8 @@ public class AppleDescriptionProvider implements DescriptionProvider {
             xcodeDescriptions,
             swiftLibraryDescription,
             appleConfig,
+            cxxBuckConfig,
+            swiftBuckConfig,
             cxxBinaryImplicitFlavors,
             cxxBinaryFactory,
             cxxBinaryMetadataFactory,
@@ -111,9 +113,16 @@ public class AppleDescriptionProvider implements DescriptionProvider {
             xcodeDescriptions,
             appleBinaryDescription,
             appleLibraryDescription,
-            appleConfig),
+            appleConfig,
+            cxxBuckConfig,
+            swiftBuckConfig),
         new AppleTestDescription(
-            toolchainProvider, xcodeDescriptions, appleConfig, appleLibraryDescription),
+            toolchainProvider,
+            xcodeDescriptions,
+            appleConfig,
+            cxxBuckConfig,
+            swiftBuckConfig,
+            appleLibraryDescription),
         new SceneKitAssetsDescription());
   }
 }

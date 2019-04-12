@@ -25,10 +25,10 @@ import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.PathSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.cxx.toolchain.HeaderSymlinkTree;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.log.Logger;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.MkdirStep;
@@ -66,9 +66,12 @@ class DirectHeaderMap extends HeaderSymlinkTree {
       BuildContext context, BuildableContext buildableContext) {
     LOG.debug("Generating build steps to write header map to %s", headerMapPath);
     ImmutableMap.Builder<Path, Path> entriesBuilder = ImmutableMap.builder();
+    Path absoluteIncludeRoot = getProjectFilesystem().resolve(getIncludeRoot());
     for (Map.Entry<Path, SourcePath> entry : getLinks().entrySet()) {
       entriesBuilder.put(
-          entry.getKey(), context.getSourcePathResolver().getAbsolutePath(entry.getValue()));
+          entry.getKey(),
+          absoluteIncludeRoot.relativize(
+              context.getSourcePathResolver().getAbsolutePath(entry.getValue())));
     }
     return ImmutableList.<Step>builder()
         .add(getVerifyStep())
@@ -92,8 +95,11 @@ class DirectHeaderMap extends HeaderSymlinkTree {
 
   @Override
   public PathSourcePath getIncludeSourcePath() {
-    return PathSourcePath.of(
-        getProjectFilesystem(), getProjectFilesystem().getBuckPaths().getBuckOut());
+    return PathSourcePath.of(getProjectFilesystem(), getIncludeRoot());
+  }
+
+  public Path getIncludeRoot() {
+    return getProjectFilesystem().getBuckPaths().getBuckOut();
   }
 
   @Override

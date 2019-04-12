@@ -78,8 +78,7 @@ public class AaptPackageResources extends AbstractBuildRule {
     depsBuilder.addAll(
         BuildRules.toBuildRulesFor(aaptTarget, ruleResolver, resourceTargets::iterator));
     depsBuilder.addAll(
-        resourceDeps
-            .stream()
+        resourceDeps.stream()
             .map(HasAndroidResourceDeps::getRes)
             .flatMap(ruleFinder.FILTER_BUILD_RULE_INPUTS)
             .iterator());
@@ -184,6 +183,7 @@ public class AaptPackageResources extends AbstractBuildRule {
 
     steps.add(
         new AaptStep(
+            context.getSourcePathResolver(),
             androidPlatformTarget,
             getProjectFilesystem().getRootPath(),
             getAndroidManifestXml(),
@@ -193,8 +193,7 @@ public class AaptPackageResources extends AbstractBuildRule {
             getResourceApkPath(),
             rDotTxtDir,
             pathToGeneratedProguardConfig,
-            dependencyResourceApks
-                .stream()
+            dependencyResourceApks.stream()
                 .map(context.getSourcePathResolver()::getAbsolutePath)
                 .collect(ImmutableList.toImmutableList()),
             /*

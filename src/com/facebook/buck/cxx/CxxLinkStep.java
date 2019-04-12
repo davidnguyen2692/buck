@@ -16,8 +16,9 @@
 
 package com.facebook.buck.cxx;
 
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.shell.ShellStep;
-import com.facebook.buck.step.ExecutionContext;
+import com.facebook.buck.util.Verbosity;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import java.nio.file.Path;
@@ -62,5 +63,11 @@ class CxxLinkStep extends ShellStep {
   @Override
   public String getShortName() {
     return "c++ link";
+  }
+
+  @Override
+  protected boolean shouldPrintStderr(Verbosity verbosity) {
+    // Always print warnings and errors
+    return true;
   }
 }

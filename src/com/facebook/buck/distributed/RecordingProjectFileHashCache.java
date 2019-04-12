@@ -16,13 +16,13 @@
 
 package com.facebook.buck.distributed;
 
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.cell.CellPathResolver;
+import com.facebook.buck.core.io.ArchiveMemberPath;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.distributed.thrift.BuildJobStateFileHashEntry;
 import com.facebook.buck.distributed.thrift.PathWithUnixSeparators;
-import com.facebook.buck.io.ArchiveMemberPath;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.log.Logger;
 import com.facebook.buck.util.cache.FileHashCacheVerificationResult;
 import com.facebook.buck.util.cache.ProjectFileHashCache;
 import com.facebook.buck.util.types.Pair;
@@ -258,8 +258,7 @@ public class RecordingProjectFileHashCache implements ProjectFileHashCache {
             symlinkPath.toAbsolutePath()));
   }
 
-  private synchronized void record(ArchiveMemberPath relPath, Optional<HashCode> hashCode)
-      throws IOException {
+  private synchronized void record(ArchiveMemberPath relPath, Optional<HashCode> hashCode) {
     if (!remoteFileHashes.containsAndAddPath(relPath)) {
       record(
           relPath.getArchivePath(),
@@ -358,7 +357,7 @@ public class RecordingProjectFileHashCache implements ProjectFileHashCache {
 
     LOG.info(
         "Stampede always_materialize_whitelist=[%s] cell=[%s].",
-        whitelist.isPresent() ? Joiner.on(", ").join(whitelist.get()) : "",
+        whitelist.map(whitelistStrs -> Joiner.on(", ").join(whitelistStrs)).orElse(""),
         delegate.getFilesystem().getRootPath().toString());
 
     try {

@@ -26,10 +26,10 @@ import com.android.ddmlib.TimeoutException;
 import com.facebook.buck.android.AdbHelper;
 import com.facebook.buck.android.agent.util.AgentUtil;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.event.SimplePerfEvent;
-import com.facebook.buck.log.Logger;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.Escaper;
 import com.facebook.buck.util.MoreSuppliers;
@@ -37,7 +37,6 @@ import com.facebook.buck.util.exceptions.BuckUncheckedExecutionException;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Charsets;
 import com.google.common.base.Joiner;
-import com.google.common.base.Preconditions;
 import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
@@ -57,6 +56,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -108,8 +108,7 @@ public class RealAndroidDevice implements AndroidDevice {
                 ExopackageAgent.installAgentIfNecessary(
                     eventBus,
                     this,
-                    Preconditions.checkNotNull(
-                        agentApkPath, "Agent not configured for this device.")));
+                    Objects.requireNonNull(agentApkPath, "Agent not configured for this device.")));
     this.agentPort = agentPort;
   }
 
@@ -224,10 +223,10 @@ public class RealAndroidDevice implements AndroidDevice {
       return Optional.empty();
     }
 
-    Preconditions.checkNotNull(codePath, "Could not find codePath");
-    Preconditions.checkNotNull(resourcePath, "Could not find resourcePath");
-    Preconditions.checkNotNull(nativeLibPath, "Could not find nativeLibraryPath");
-    Preconditions.checkNotNull(versionCode, "Could not find versionCode");
+    Objects.requireNonNull(codePath, "Could not find codePath");
+    Objects.requireNonNull(resourcePath, "Could not find resourcePath");
+    Objects.requireNonNull(nativeLibPath, "Could not find nativeLibraryPath");
+    Objects.requireNonNull(versionCode, "Could not find versionCode");
     if (!codePath.equals(resourcePath)) {
       throw new IllegalStateException("Code and resource path do not match");
     }
@@ -472,16 +471,16 @@ public class RealAndroidDevice implements AndroidDevice {
     }
     String logMessage = loggingInfo.toString();
     if (!logMessage.isEmpty()) {
-      StringBuilder fullMessage = new StringBuilder();
-      fullMessage.append("============================================================\n");
-      fullMessage.append('\n');
-      fullMessage.append("HEY! LISTEN!\n");
-      fullMessage.append('\n');
-      fullMessage.append("The /data/local/tmp directory on your device isn't fully-functional.\n");
-      fullMessage.append("Here's some extra info:\n");
-      fullMessage.append(logMessage);
-      fullMessage.append("============================================================\n");
-      console.getStdErr().println(fullMessage.toString());
+      String fullMessage =
+          "============================================================\n"
+              + '\n'
+              + "HEY! LISTEN!\n"
+              + '\n'
+              + "The /data/local/tmp directory on your device isn't fully-functional.\n"
+              + "Here's some extra info:\n"
+              + logMessage
+              + "============================================================\n";
+      console.getStdErr().println(fullMessage);
     }
 
     return true;

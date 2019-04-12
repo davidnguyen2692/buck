@@ -16,7 +16,9 @@
 
 package com.facebook.buck.features.halide;
 
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.apple.AppleCustomLinkingDepsDescription;
+import com.facebook.buck.core.cell.CellPathResolver;
+import com.facebook.buck.core.description.arg.CommonDescriptionArg;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
@@ -42,7 +44,7 @@ import com.facebook.buck.cxx.Archive;
 import com.facebook.buck.cxx.CxxBinary;
 import com.facebook.buck.cxx.CxxBinaryDescription;
 import com.facebook.buck.cxx.CxxDescriptionEnhancer;
-import com.facebook.buck.cxx.CxxFlags.TranslateMacrosAppendableFunction;
+import com.facebook.buck.cxx.CxxFlags.TranslateMacrosFunction;
 import com.facebook.buck.cxx.CxxLinkAndCompileRules;
 import com.facebook.buck.cxx.CxxLinkOptions;
 import com.facebook.buck.cxx.CxxSource;
@@ -53,11 +55,11 @@ import com.facebook.buck.cxx.toolchain.CxxPlatforms;
 import com.facebook.buck.cxx.toolchain.CxxPlatformsProvider;
 import com.facebook.buck.cxx.toolchain.HeaderVisibility;
 import com.facebook.buck.cxx.toolchain.LinkerMapMode;
-import com.facebook.buck.cxx.toolchain.PicType;
 import com.facebook.buck.cxx.toolchain.StripStyle;
+import com.facebook.buck.cxx.toolchain.UnresolvedCxxPlatform;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.rules.args.RuleKeyAppendableFunction;
+import com.facebook.buck.rules.args.AddsToRuleKeyFunction;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
 import com.facebook.buck.rules.macros.StringWithMacros;
 import com.google.common.collect.ImmutableList;
@@ -71,7 +73,9 @@ import java.util.regex.Pattern;
 import org.immutables.value.Value;
 
 public class HalideLibraryDescription
-    implements DescriptionWithTargetGraph<HalideLibraryDescriptionArg>, Flavored {
+    implements DescriptionWithTargetGraph<HalideLibraryDescriptionArg>,
+        Flavored,
+        AppleCustomLinkingDepsDescription {
 
   public static final Flavor HALIDE_COMPILER_FLAVOR = InternalFlavor.of("halide-compiler");
   public static final Flavor HALIDE_COMPILE_FLAVOR = InternalFlavor.of("halide-compile");
@@ -91,7 +95,7 @@ public class HalideLibraryDescription
 
   @Override
   public boolean hasFlavors(ImmutableSet<Flavor> flavors) {
-    return getCxxPlatformsProvider().getCxxPlatforms().containsAnyOf(flavors)
+    return getCxxPlatformsProvider().getUnresolvedCxxPlatforms().containsAnyOf(flavors)
         || flavors.contains(HALIDE_COMPILE_FLAVOR)
         || flavors.contains(HALIDE_COMPILER_FLAVOR)
         || StripStyle.FLAVOR_DOMAIN.containsAnyOf(flavors);
@@ -131,7 +135,8 @@ public class HalideLibraryDescription
       ImmutableMap<CxxSource.Type, ImmutableList<StringWithMacros>> langCompilerFlags,
       ImmutableList<StringWithMacros> linkerFlags,
       PatternMatchedCollection<ImmutableList<StringWithMacros>> platformLinkerFlags,
-      ImmutableSortedSet<SourcePath> rawHeaders) {
+      ImmutableSortedSet<SourcePath> rawHeaders,
+      ImmutableSortedSet<String> includeDirectories) {
 
     Optional<StripStyle> flavoredStripStyle = StripStyle.FLAVOR_DOMAIN.getValue(buildTarget);
     Optional<LinkerMapMode> flavoredLinkerMapMode =
@@ -182,7 +187,9 @@ public class HalideLibraryDescription
             ImmutableList.of(),
             platformLinkerFlags,
             Optional.empty(),
-            rawHeaders);
+            rawHeaders,
+            includeDirectories,
+            Optional.empty());
 
     buildTarget = CxxStrip.restoreStripStyleFlavorInTarget(buildTarget, flavoredStripStyle);
     buildTarget =
@@ -197,7 +204,7 @@ public class HalideLibraryDescription
         cxxLinkAndCompileRules.executable,
         ImmutableSortedSet.of(),
         ImmutableSortedSet.of(),
-        buildTarget.withoutFlavors(cxxPlatformsProvider.getCxxPlatforms().getFlavors()),
+        buildTarget.withoutFlavors(cxxPlatformsProvider.getUnresolvedCxxPlatforms().getFlavors()),
         cxxBuckConfig.shouldCacheBinaries());
   }
 
@@ -225,12 +232,8 @@ public class HalideLibraryDescription
         graphBuilder,
         ruleFinder,
         platform,
-        cxxBuckConfig.getArchiveContents(),
-        CxxDescriptionEnhancer.getStaticLibraryPath(
-            projectFilesystem,
+        CxxDescriptionEnhancer.getStaticLibraryName(
             buildTarget,
-            platform.getFlavor(),
-            PicType.PIC,
             Optional.empty(),
             platform.getStaticLibraryExtension(),
             cxxBuckConfig.isUniqueLibraryNameEnabled()),
@@ -245,8 +248,8 @@ public class HalideLibraryDescription
   private Optional<ImmutableList<String>> expandInvocationFlags(
       Optional<ImmutableList<String>> optionalFlags, CxxPlatform platform) {
     if (optionalFlags.isPresent()) {
-      RuleKeyAppendableFunction<String, String> macroMapper =
-          new TranslateMacrosAppendableFunction(
+      AddsToRuleKeyFunction<String, String> macroMapper =
+          new TranslateMacrosFunction(
               ImmutableSortedMap.copyOf(platform.getFlagMacros()), platform);
       ImmutableList<String> flags = optionalFlags.get();
       ImmutableList.Builder<String> builder = ImmutableList.builder();
@@ -286,14 +289,19 @@ public class HalideLibraryDescription
       BuildRuleParams params,
       HalideLibraryDescriptionArg args) {
     CxxPlatformsProvider cxxPlatformsProvider = getCxxPlatformsProvider();
-    FlavorDomain<CxxPlatform> cxxPlatforms = cxxPlatformsProvider.getCxxPlatforms();
+    FlavorDomain<UnresolvedCxxPlatform> cxxPlatforms =
+        cxxPlatformsProvider.getUnresolvedCxxPlatforms();
 
     ActionGraphBuilder graphBuilder = context.getActionGraphBuilder();
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
     SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
     ImmutableSet<Flavor> flavors = ImmutableSet.copyOf(buildTarget.getFlavors());
+    // TODO(cjhopman): This description doesn't handle parse time deps correctly.
     CxxPlatform cxxPlatform =
-        cxxPlatforms.getValue(flavors).orElse(cxxPlatformsProvider.getDefaultCxxPlatform());
+        cxxPlatforms
+            .getValue(flavors)
+            .orElse(cxxPlatformsProvider.getDefaultUnresolvedCxxPlatform())
+            .resolve(graphBuilder);
     ProjectFilesystem projectFilesystem = context.getProjectFilesystem();
 
     if (flavors.contains(CxxDescriptionEnhancer.EXPORTED_HEADER_SYMLINK_TREE_FLAVOR)) {
@@ -319,7 +327,8 @@ public class HalideLibraryDescription
       // We always want to build the halide "compiler" for the host platform, so
       // we use the host flavor here, regardless of the flavors on the build
       // target.
-      CxxPlatform hostCxxPlatform = cxxPlatforms.getValue(CxxPlatforms.getHostFlavor());
+      CxxPlatform hostCxxPlatform =
+          cxxPlatforms.getValue(CxxPlatforms.getHostFlavor()).resolve(graphBuilder);
       ImmutableSortedSet<BuildTarget> compilerDeps = args.getCompilerDeps();
       return createHalideCompiler(
           buildTarget,
@@ -337,7 +346,8 @@ public class HalideLibraryDescription
           args.getLangCompilerFlags(),
           args.getLinkerFlags(),
           args.getPlatformLinkerFlags(),
-          args.getRawHeaders());
+          args.getRawHeaders(),
+          args.getIncludeDirectories());
     } else if (flavors.contains(CxxDescriptionEnhancer.STATIC_FLAVOR)
         || flavors.contains(CxxDescriptionEnhancer.STATIC_PIC_FLAVOR)) {
       // Halide always output PIC, so it's output can be used for both cases.
@@ -365,6 +375,11 @@ public class HalideLibraryDescription
   private CxxPlatformsProvider getCxxPlatformsProvider() {
     return toolchainProvider.getByName(
         CxxPlatformsProvider.DEFAULT_NAME, CxxPlatformsProvider.class);
+  }
+
+  @Override
+  public ImmutableSortedSet<BuildTarget> getCustomLinkingDeps(CommonDescriptionArg args) {
+    return ((HalideLibraryDescriptionArg) args).getDeps();
   }
 
   @BuckStyleImmutable

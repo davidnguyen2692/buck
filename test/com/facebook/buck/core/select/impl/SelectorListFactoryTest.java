@@ -22,20 +22,22 @@ import static org.junit.Assert.fail;
 
 import com.facebook.buck.core.cell.TestCellPathResolver;
 import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.EmptyTargetConfiguration;
 import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.InternalFlavor;
+import com.facebook.buck.core.parser.buildtargetparser.ParsingUnconfiguredBuildTargetFactory;
 import com.facebook.buck.core.select.Selector;
 import com.facebook.buck.core.select.SelectorList;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.rules.coercer.BuildTargetTypeCoercer;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
+import com.facebook.buck.parser.syntax.ImmutableSelectorValue;
 import com.facebook.buck.rules.coercer.CoerceFailedException;
 import com.facebook.buck.rules.coercer.FlavorTypeCoercer;
 import com.facebook.buck.rules.coercer.ListTypeCoercer;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
+import com.facebook.buck.rules.coercer.UnconfiguredBuildTargetTypeCoercer;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
-import com.google.devtools.build.lib.syntax.SelectorValue;
 import java.util.stream.Collectors;
 import org.junit.Before;
 import org.junit.Test;
@@ -46,10 +48,13 @@ public class SelectorListFactoryTest {
   private SelectorListFactory selectorListFactory;
 
   @Before
-  public void setUp() throws Exception {
+  public void setUp() {
     projectFilesystem = new FakeProjectFilesystem();
     selectorListFactory =
-        new SelectorListFactory(new SelectorFactory(new BuildTargetTypeCoercer()::coerce));
+        new SelectorListFactory(
+            new SelectorFactory(
+                new UnconfiguredBuildTargetTypeCoercer(
+                    new ParsingUnconfiguredBuildTargetFactory())));
   }
 
   @Test
@@ -60,6 +65,7 @@ public class SelectorListFactoryTest {
           TestCellPathResolver.get(projectFilesystem),
           projectFilesystem,
           projectFilesystem.getRootPath(),
+          EmptyTargetConfiguration.INSTANCE,
           Lists.newArrayList(new Object(), new Object()),
           new FlavorTypeCoercer());
       fail("SelectorListFactory.create should throw an exception");
@@ -80,6 +86,7 @@ public class SelectorListFactoryTest {
             TestCellPathResolver.get(projectFilesystem),
             projectFilesystem,
             projectFilesystem.getRootPath(),
+            EmptyTargetConfiguration.INSTANCE,
             Lists.newArrayList(flavorName),
             coercer);
 
@@ -96,6 +103,7 @@ public class SelectorListFactoryTest {
             TestCellPathResolver.get(projectFilesystem),
             projectFilesystem,
             projectFilesystem.getRootPath(),
+            EmptyTargetConfiguration.INSTANCE,
             Lists.newArrayList(),
             coercer);
 
@@ -113,14 +121,13 @@ public class SelectorListFactoryTest {
             TestCellPathResolver.get(projectFilesystem),
             projectFilesystem,
             projectFilesystem.getRootPath(),
+            EmptyTargetConfiguration.INSTANCE,
             Lists.newArrayList(Lists.newArrayList(flavorName1), Lists.newArrayList(flavorName2)),
             coercer);
 
     assertEquals(
         Lists.newArrayList(InternalFlavor.of(flavorName1), InternalFlavor.of(flavorName2)),
-        selectors
-            .getSelectors()
-            .stream()
+        selectors.getSelectors().stream()
             .map(Selector::getDefaultConditionValue)
             .flatMap(ImmutableList::stream)
             .collect(Collectors.toList()));
@@ -134,22 +141,22 @@ public class SelectorListFactoryTest {
     String flavorName1 = "test1";
     String flavorName2 = "test2";
     String message = "message about incorrect conditions";
-    SelectorValue selectorValue =
-        new SelectorValue(ImmutableMap.of("DEFAULT", Lists.newArrayList(flavorName1)), message);
+    ImmutableSelectorValue selectorValue =
+        ImmutableSelectorValue.of(
+            ImmutableMap.of("DEFAULT", Lists.newArrayList(flavorName1)), message);
 
     SelectorList<ImmutableList<Flavor>> selectors =
         selectorListFactory.create(
             TestCellPathResolver.get(projectFilesystem),
             projectFilesystem,
             projectFilesystem.getRootPath(),
+            EmptyTargetConfiguration.INSTANCE,
             Lists.newArrayList(selectorValue, Lists.newArrayList(flavorName2)),
             coercer);
 
     assertEquals(
         Lists.newArrayList(InternalFlavor.of(flavorName1), InternalFlavor.of(flavorName2)),
-        selectors
-            .getSelectors()
-            .stream()
+        selectors.getSelectors().stream()
             .map(Selector::getDefaultConditionValue)
             .flatMap(ImmutableList::stream)
             .collect(Collectors.toList()));

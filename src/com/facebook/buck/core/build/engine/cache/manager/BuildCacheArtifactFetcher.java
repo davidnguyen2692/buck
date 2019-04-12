@@ -25,12 +25,12 @@ import com.facebook.buck.core.build.engine.buildinfo.OnDiskBuildInfo;
 import com.facebook.buck.core.build.engine.type.MetadataStorage;
 import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.event.ArtifactCompressionEvent;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.io.file.LazyPath;
 import com.facebook.buck.io.file.MostFiles;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.log.Logger;
 import com.facebook.buck.util.RichStream;
 import com.facebook.buck.util.Scope;
 import com.facebook.buck.util.concurrent.WeightedListeningExecutorService;
@@ -236,7 +236,10 @@ public class BuildCacheArtifactFetcher {
       buildInfoStore.updateMetadata(rule.getBuildTarget(), cacheResult.getMetadata());
     } catch (IOException e) {
       throw new IOException(
-          String.format("%s. Suggested fix: try `buck clean`", e.getMessage()), e.getCause());
+          String.format(
+              "%s extracting artifact for Rule Key: %s. Suggested fix: try `buck clean`",
+              e.getMessage(), ruleKey),
+          e.getCause());
     } finally {
       eventBus.post(ArtifactCompressionEvent.finished(started));
     }

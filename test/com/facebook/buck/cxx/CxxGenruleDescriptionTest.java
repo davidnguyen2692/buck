@@ -20,12 +20,14 @@ import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
+import com.facebook.buck.core.model.EmptyTargetConfiguration;
 import com.facebook.buck.core.model.FlavorDomain;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraphAndBuildTargets;
 import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
 import com.facebook.buck.core.model.targetgraph.impl.TargetNodes;
+import com.facebook.buck.core.parser.buildtargetparser.ParsingUnconfiguredBuildTargetFactory;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
@@ -33,7 +35,7 @@ import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
-import com.facebook.buck.cxx.toolchain.CxxPlatforms;
+import com.facebook.buck.cxx.toolchain.StaticUnresolvedCxxPlatform;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.macros.CcFlagsMacro;
@@ -56,16 +58,15 @@ import com.facebook.buck.testutil.OptionalMatchers;
 import com.facebook.buck.util.Optionals;
 import com.facebook.buck.util.RichStream;
 import com.facebook.buck.versions.NaiveVersionSelector;
+import com.facebook.buck.versions.ParallelVersionedTargetGraphBuilder;
 import com.facebook.buck.versions.VersionPropagatorBuilder;
 import com.facebook.buck.versions.VersionedAliasBuilder;
-import com.facebook.buck.versions.VersionedTargetGraphBuilder;
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import java.util.Optional;
-import java.util.concurrent.ForkJoinPool;
 import java.util.function.BiFunction;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -74,7 +75,7 @@ import org.junit.Test;
 
 public class CxxGenruleDescriptionTest {
 
-  private static final ForkJoinPool POOL = new ForkJoinPool(1);
+  private static final int NUMBER_OF_THREADS = 1;
 
   @Test
   public void toolPlatformParseTimeDeps() {
@@ -87,7 +88,8 @@ public class CxxGenruleDescriptionTest {
           ImmutableSet.copyOf(builder.findImplicitDeps()),
           Matchers.equalTo(
               ImmutableSet.copyOf(
-                  CxxPlatforms.getParseTimeDeps(CxxPlatformUtils.DEFAULT_PLATFORM))));
+                  CxxPlatformUtils.DEFAULT_UNRESOLVED_PLATFORM.getParseTimeDeps(
+                      EmptyTargetConfiguration.INSTANCE))));
     }
   }
 
@@ -108,7 +110,7 @@ public class CxxGenruleDescriptionTest {
       CxxGenruleBuilder builder =
           new CxxGenruleBuilder(
                   BuildTargetFactory.newInstance(
-                      "//:rule#" + CxxPlatformUtils.DEFAULT_PLATFORM.getFlavor()))
+                      "//:rule#" + CxxPlatformUtils.DEFAULT_PLATFORM_FLAVOR))
               .setOut("out")
               .setCmd(
                   StringWithMacrosUtils.format(
@@ -143,7 +145,9 @@ public class CxxGenruleDescriptionTest {
         new CxxGenruleBuilder(
                 BuildTargetFactory.newInstance("//:rule#" + cxxPlatform.getFlavor()),
                 new FlavorDomain<>(
-                    "C/C++ Platform", ImmutableMap.of(cxxPlatform.getFlavor(), cxxPlatform)))
+                    "C/C++ Platform",
+                    ImmutableMap.of(
+                        cxxPlatform.getFlavor(), new StaticUnresolvedCxxPlatform(cxxPlatform))))
             .setOut("out")
             .setCmd(
                 StringWithMacrosUtils.format(
@@ -171,7 +175,9 @@ public class CxxGenruleDescriptionTest {
         new CxxGenruleBuilder(
                 BuildTargetFactory.newInstance("//:rule#" + cxxPlatform.getFlavor()),
                 new FlavorDomain<>(
-                    "C/C++ Platform", ImmutableMap.of(cxxPlatform.getFlavor(), cxxPlatform)))
+                    "C/C++ Platform",
+                    ImmutableMap.of(
+                        cxxPlatform.getFlavor(), new StaticUnresolvedCxxPlatform(cxxPlatform))))
             .setOut("out")
             .setCmd(StringWithMacrosUtils.format("%s %s", CcFlagsMacro.of(), CxxFlagsMacro.of()));
     TargetGraph targetGraph = TargetGraphFactory.newInstance(builder.build());
@@ -203,11 +209,13 @@ public class CxxGenruleDescriptionTest {
     TargetGraph graph =
         TargetGraphFactory.newInstance(dep.build(), versionedDep.build(), genruleBuilder.build());
     TargetGraphAndBuildTargets transformed =
-        VersionedTargetGraphBuilder.transform(
+        ParallelVersionedTargetGraphBuilder.transform(
             new NaiveVersionSelector(),
             TargetGraphAndBuildTargets.of(graph, ImmutableSet.of(genruleBuilder.getTarget())),
-            POOL,
-            new DefaultTypeCoercerFactory());
+            NUMBER_OF_THREADS,
+            new DefaultTypeCoercerFactory(),
+            new ParsingUnconfiguredBuildTargetFactory(),
+            20);
     CxxGenruleDescriptionArg arg =
         extractArg(
             transformed.getTargetGraph().get(genruleBuilder.getTarget()),
@@ -238,11 +246,13 @@ public class CxxGenruleDescriptionTest {
         TargetGraphFactory.newInstance(
             transitiveDep.build(), versionedDep.build(), dep.build(), genruleBuilder.build());
     TargetGraphAndBuildTargets transformed =
-        VersionedTargetGraphBuilder.transform(
+        ParallelVersionedTargetGraphBuilder.transform(
             new NaiveVersionSelector(),
             TargetGraphAndBuildTargets.of(graph, ImmutableSet.of(genruleBuilder.getTarget())),
-            POOL,
-            new DefaultTypeCoercerFactory());
+            NUMBER_OF_THREADS,
+            new DefaultTypeCoercerFactory(),
+            new ParsingUnconfiguredBuildTargetFactory(),
+            20);
     CxxGenruleDescriptionArg arg =
         extractArg(
             transformed.getTargetGraph().get(genruleBuilder.getTarget()),

@@ -17,7 +17,7 @@
 package com.facebook.buck.skylark.parser;
 
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
-import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.google.devtools.build.lib.syntax.Environment.Extension;
 import org.immutables.value.Value;
 
@@ -37,21 +37,18 @@ abstract class AbstractExtensionData {
   @Value.Parameter
   public abstract com.google.devtools.build.lib.vfs.Path getPath();
 
-  /** @return a list of dependencies that were required to evaluate this extension */
+  /** @return a set of dependencies that were required to evaluate this extension */
   @Value.Parameter
-  public abstract ImmutableList<ExtensionData> getDependencies();
+  public abstract ImmutableSet<ExtensionData> getDependencies();
 
   /** @return a load function label that triggered load of this extension */
   @Value.Parameter
   public abstract String getImportString();
 
-  /** @return the number of files loaded in order to parse this extension. */
-  public int getLoadTransitiveClosureSize() {
-    // Stream.mapToInt(...).sum() is not used because it's ~4X slower
-    int count = 1; // path of the extension itself
-    for (int i = 0; i < getDependencies().size(); ++i) {
-      count += getDependencies().get(i).getLoadTransitiveClosureSize();
-    }
-    return count;
-  }
+  /**
+   * @return the list of files loaded in order to parse this extension including the path of this
+   *     extension, which is the first element of the list.
+   */
+  @Value.Parameter
+  public abstract ImmutableSet<String> getLoadTransitiveClosure();
 }

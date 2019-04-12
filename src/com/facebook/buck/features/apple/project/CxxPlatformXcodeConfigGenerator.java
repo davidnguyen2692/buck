@@ -16,8 +16,8 @@
 
 package com.facebook.buck.features.apple.project;
 
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
-import com.facebook.buck.log.Logger;
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -43,9 +43,23 @@ class CxxPlatformXcodeConfigGenerator {
 
   private CxxPlatformXcodeConfigGenerator() {}
 
-  public static ImmutableMap<String, ImmutableMap<String, String>>
-      getDefaultXcodeBuildConfigurationsFromCxxPlatform(
-          CxxPlatform cxxPlatform, Map<String, String> appendedConfig) {
+  public static ImmutableMap<String, String> getAppleXcodeTargetBuildConfigurationsFromCxxPlatform(
+      CxxPlatform cxxPlatform, Map<String, String> appendedConfig) {
+
+    ArrayList<String> notProcessedCxxFlags = new ArrayList<String>(cxxPlatform.getCxxflags());
+    LinkedHashMap<String, String> notProcessedAppendedConfig =
+        new LinkedHashMap<String, String>(appendedConfig);
+
+    ImmutableMap.Builder<String, String> configBuilder = ImmutableMap.builder();
+    setSdkRootAndDeploymentTargetValues(
+        configBuilder, cxxPlatform, notProcessedCxxFlags, notProcessedAppendedConfig);
+    removeArchsValue(notProcessedCxxFlags, notProcessedAppendedConfig);
+
+    return configBuilder.build();
+  }
+
+  public static ImmutableMap<String, String> getCxxXcodeTargetBuildConfigurationsFromCxxPlatform(
+      CxxPlatform cxxPlatform, Map<String, String> appendedConfig) {
 
     ArrayList<String> notProcessedCxxFlags = new ArrayList<String>(cxxPlatform.getCxxflags());
     LinkedHashMap<String, String> notProcessedAppendedConfig =
@@ -60,7 +74,15 @@ class CxxPlatformXcodeConfigGenerator {
     setOtherCplusplusFlagsValue(configBuilder, notProcessedCxxFlags, notProcessedAppendedConfig);
     setFlagsFromNotProcessedAppendedConfig(configBuilder, notProcessedAppendedConfig);
 
-    ImmutableMap<String, String> config = configBuilder.build();
+    return configBuilder.build();
+  }
+
+  public static ImmutableMap<String, ImmutableMap<String, String>>
+      getDefaultXcodeBuildConfigurationsFromCxxPlatform(
+          CxxPlatform cxxPlatform, Map<String, String> appendedConfig) {
+
+    ImmutableMap<String, String> config =
+        getCxxXcodeTargetBuildConfigurationsFromCxxPlatform(cxxPlatform, appendedConfig);
     return new ImmutableMap.Builder<String, ImmutableMap<String, String>>()
         .put(DEBUG_BUILD_CONFIGURATION_NAME, config)
         .put(PROFILE_BUILD_CONFIGURATION_NAME, config)

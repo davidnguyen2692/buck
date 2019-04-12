@@ -30,13 +30,14 @@ import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.features.project.intellij.model.IjModuleFactoryResolver;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.jvm.java.AnnotationProcessingParams;
 import com.facebook.buck.jvm.java.CompilerOutputPaths;
+import com.facebook.buck.jvm.java.JavacPluginParams;
 import com.facebook.buck.jvm.java.JvmLibraryArg;
 import com.facebook.buck.util.Optionals;
-import com.google.common.collect.ImmutableSet;
 import java.nio.file.Path;
 import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 class DefaultIjModuleFactoryResolver implements IjModuleFactoryResolver {
 
@@ -44,14 +45,14 @@ class DefaultIjModuleFactoryResolver implements IjModuleFactoryResolver {
   private final SourcePathResolver sourcePathResolver;
   private final SourcePathRuleFinder ruleFinder;
   private final ProjectFilesystem projectFilesystem;
-  private final ImmutableSet.Builder<BuildTarget> requiredBuildTargets;
+  private final Set<BuildTarget> requiredBuildTargets;
 
   DefaultIjModuleFactoryResolver(
       ActionGraphBuilder graphBuilder,
       SourcePathResolver sourcePathResolver,
       SourcePathRuleFinder ruleFinder,
       ProjectFilesystem projectFilesystem,
-      ImmutableSet.Builder<BuildTarget> requiredBuildTargets) {
+      Set<BuildTarget> requiredBuildTargets) {
     this.graphBuilder = graphBuilder;
     this.sourcePathResolver = sourcePathResolver;
     this.ruleFinder = ruleFinder;
@@ -66,8 +67,7 @@ class DefaultIjModuleFactoryResolver implements IjModuleFactoryResolver {
     Optional<BuildRule> dummyRDotJavaRule = graphBuilder.getRuleOptional(dummyRDotJavaTarget);
     if (dummyRDotJavaRule.isPresent()) {
       requiredBuildTargets.add(dummyRDotJavaTarget);
-      return Optional.of(
-          DummyRDotJava.getRDotJavaBinFolder(dummyRDotJavaTarget, projectFilesystem));
+      return Optional.of(DummyRDotJava.getOutputJarPath(dummyRDotJavaTarget, projectFilesystem));
     }
     return Optional.empty();
   }
@@ -118,11 +118,10 @@ class DefaultIjModuleFactoryResolver implements IjModuleFactoryResolver {
 
   @Override
   public Optional<Path> getAnnotationOutputPath(TargetNode<? extends JvmLibraryArg> targetNode) {
-    AnnotationProcessingParams annotationProcessingParams =
+    JavacPluginParams annotationProcessingParams =
         targetNode
             .getConstructorArg()
-            .buildAnnotationProcessingParams(
-                targetNode.getBuildTarget(), projectFilesystem, graphBuilder, ImmutableSet.of());
+            .buildJavaAnnotationProcessorParams(targetNode.getBuildTarget(), graphBuilder);
     if (annotationProcessingParams == null || annotationProcessingParams.isEmpty()) {
       return Optional.empty();
     }
@@ -140,7 +139,7 @@ class DefaultIjModuleFactoryResolver implements IjModuleFactoryResolver {
   private Path getRelativePathAndRecordRule(SourcePath sourcePath) {
     requiredBuildTargets.addAll(
         Optionals.toStream(ruleFinder.getRule(sourcePath).map(BuildRule::getBuildTarget))
-            .iterator());
+            .collect(Collectors.toList()));
     return sourcePathResolver.getRelativePath(sourcePath);
   }
 }
