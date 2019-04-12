@@ -1126,13 +1126,15 @@ public class AppleBundle extends AbstractBuildRuleWithDeclaredAndExtraDeps
   }
 
   private boolean adHocCodeSignIsSufficient() {
-    return ApplePlatform.adHocCodeSignIsSufficient(platform.getName());
+    // return ApplePlatform.adHocCodeSignIsSufficient(platform.getName());
+    return ApplePlatform.adHocCodeSignIsSufficient();
   }
 
   // .framework bundles will be code-signed when they're copied into the containing bundle.
   private boolean needCodeSign() {
     return binary.isPresent()
-        && ApplePlatform.needsCodeSign(platform.getName())
+        // && ApplePlatform.needsCodeSign(platform.getName())
+        && ApplePlatform.needsCodeSign()
         && !extension.equals(FRAMEWORK_EXTENSION);
   }
 
