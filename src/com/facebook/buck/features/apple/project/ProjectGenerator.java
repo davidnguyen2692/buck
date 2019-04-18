@@ -3306,8 +3306,19 @@ public class ProjectGenerator {
       return Optional.of(
           CopyFilePhaseDestinationSpec.of(PBXCopyFilesBuildPhase.Destination.RESOURCES));
     } else if (targetNode.getDescription() instanceof PrebuiltAppleFrameworkDescription) {
-      return Optional.of(
+      Optional<TargetNode<PrebuiltAppleFrameworkDescriptionArg>> prebuilt =
+                  TargetNodes.castArg(targetNode, PrebuiltAppleFrameworkDescriptionArg.class);
+      if (prebuilt.isPresent()) {
+        if (prebuilt.get().getConstructorArg().getPreferredLinkage()
+          != NativeLinkable.Linkage.STATIC) {
+        return Optional.of(
           CopyFilePhaseDestinationSpec.of(PBXCopyFilesBuildPhase.Destination.FRAMEWORKS));
+        } else {
+          return Optional.empty();
+        }
+      } else {
+        return Optional.empty();
+      }
     } else if (targetNode.getDescription() instanceof PrebuiltCxxLibraryDescription) {
       return Optional.empty();
     } else {
@@ -4472,7 +4483,7 @@ public class ProjectGenerator {
 
   private String getXcodeTargetName(BuildTarget target) {
     return options.shouldUseShortNamesForTargets()
-        ? target.getShortNameAndFlavorPostfix() // make sure Xcode UI shows unique names by flavor
+        ? target.getShortName() // make sure Xcode UI shows unique names by flavor
         : target.getFullyQualifiedName();
   }
 
